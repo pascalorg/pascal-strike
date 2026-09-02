@@ -113,7 +113,7 @@ export const BOTS = {
 }
 
 export const NAVMESH = {
-  cs: 0.15,
+  cs: 0.08, // 0.15 severed 0.25 m stair treads; 0.08 connects floors (+15 ms gen)
   ch: 0.1,
   walkableRadius: 0.3,
   walkableHeight: 1.7,
