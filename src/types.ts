@@ -108,8 +108,9 @@ export interface DoorInfo {
 /**
  * Merged static collision mesh. `geometry` has position + normal attributes and a
  * three-mesh-bvh boundsTree; `mesh.matrixWorld` is identity (geometry is already in world space).
- * Excludes: zones, spawns, and the ANIMATED subtrees of doors/windows (leaves), so players walk
- * through doorways whatever the door state. Includes frames, glass, furniture, ceilings, roofs, fences.
+ * Always excludes zone and spawn markers; which openable leaves it excludes depends on which of
+ * the two colliders it is — see `MapData.collider` and `MapData.bulletCollider`. Includes frames,
+ * glass, furniture, ceilings, roofs, fences.
  */
 export interface StaticCollider {
   mesh: Mesh
@@ -124,7 +125,19 @@ export interface MapData {
   zones: ZoneInfo[]
   spawnNodes: SpawnNodeInfo[]
   doors: DoorInfo[]
+  /**
+   * MOVEMENT collider (also the navmesh source). Excludes the animated leaves of *doors*, so a
+   * doorway is walk-through whatever the door state, but keeps window sashes in their closed
+   * rest pose: doors are for passage, windows are for paint, so a window is never passable.
+   */
   collider: StaticCollider
+  /**
+   * BULLET collider: `collider` minus the animated leaves of openable *windows* too, so a
+   * paintball flies through an open sash. A closed sash still stops it, dynamically, through the
+   * per-leaf BVHs `createWorldQuery` walks. Undefined on hand-built maps with no openables —
+   * callers fall back to `collider` (identical when the map has no openable window).
+   */
+  bulletCollider?: StaticCollider
   /** World-space bounds of the collider. */
   bounds: Box3
   /** Meshes to feed the navmesh generator (walkable + obstacles). Usually [collider.mesh]. */

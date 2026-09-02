@@ -6,7 +6,7 @@
  */
 import { Box3, FrontSide, Group, Material, Mesh, Object3D, Vector3 } from 'three'
 import { loadGltf, type Loaders } from '../engine/loaders'
-import { buildStaticCollider, createWorldQuery, DOWN } from './collider'
+import { buildStaticColliders, createWorldQuery, DOWN } from './collider'
 import { parsePascalScene } from './map-parse'
 import type { MapData, ZoneInfo } from '../types'
 
@@ -31,14 +31,14 @@ export async function loadMap(
 
   const parsed = parsePascalScene(gltf)
 
-  // Markers must never collide. The animated leaves of doors and openable windows are queried
-  // separately (they move), so they are cut out of the merged static collider: players walk
-  // through the opening whatever the state, bullets still stop on the leaf's own BVH.
-  const excluded = new Set<Object3D>()
-  for (const node of parsed.markerNodes) excluded.add(node)
-  for (const node of parsed.animatedNodes) excluded.add(node)
-
-  const collider = buildStaticCollider(root, excluded)
+  // Two colliders, one traversal (see collider.ts): players never pass a window, open or shut,
+  // while paintballs go through an open sash and meet a closed one on its own moving BVH.
+  const colliders = buildStaticColliders(root, {
+    markers: parsed.markerNodes,
+    doorLeaves: parsed.doorLeafNodes,
+    windowLeaves: parsed.windowLeafNodes,
+  })
+  const collider = colliders.movement
   const bounds = new Box3()
   if (collider.geometry.boundingBox) bounds.copy(collider.geometry.boundingBox)
 
@@ -46,7 +46,7 @@ export async function loadMap(
 
   // Zone floor heights need the collider, so they are resolved here rather than in the parser.
   if (parsed.zones.length > 0) {
-    const world = createWorldQuery(collider, parsed.doors)
+    const world = createWorldQuery(colliders.bullet, parsed.doors)
     for (const zone of parsed.zones) resolveZoneFloor(zone, world)
   }
 
@@ -58,7 +58,9 @@ export async function loadMap(
     spawnNodes: parsed.spawnNodes,
     doors: parsed.doors,
     collider,
+    bulletCollider: colliders.bullet,
     bounds,
+    // Recast walks the movement collider, so it cannot cut a path through a window either.
     navMeshSource: [collider.mesh],
   }
 }

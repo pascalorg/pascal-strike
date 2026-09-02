@@ -25,12 +25,16 @@ export interface ParsedScene {
   spawnNodes: SpawnNodeInfo[]
   doors: DoorInfo[]
   /**
-   * Subtrees driven by a baked animation clip: door leaves AND window sashes (W3-D made
-   * windows openable too). They must be kept out of the merged static collider because their
-   * world matrix changes at runtime; bullets still stop on them, through the per-leaf BVHs
-   * `collider.ts` builds for every `DoorInfo.leafMeshes`.
+   * Subtrees driven by a baked clip, split by what they mean for collision (W3-D):
+   *
+   * - `doorLeafNodes` — door panels. Cut from BOTH colliders: a doorway must be walk-through
+   *   whatever the door state, and bullets meet the panel through its own per-leaf BVH.
+   * - `windowLeafNodes` — window sashes. Cut from the BULLET collider only, so a paintball
+   *   flies through an open one; the movement collider keeps them in their closed rest pose,
+   *   which is what makes a window unpassable whether it is open or shut.
    */
-  animatedNodes: Set<Object3D>
+  doorLeafNodes: Set<Object3D>
+  windowLeafNodes: Set<Object3D>
   /** Zone and spawn marker nodes — excluded from the collider so markers never block anything. */
   markerNodes: Set<Object3D>
 }
@@ -52,7 +56,8 @@ export function parsePascalScene(gltf: GLTF): ParsedScene {
   const zones: ZoneInfo[] = []
   const spawnNodes: SpawnNodeInfo[] = []
   const doors: DoorInfo[] = []
-  const animatedNodes = new Set<Object3D>()
+  const doorLeafNodes = new Set<Object3D>()
+  const windowLeafNodes = new Set<Object3D>()
   const markerNodes = new Set<Object3D>()
 
   // Levels first: zones/spawns/doors resolve their owning level by walking up the tree.
@@ -94,7 +99,8 @@ export function parsePascalScene(gltf: GLTF): ParsedScene {
         const openable = parseOpenable(gltf, node, extras)
         if (openable) {
           doors.push(openable.info)
-          for (const animated of openable.animatedNodes) animatedNodes.add(animated)
+          const leaves = openable.info.kind === 'window' ? windowLeafNodes : doorLeafNodes
+          for (const animated of openable.animatedNodes) leaves.add(animated)
         }
         break
       }
@@ -103,7 +109,7 @@ export function parsePascalScene(gltf: GLTF): ParsedScene {
     }
   })
 
-  return { levels, zones, spawnNodes, doors, animatedNodes, markerNodes }
+  return { levels, zones, spawnNodes, doors, doorLeafNodes, windowLeafNodes, markerNodes }
 }
 
 // ---------------------------------------------------------------------------

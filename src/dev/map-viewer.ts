@@ -4,7 +4,8 @@
  *
  * Controls: click to capture the mouse (or drag), WASD + Space/Q up-down, Shift to sprint,
  * E toggles the door or window the camera is looking at, Esc to release.
- * Overlays: Z zones · S spawns · D doors · C collider · N navmesh · R raycast probe.
+ * Overlays: Z zones · S spawns · D doors · C collider (movement → bullet → off) ·
+ * N navmesh · R raycast probe.
  * S and D only toggle while the cursor is free, because they double as movement keys.
  */
 import {
@@ -79,7 +80,8 @@ export async function start(): Promise<void> {
   engine.scene.add(map.root)
 
   const environment = createEnvironment(engine, map.bounds)
-  const world = createWorldQuery(map.collider, map.doors)
+  // Bullet collider + moving leaves: what a paintball actually sees.
+  const world = createWorldQuery(map.bulletCollider ?? map.collider, map.doors)
   const doors = createDoorSystem(map)
   const nav = await buildNavigation(map)
   const spawns = resolveSpawns(map, world, nav)
@@ -110,21 +112,25 @@ export async function start(): Promise<void> {
   const spawnOverlay = buildSpawnOverlay(spawns)
   const doorOverlay = buildDoorOverlay(map)
   const colliderOverlay = buildColliderOverlay(map)
+  // C cycles the two colliders rather than toggling one: the whole point of the split is that
+  // they differ around windows, and you can only see that by flipping between them.
+  let colliderView = 0
   const navOverlay = createNavMeshHelper(nav) ?? new Group()
   const probeOverlay = buildProbeOverlay()
-  overlays.add(zoneOverlay.group, spawnOverlay, doorOverlay.group, colliderOverlay, navOverlay, probeOverlay.group)
+  overlays.add(zoneOverlay.group, spawnOverlay, doorOverlay.group, colliderOverlay.group, navOverlay, probeOverlay.group)
 
   const visible: Record<OverlayKey, boolean> = { z: false, s: true, d: true, c: false, n: false, r: false }
   const objects: Record<OverlayKey, Object3D> = {
     z: zoneOverlay.group,
     s: spawnOverlay,
     d: doorOverlay.group,
-    c: colliderOverlay,
+    c: colliderOverlay.group,
     n: navOverlay,
     r: probeOverlay.group,
   }
   const applyVisibility = () => {
     for (const key of Object.keys(objects) as OverlayKey[]) objects[key].visible = visible[key]
+    colliderOverlay.show(colliderView)
   }
   applyVisibility()
 
@@ -176,7 +182,12 @@ export async function start(): Promise<void> {
     if ((key === 's' || key === 'd') && moveActive()) return
     if (e.repeat) return
     const overlayKey = key as OverlayKey
-    visible[overlayKey] = !visible[overlayKey]
+    if (overlayKey === 'c') {
+      colliderView = (colliderView + 1) % (colliderOverlay.views.length + 1)
+      visible.c = colliderView > 0
+    } else {
+      visible[overlayKey] = !visible[overlayKey]
+    }
     applyVisibility()
   })
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()))
@@ -196,6 +207,7 @@ export async function start(): Promise<void> {
 
   const sceneTris = countSceneTriangles(map)
   const colliderTris = colliderTriangleCount(map.collider)
+  const bulletTris = map.bulletCollider ? colliderTriangleCount(map.bulletCollider) : colliderTris
   // First point of each team in grid order — the true anchors are printed to the console by
   // resolveSpawns, since SpawnLayout has nowhere to carry them.
   const firstA = spawns.a[0]?.position
@@ -222,7 +234,8 @@ export async function start(): Promise<void> {
       `map        ${map.name}`,
       `backend    ${engine.backend}   ${fps.toFixed(0)} fps`,
       `load       ${loadMs.toFixed(0)} ms`,
-      `tris       ${sceneTris.toLocaleString()} scene / ${colliderTris.toLocaleString()} collider`,
+      `tris       ${sceneTris.toLocaleString()} scene / ${colliderTris.toLocaleString()} movement` +
+        ` / ${bulletTris.toLocaleString()} bullet collider`,
       `levels     ${map.levels.length}   zones ${map.zones.length}   openables ${map.doors.length}` +
         ` (${map.doors.filter((d) => d.kind === 'window').length} windows)   spawnNodes ${map.spawnNodes.length}`,
       `bounds     ${fmt(map.bounds.min)} → ${fmt(map.bounds.max)}`,
@@ -237,7 +250,11 @@ export async function start(): Promise<void> {
         : 'probe      off (R)',
       '',
       `overlays   ${(Object.keys(OVERLAY_LABELS) as OverlayKey[])
-        .map((k) => `${k.toUpperCase()}:${OVERLAY_LABELS[k]}${visible[k] ? '*' : ''}`)
+        .map((k) =>
+          k === 'c'
+            ? `C:collider${colliderView ? `*(${colliderOverlay.views[colliderView - 1]})` : ''}`
+            : `${k.toUpperCase()}:${OVERLAY_LABELS[k]}${visible[k] ? '*' : ''}`,
+        )
         .join(' ')}`,
       `click to fly · WASD + Space/Q · Shift fast · E interact · Esc frees cursor`,
       `(S/D toggle only while the cursor is free)`,
@@ -384,12 +401,38 @@ function buildDoorOverlay(map: MapData): {
   }
 }
 
-function buildColliderOverlay(map: MapData): Mesh {
+/**
+ * One wireframe per collider. `views[i]` names the mesh shown by `show(i + 1)`; `show(0)` hides
+ * them all. A map without openable windows has a single collider object, hence a single view.
+ */
+function buildColliderOverlay(map: MapData): {
+  group: Group
+  views: string[]
+  show(view: number): void
+} {
+  const group = new Group()
+  group.name = 'overlay-collider'
+  const views: string[] = ['movement']
+  const meshes = [colliderWireframe(map.collider.geometry, 0x22d3ee)]
+  if (map.bulletCollider && map.bulletCollider !== map.collider) {
+    views.push('bullet')
+    meshes.push(colliderWireframe(map.bulletCollider.geometry, 0xf472b6))
+  }
+  for (const mesh of meshes) group.add(mesh)
+  return {
+    group,
+    views,
+    show(view) {
+      for (let i = 0; i < meshes.length; i++) meshes[i].visible = view === i + 1
+    },
+  }
+}
+
+function colliderWireframe(geometry: MapData['collider']['geometry'], color: number): Mesh {
   const mesh = new Mesh(
-    map.collider.geometry,
-    new MeshBasicMaterial({ color: 0x22d3ee, wireframe: true, transparent: true, opacity: 0.35, side: DoubleSide }),
+    geometry,
+    new MeshBasicMaterial({ color, wireframe: true, transparent: true, opacity: 0.35, side: DoubleSide }),
   )
-  mesh.name = 'overlay-collider'
   mesh.matrixAutoUpdate = false
   mesh.matrixWorldAutoUpdate = false
   mesh.frustumCulled = false

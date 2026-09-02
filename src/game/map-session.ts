@@ -67,7 +67,8 @@ export async function createMapSession(opts: MapSessionOptions): Promise<MapSess
   opts.onProgress?.(0.9, 'Baking colliders')
   await nextFrame()
 
-  const world = createWorldQuery(map.collider, map.doors)
+  // The BULLET collider: paintballs go through an open window sash, players never do.
+  const world = createWorldQuery(map.bulletCollider ?? map.collider, map.doors)
   const doors = createDoorSystem(map)
   const environment = createEnvironment(engine, map.bounds)
   const decals = createDecals(engine.scene)

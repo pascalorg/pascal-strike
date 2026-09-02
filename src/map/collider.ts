@@ -1,10 +1,20 @@
 /**
- * Merged static collider + BVH + WorldQuery (W1-A).
+ * Merged static colliders + BVH + WorldQuery (W1-A, split in two by W3-D).
  *
- * Everything static is baked into ONE world-space geometry with a bounds tree: one BVH walk
- * answers a bullet raycast. The leaves of an openable (door panels and, since W3-D, window
- * sashes) stay separate because they move; they get their own (local-space) bounds tree and
- * the ray is transformed into their space at query time.
+ * Everything static is baked into world-space geometry with a bounds tree: one BVH walk answers
+ * a query. There are TWO of them because players and paintballs disagree about windows:
+ *
+ * - the MOVEMENT collider keeps window sashes in their closed rest pose (a window is never a
+ *   way through a wall) and drops door panels (a doorway always is);
+ * - the BULLET collider drops both, so a paintball goes through an open sash and meets a closed
+ *   one on the sash's own moving BVH.
+ *
+ * Both come out of ONE traversal: the expensive part is baking each mesh into world space, and
+ * that result is shared, so the second collider only costs a merge plus its bounds tree. A map
+ * with no openable window gets literally one collider, returned as both.
+ *
+ * Leaves of an openable stay out of the merge because they move; each gets its own (local-space)
+ * bounds tree and the ray is transformed into its space at query time.
  */
 import './bvh-setup'
 import {
@@ -37,19 +47,39 @@ const LEAF_SIZE = 12
 const _v = new Vector3()
 const _normalMatrix = new Matrix3()
 
+/** Subtree roots to leave out of one or both colliders. */
+export interface ColliderExclusions {
+  /** Zone and spawn markers: never collide with anything. */
+  markers: Set<Object3D>
+  /** Door panels: out of both colliders — a doorway is always walk-through and shoot-through. */
+  doorLeaves: Set<Object3D>
+  /** Window sashes: out of the bullet collider only; solid (closed pose) for movement. */
+  windowLeaves: Set<Object3D>
+}
+
+export interface StaticColliders {
+  /** Players, bots and the navmesh. */
+  movement: StaticCollider
+  /** Paintballs and line of sight. Identical object as `movement` when the map has no sashes. */
+  bullet: StaticCollider
+}
+
 /**
- * Bake every visible static mesh under `root` into one world-space geometry with a BVH.
- * `excluded` holds subtree roots to skip (zone/spawn markers, the animated leaves of doors
- * and openable windows).
+ * Bake every visible static mesh under `root` into world-space geometry with a BVH — once for
+ * movement, once for bullets. See the file header for what each one excludes.
  */
-export function buildStaticCollider(root: Object3D, excluded: Set<Object3D>): StaticCollider {
+export function buildStaticColliders(
+  root: Object3D,
+  exclusions: ColliderExclusions,
+): StaticColliders {
   root.updateMatrixWorld(true)
 
-  // Flatten the excluded subtrees once so the per-mesh test is a single Set lookup.
-  const skip = new Set<Object3D>()
-  for (const node of excluded) node.traverse((o) => skip.add(o))
+  // Flatten the excluded subtrees once so the per-mesh tests are single Set lookups.
+  const skip = flatten(exclusions.markers, exclusions.doorLeaves)
+  const sashes = flatten(exclusions.windowLeaves)
 
-  const geometries: BufferGeometry[] = []
+  const movementGeometries: BufferGeometry[] = []
+  const bulletGeometries: BufferGeometry[] = []
   root.traverse((obj) => {
     if (skip.has(obj)) return
     if (!(obj as Mesh).isMesh) return
@@ -58,38 +88,59 @@ export function buildStaticCollider(root: Object3D, excluded: Set<Object3D>): St
     const mesh = obj as Mesh
     if (!isVisibleInHierarchy(mesh, root)) return
     const geo = toWorldGeometry(mesh)
-    if (geo) geometries.push(geo)
+    if (!geo) return
+    // The same baked geometry feeds both merges — `mergeGeometries` only reads its inputs.
+    movementGeometries.push(geo)
+    if (!sashes.has(obj)) bulletGeometries.push(geo)
   })
 
-  let merged = geometries.length > 0 ? mergeGeometries(geometries, false) : null
-  for (const g of geometries) g.dispose()
+  const movement = finishCollider(merge(movementGeometries), 'static-collider')
+  const bullet =
+    bulletGeometries.length === movementGeometries.length
+      ? movement
+      : finishCollider(merge(bulletGeometries), 'bullet-collider')
 
-  if (!merged || merged.getAttribute('position').count === 0) {
-    // Degenerate fallback so callers always get a valid BVH (empty / extras-only GLB).
-    merged = new BufferGeometry()
-    merged.setAttribute(
-      'position',
-      new BufferAttribute(new Float32Array([0, -1000, 0, 0, -1000, 0, 0, -1000, 0]), 3),
-    )
-    merged.setAttribute(
-      'normal',
-      new BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3),
-    )
-  }
+  for (const g of movementGeometries) g.dispose()
 
-  merged.computeBoundingBox()
-  merged.computeBoundingSphere()
-  merged.computeBoundsTree({ targetLeafSize: LEAF_SIZE })
+  return { movement, bullet }
+}
 
-  const mesh = new Mesh(merged, new MeshBasicMaterial({ wireframe: true, color: 0x00ff88 }))
-  mesh.name = 'static-collider'
+function flatten(...sets: Set<Object3D>[]): Set<Object3D> {
+  const out = new Set<Object3D>()
+  for (const set of sets) for (const node of set) node.traverse((o) => out.add(o))
+  return out
+}
+
+function merge(geometries: BufferGeometry[]): BufferGeometry {
+  const merged = geometries.length > 0 ? mergeGeometries(geometries, false) : null
+  if (merged && merged.getAttribute('position').count > 0) return merged
+  // Degenerate fallback so callers always get a valid BVH (empty / extras-only GLB).
+  const fallback = new BufferGeometry()
+  fallback.setAttribute(
+    'position',
+    new BufferAttribute(new Float32Array([0, -1000, 0, 0, -1000, 0, 0, -1000, 0]), 3),
+  )
+  fallback.setAttribute(
+    'normal',
+    new BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3),
+  )
+  return fallback
+}
+
+function finishCollider(geometry: BufferGeometry, name: string): StaticCollider {
+  geometry.computeBoundingBox()
+  geometry.computeBoundingSphere()
+  geometry.computeBoundsTree({ targetLeafSize: LEAF_SIZE })
+
+  const mesh = new Mesh(geometry, new MeshBasicMaterial({ wireframe: true, color: 0x00ff88 }))
+  mesh.name = name
   mesh.visible = false
   mesh.matrixAutoUpdate = false
   mesh.matrixWorldAutoUpdate = false
   mesh.frustumCulled = false
   mesh.updateMatrix()
 
-  return { mesh, geometry: merged }
+  return { mesh, geometry }
 }
 
 function isVisibleInHierarchy(obj: Object3D, root: Object3D): boolean {
@@ -187,9 +238,11 @@ interface DoorEntry {
 }
 
 /**
- * Raycasts against the static BVH plus the leaves of every openable, nearest hit wins.
- * A closed window sash stops a paintball exactly like a closed door leaf does; an open one
- * has swung out of the way, so the ray goes through the hole it left in the static collider.
+ * Raycasts against a static BVH plus the leaves of every openable, nearest hit wins. Feed it
+ * `MapData.bulletCollider`: a closed window sash stops a paintball exactly like a closed door
+ * leaf does, and an open one has swung out of the way, so the ray goes through the hole it
+ * leaves. (Handing it the movement collider instead would make open sashes solid to bullets,
+ * because that one keeps them baked in their closed pose.)
  *
  * A miss allocates nothing. A hit allocates one `HitResult` (two `Vector3`s) — deliberately not
  * a shared scratch object, so callers in other packages can hold on to it safely.
