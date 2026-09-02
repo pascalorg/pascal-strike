@@ -20,7 +20,7 @@ import { createWeaponModel, type WeaponModel } from '../weapons/weapon-model'
 
 export interface ViewModel {
   readonly object: Group
-  update(dt: number, speed: number, grounded: boolean, aiming?: boolean): void
+  update(dt: number, speed: number, grounded: boolean): void
   fire(): void
   reload(progress: number): void
   setTeam(team: TeamId): void
@@ -108,7 +108,7 @@ export function createViewModel(camera: Camera): ViewModel {
 
   return {
     object: root,
-    update(dt, speed, grounded, aiming = false) {
+    update(dt, speed, grounded) {
       time += dt * (5 + speed)
       sway += dt
       const steps = Math.max(1, Math.ceil(dt / KICK_MAX_STEP))
@@ -130,13 +130,12 @@ export function createViewModel(camera: Camera): ViewModel {
       marker.setPaintLevel(paint)
 
       const bob = grounded ? Math.min(speed / 5.5, 1) : 0
-      const aim = aiming ? 0.4 : 1
       // Idle sway: two slow, out-of-phase sines so the marker breathes when standing still.
       const idleX = Math.sin(sway * 0.85) * 0.009
       const idleY = Math.cos(sway * 0.61) * 0.007
       root.position.set(
-        (REST_X * aim + idleX + Math.sin(time) * 0.008 * bob) * VIEW_SCALE,
-        (REST_Y * aim + idleY + Math.abs(Math.cos(time)) * 0.009 * bob) * VIEW_SCALE,
+        (REST_X + idleX + Math.sin(time) * 0.008 * bob) * VIEW_SCALE,
+        (REST_Y + idleY + Math.abs(Math.cos(time)) * 0.009 * bob) * VIEW_SCALE,
         (REST_Z + kickZ) * VIEW_SCALE,
       )
       root.rotation.set(

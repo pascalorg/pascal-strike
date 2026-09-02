@@ -15,6 +15,12 @@ import {
 import { TEAMS } from '../config'
 import type { TeamId } from '../types'
 
+/**
+ * @deprecated Nothing here calls back any more: the HUD reacts to `damage` RPCs itself
+ * (`game.ts`), which is the only place that knows whether we shot or were shot. Kept so
+ * `game/map-session.ts` — another package — still compiles; drop the argument there and this
+ * type goes with it.
+ */
 export interface EffectsCallbacks {
   hitMarker?: () => void
   damageVignette?: (team: TeamId) => void
@@ -25,8 +31,6 @@ export interface Effects {
   /** Thin additive streak from `origin` along `direction`; alive for ~2 frames. */
   tracer(origin: Vector3, direction: Vector3, team: TeamId): void
   splat(position: Vector3, normal: Vector3, team: TeamId): void
-  hitMarker(): void
-  damage(team: TeamId): void
   update(dt: number): void
   dispose(): void
 }
@@ -62,7 +66,7 @@ const bitangent = new Vector3()
 const scratchDirection = new Vector3()
 const scratchQuaternion = new Quaternion()
 
-export function createEffects(scene: Scene, callbacks: EffectsCallbacks = {}): Effects {
+export function createEffects(scene: Scene, _callbacks: EffectsCallbacks = {}): Effects {
   const texture = makeSoftTexture()
   const particles: Particle[] = []
   for (let index = 0; index < PARTICLE_COUNT; index++) {
@@ -183,8 +187,6 @@ export function createEffects(scene: Scene, callbacks: EffectsCallbacks = {}): E
         launch(particle, position, particle.velocity, team, 0.4, 0.025 + random() * 0.035, 5.5)
       }
     },
-    hitMarker() { callbacks.hitMarker?.() },
-    damage(team) { callbacks.damageVignette?.(team) },
     update(dt) {
       for (const particle of particles) {
         if (particle.life <= 0) continue

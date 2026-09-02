@@ -100,16 +100,13 @@ export async function start(): Promise<void> {
   let controls: MoveInput = input.move
   const audio = createAudio()
   const overlay = makeOverlay(app)
-  const effects = createEffects(scene, {
-    hitMarker: () => {
-      overlay.crosshair.classList.add('hit')
-      window.setTimeout(() => overlay.crosshair.classList.remove('hit'), 100)
-    },
-    damageVignette: () => {
-      overlay.vignette.classList.add('show')
-      window.setTimeout(() => overlay.vignette.classList.remove('show'), 140)
-    },
-  })
+  // The hit marker belongs to whoever knows a shot connected — here, the dummy hit handler
+  // below; in the game, the HUD. `effects` only draws paint.
+  const flashHitMarker = () => {
+    overlay.crosshair.classList.add('hit')
+    window.setTimeout(() => overlay.crosshair.classList.remove('hit'), 100)
+  }
+  const effects = createEffects(scene)
   const decals = createDecals(scene)
   const projectiles = createProjectiles(scene, room.world, decals, effects, audio)
   const dummies = createDummies(scene)
@@ -120,7 +117,7 @@ export async function start(): Promise<void> {
     if (!dummy || performance.now() < dummy.deadUntil) return
     dummy.avatar.flashHit()
     dummy.hp -= PLAYER.hitDamage
-    effects.hitMarker()
+    flashHitMarker()
     audio.play('hit', dummy.position, { position: camera.position, forward: look })
     if (autopilot.stage > route.length) autopilot.dummyShots++
     if (dummy.hp <= 0) {
