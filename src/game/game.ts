@@ -444,7 +444,10 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       }
       hud.setInvincible(me.alive && me.invincibleUntil > now)
       if (!me.alive) {
-        hud.setRespawn(Math.max(50, PLAYER.respawnDelayMs - (now - (deathAt || now))))
+        // `setRespawn(0)` means "hide the overlay", so the countdown is clamped to 1 ms
+        // instead: it reads 0.0 for its last frames rather than sticking at 0.1.
+        const left = PLAYER.respawnDelayMs - (now - (deathAt || now))
+        hud.setRespawn(Math.max(1, left))
         if (!localPlayer.dead) localPlayer.die()
       } else if (localPlayer.dead) {
         // Reliable state beat the respawn RPC (or it was dropped) — unfreeze anyway.
