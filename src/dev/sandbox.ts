@@ -1,6 +1,5 @@
 import {
   ACESFilmicToneMapping,
-  Clock,
   Color,
   DirectionalLight,
   Fog,
@@ -9,6 +8,7 @@ import {
   PerspectiveCamera,
   Scene,
   SRGBColorSpace,
+  Timer,
   Vector3,
 } from 'three'
 import { WebGPURenderer } from 'three/webgpu'
@@ -141,7 +141,8 @@ export async function start(): Promise<void> {
   let previousGrounded = false
   let previousReloading = false
   let footstepDistance = 0
-  const clock = new Clock()
+  // THREE.Clock is deprecated in r185 and warns on construction; Timer is the replacement.
+  const clock = new Timer()
   const autopilot = {
     enabled: new URLSearchParams(location.search).get('autopilot') === '1',
     stage: 0,
@@ -233,7 +234,8 @@ export async function start(): Promise<void> {
     viewModel.update(frameDt, speed, controller.state.grounded)
     projectiles.update(frameDt, hittables)
     effects.update(frameDt)
-    updateDummies(dummies, clock.getElapsedTime(), audio)
+    clock.update(now)
+    updateDummies(dummies, clock.getElapsed(), audio)
 
     footstepDistance += speed * frameDt
     if (controller.state.grounded && footstepDistance > 2.2) {

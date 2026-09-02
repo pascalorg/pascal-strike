@@ -29,10 +29,17 @@ import type {
 /** Radius around an anchor that still counts as "that team's spawn area". */
 const ANCHOR_RADIUS = 2.5
 const MAX_POINTS_PER_TEAM = 12
-/** Horizontal spacing of the fallback floor grid. */
-const GRID_STEP = 1.5
-const MAX_GRID_CANDIDATES = 600
-const NAV_SAMPLES = 96
+/** Horizontal spacing of the auto-spawn floor grid. */
+const GRID_STEP = 0.5
+const MAX_GRID_CANDIDATES = 4000
+/** A candidate is "indoor" when a ray up from this height finds a ceiling/slab within range. */
+const INDOOR_PROBE_HEIGHT = 0.3
+const INDOOR_CEILING_RANGE = 4
+/** A candidate must sit this close to the navmesh, otherwise bots could never reach it. */
+const NAV_SNAP_TOLERANCE = 0.3
+/** Cap on the candidate set the O(n^2) farthest-pair search runs over. */
+const MAX_ANCHOR_POOL = 512
+const MAX_REACHABILITY_PROBES = 32
 
 const _origin = new Vector3()
 const _mapCenter = new Vector3()
@@ -102,10 +109,24 @@ function samplePolygon(zone: ZoneInfo, count: number): Vector3[] {
 // Rule 2 — auto
 // ---------------------------------------------------------------------------
 
-function autoSpawns(map: MapData, world: WorldQuery, nav?: Navigation): SpawnLayout {
-  const candidates = autoCandidates(map, world, nav)
+/** A validated floor point, plus whether it sits under a ceiling. */
+interface Candidate {
+  p: Vector3
+  indoor: boolean
+}
 
-  if (candidates.length < 2) {
+function autoSpawns(map: MapData, world: WorldQuery, nav?: Navigation): SpawnLayout {
+  const all = autoCandidates(map, world, nav)
+  const indoor = all.filter((c) => c.indoor)
+  // Spawning both teams inside the building is what makes the match play; the open terrain
+  // around a Pascal house is only a fallback for maps that have no enclosed space at all.
+  const usingIndoor = indoor.length >= 2
+  // Then keep the lowest level that still offers two: upper floors are a separate navmesh island
+  // until the map has stairs, and even with stairs the ground floor is the sane default arena.
+  const levelled = lowestLevelSubset(usingIndoor ? indoor : all, map)
+  const pool = subsample(levelled, MAX_ANCHOR_POOL)
+
+  if (pool.length < 2) {
     // Nothing walkable was found — put both teams either side of the bounds centre so the game
     // can still start. Better than throwing on a broken map.
     const center = map.bounds.getCenter(new Vector3())
@@ -119,24 +140,26 @@ function autoSpawns(map: MapData, world: WorldQuery, nav?: Navigation): SpawnLay
     }
   }
 
-  // Anchors: normally the two farthest-apart candidates. If the map carries Pascal's single
-  // walkthrough start marker, team A anchors on the candidate closest to it instead and team B
-  // takes whatever is farthest from that.
-  let anchorA = candidates[0]
-  let anchorB = candidates[1]
+  // The pool is already in deterministic grid order, so a strict `>` keeps the first maximum
+  // and equidistant pairs always break the same way on every client.
+  const points = pool.map((c) => c.p)
+  let anchorA = points[0]
+  let anchorB = points[1]
   let best = -1
 
   const startMarker = map.spawnNodes[0]
   if (startMarker) {
+    // Pascal's walkthrough start marker is not a team spawn, but it is a good hint for where
+    // the author expects play to begin, so team A anchors on the candidate nearest to it.
     let bestToMarker = Infinity
-    for (const p of candidates) {
+    for (const p of points) {
       const d = p.distanceToSquared(startMarker.position)
       if (d < bestToMarker) {
         bestToMarker = d
         anchorA = p
       }
     }
-    for (const p of candidates) {
+    for (const p of points) {
       const d = p.distanceToSquared(anchorA)
       if (d > best) {
         best = d
@@ -144,22 +167,30 @@ function autoSpawns(map: MapData, world: WorldQuery, nav?: Navigation): SpawnLay
       }
     }
   } else {
-    for (let i = 0; i < candidates.length; i++) {
-      for (let j = i + 1; j < candidates.length; j++) {
-        const d = candidates[i].distanceToSquared(candidates[j])
+    for (let i = 0; i < points.length; i++) {
+      for (let j = i + 1; j < points.length; j++) {
+        const d = points[i].distanceToSquared(points[j])
         if (d > best) {
           best = d
-          anchorA = candidates[i]
-          anchorB = candidates[j]
+          anchorA = points[i]
+          anchorB = points[j]
         }
       }
     }
   }
 
+  // Teams that cannot path to each other never meet. If the farthest pair is split across
+  // disconnected navmesh islands, walk inwards to the farthest anchor B that IS reachable.
+  const reachable = reachableFrom(anchorA, points, anchorB, nav)
+  if (reachable !== anchorB) {
+    anchorB = reachable
+    best = anchorA.distanceToSquared(anchorB)
+  }
+
   const radiusSq = ANCHOR_RADIUS * ANCHOR_RADIUS
   const a: SpawnPoint[] = []
   const b: SpawnPoint[] = []
-  for (const p of candidates) {
+  for (const p of points) {
     const da = p.distanceToSquared(anchorA)
     const db = p.distanceToSquared(anchorB)
     if (da <= radiusSq && da <= db && a.length < MAX_POINTS_PER_TEAM) {
@@ -172,56 +203,130 @@ function autoSpawns(map: MapData, world: WorldQuery, nav?: Navigation): SpawnLay
   if (b.length === 0) b.push({ position: anchorB.clone(), yaw: yawToward(anchorB, anchorA) })
 
   console.info(
-    `[spawns] auto (${startMarker ? 'anchored on walkthrough start marker' : 'two farthest apart'}): ` +
-      `${candidates.length} candidates, anchors ` +
-      `A(${anchorA.x.toFixed(2)}, ${anchorA.y.toFixed(2)}, ${anchorA.z.toFixed(2)}) ` +
-      `B(${anchorB.x.toFixed(2)}, ${anchorB.y.toFixed(2)}, ${anchorB.z.toFixed(2)}) ` +
-      `${Math.sqrt(best).toFixed(2)} m apart`,
+    `[spawns] auto (${usingIndoor ? 'indoor' : 'OUTDOOR fallback — no enclosed space found'}` +
+      `${startMarker ? ', anchored on walkthrough start marker' : ''}): ` +
+      `${all.length} candidates / ${indoor.length} indoor, anchors ` +
+      `A(${fmt(anchorA)}) B(${fmt(anchorB)}) ${Math.sqrt(best).toFixed(2)} m apart, ` +
+      `a=${a.length} b=${b.length}`,
   )
   return { a, b, source: 'auto' }
 }
 
-function autoCandidates(map: MapData, world: WorldQuery, nav?: Navigation): Vector3[] {
-  // (a) zone centroids on the lowest level that has zones
-  if (map.zones.length > 0) {
-    const lowest = [...map.levels]
-      .sort((l, r) => l.y - r.y)
-      .find((level) => map.zones.some((z) => z.levelId === level.id))
-    const zones = lowest
-      ? map.zones.filter((z) => z.levelId === lowest.id)
-      : map.zones
-    if (zones.length >= 2) return zones.map((z) => z.centroid.clone())
-  }
-
-  // (b) random navmesh points
-  if (nav?.ready) {
-    const points: Vector3[] = []
-    for (let i = 0; i < NAV_SAMPLES; i++) {
-      const p = nav.randomPoint()
-      if (Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z)) points.push(p)
-    }
-    if (points.length >= 2) return points
-  }
-
-  // (c) raycast-validated floor grid
-  return floorGrid(map, world)
-}
-
-function floorGrid(map: MapData, world: WorldQuery): Vector3[] {
-  const out: Vector3[] = []
+/**
+ * Deterministic candidate set: a raycast-validated floor grid over `bounds`, one pass per level,
+ * classified indoor/outdoor and (when a navmesh exists) restricted to points bots can stand on.
+ *
+ * Deliberately NOT `nav.randomPoint()`: recast's RNG cannot be seeded, so every client would
+ * derive a different spawn layout for the same map.
+ */
+function autoCandidates(map: MapData, world: WorldQuery, nav?: Navigation): Candidate[] {
+  const out: Candidate[] = []
   const min = map.bounds.min
   const max = map.bounds.max
-  const levelYs = map.levels.length > 0 ? map.levels.map((l) => l.y) : [min.y]
+  const levelYs = map.levels.length > 0 ? map.levels.map((l) => l.y).sort((l, r) => l - r) : [min.y]
+  const snap = navSnapper(nav)
 
   for (const levelY of levelYs) {
-    for (let x = min.x + GRID_STEP * 0.5; x < max.x && out.length < MAX_GRID_CANDIDATES; x += GRID_STEP) {
-      for (let z = min.z + GRID_STEP * 0.5; z < max.z && out.length < MAX_GRID_CANDIDATES; z += GRID_STEP) {
+    // Cap per level, not globally: a big ground floor must never be truncated just because the
+    // levels above it were sampled first.
+    let onThisLevel = 0
+    for (let x = min.x + GRID_STEP * 0.5; x < max.x && onThisLevel < MAX_GRID_CANDIDATES; x += GRID_STEP) {
+      for (let z = min.z + GRID_STEP * 0.5; z < max.z && onThisLevel < MAX_GRID_CANDIDATES; z += GRID_STEP) {
         const y = validateFloor(world, x, levelY, z)
-        if (y !== null) out.push(new Vector3(x, y, z))
+        if (y === null) continue
+
+        const p = new Vector3(x, y, z)
+        if (snap) {
+          const snapped = snap(p)
+          // Off the navmesh (rooftop, ledge, sliver behind a wall) — a bot could never spawn or
+          // path there, so it is not a spawn point.
+          if (!snapped || snapped.distanceTo(p) > NAV_SNAP_TOLERANCE) continue
+          p.copy(snapped)
+        }
+
+        _origin.set(p.x, p.y + INDOOR_PROBE_HEIGHT, p.z)
+        const ceiling = world.raycast(_origin, UP, INDOOR_CEILING_RANGE)
+        out.push({ p, indoor: ceiling !== null })
+        onThisLevel++
       }
     }
   }
   return out
+}
+
+/**
+ * Keep only the candidates sitting on the lowest level that offers at least two of them.
+ * Candidates are bucketed to their nearest level origin.
+ */
+function lowestLevelSubset(candidates: Candidate[], map: MapData): Candidate[] {
+  if (map.levels.length < 2 || candidates.length < 2) return candidates
+  const levels = [...map.levels].sort((l, r) => l.y - r.y)
+  const buckets = levels.map<Candidate[]>(() => [])
+  for (const c of candidates) {
+    let bestIndex = 0
+    let bestDistance = Infinity
+    for (let i = 0; i < levels.length; i++) {
+      const d = Math.abs(c.p.y - levels[i].y)
+      if (d < bestDistance) {
+        bestDistance = d
+        bestIndex = i
+      }
+    }
+    buckets[bestIndex].push(c)
+  }
+  for (const bucket of buckets) if (bucket.length >= 2) return bucket
+  return candidates
+}
+
+/** Deterministic stride sample, so the O(n^2) anchor search stays cheap on big open maps. */
+function subsample(candidates: Candidate[], limit: number): Candidate[] {
+  if (candidates.length <= limit) return candidates
+  const stride = Math.ceil(candidates.length / limit)
+  const out: Candidate[] = []
+  for (let i = 0; i < candidates.length; i += stride) out.push(candidates[i])
+  return out
+}
+
+/**
+ * `preferred` if a path to it exists, otherwise the farthest candidate from `from` that is
+ * reachable. Falls back to `preferred` when there is no navmesh to ask.
+ */
+function reachableFrom(
+  from: Vector3,
+  points: Vector3[],
+  preferred: Vector3,
+  nav?: Navigation,
+): Vector3 {
+  if (!nav?.ready) return preferred
+  if (nav.findPath(from, preferred).length > 0) return preferred
+
+  const byDistance = points
+    .filter((p) => p !== from)
+    .sort((l, r) => from.distanceToSquared(r) - from.distanceToSquared(l))
+  for (let i = 0; i < byDistance.length && i < MAX_REACHABILITY_PROBES; i++) {
+    if (nav.findPath(from, byDistance[i]).length > 0) return byDistance[i]
+  }
+  return preferred
+}
+
+/**
+ * `Navigation` (types.ts) cannot report a failed snap — `closestPoint` returns something either
+ * way. `navmesh.ts` adds an optional `snapToNavmesh` that returns null instead; feature-detect it
+ * so any other `Navigation` implementation still works (it simply skips the navmesh filter).
+ */
+type SnappingNavigation = Navigation & {
+  snapToNavmesh?(p: Vector3): Vector3 | null
+}
+
+function navSnapper(nav?: Navigation): ((p: Vector3) => Vector3 | null) | null {
+  if (!nav?.ready) return null
+  const snapper = (nav as SnappingNavigation).snapToNavmesh
+  if (typeof snapper !== 'function') return null
+  return (p) => snapper.call(nav, p)
+}
+
+function fmt(v: Vector3): string {
+  return `${v.x.toFixed(2)}, ${v.y.toFixed(2)}, ${v.z.toFixed(2)}`
 }
 
 /**

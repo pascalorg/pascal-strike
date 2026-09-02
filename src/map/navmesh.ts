@@ -14,6 +14,12 @@ import type { MapData, Navigation } from '../types'
 export interface MapNavigation extends Navigation {
   navMesh: NavMesh | null
   query: NavMeshQuery | null
+  /**
+   * Like `closestPoint`, but returns null when the point is not on the navmesh at all.
+   * `Navigation.closestPoint` has to return *something*, which makes it useless for asking
+   * "is this point reachable?" — spawns.ts needs that distinction.
+   */
+  snapToNavmesh(p: Vector3): Vector3 | null
   dispose(): void
 }
 
@@ -56,6 +62,12 @@ export async function buildNavigation(map: MapData): Promise<MapNavigation> {
 
   const query = new NavMeshQuery(navMesh)
 
+  const snapToNavmesh = (p: Vector3): Vector3 | null => {
+    const result = query.findClosestPoint(p)
+    if (!result.success) return null
+    return new Vector3(result.point.x, result.point.y, result.point.z)
+  }
+
   return {
     ready: true,
     navMesh,
@@ -82,10 +94,10 @@ export async function buildNavigation(map: MapData): Promise<MapNavigation> {
     },
 
     closestPoint(p: Vector3): Vector3 {
-      const result = query.findClosestPoint(p)
-      if (!result.success) return p.clone()
-      return new Vector3(result.point.x, result.point.y, result.point.z)
+      return snapToNavmesh(p) ?? p.clone()
     },
+
+    snapToNavmesh,
 
     dispose() {
       query.destroy()
@@ -104,6 +116,7 @@ function createFallback(center: Vector3): MapNavigation {
     randomPoint: () => center.clone(),
     randomPointAround: (c) => c.clone(),
     closestPoint: (p) => p.clone(),
+    snapToNavmesh: () => null,
     dispose: () => {},
   }
 }

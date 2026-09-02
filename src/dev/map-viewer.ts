@@ -180,8 +180,10 @@ export async function start(): Promise<void> {
 
   const sceneTris = countSceneTriangles(map)
   const colliderTris = colliderTriangleCount(map.collider)
-  const anchorA = spawns.a[0]?.position
-  const anchorB = spawns.b[0]?.position
+  // First point of each team in grid order — the true anchors are printed to the console by
+  // resolveSpawns, since SpawnLayout has nowhere to carry them.
+  const firstA = spawns.a[0]?.position
+  const firstB = spawns.b[0]?.position
 
   let probeHit: HitResult | null = null
   let fps = 0
@@ -204,8 +206,8 @@ export async function start(): Promise<void> {
       `levels     ${map.levels.length}   zones ${map.zones.length}   doors ${map.doors.length}   spawnNodes ${map.spawnNodes.length}`,
       `bounds     ${fmt(map.bounds.min)} → ${fmt(map.bounds.max)}`,
       `spawns     source=${spawns.source}  a=${spawns.a.length} b=${spawns.b.length}`,
-      `  anchorA  ${anchorA ? fmt(anchorA) : '—'}`,
-      `  anchorB  ${anchorB ? fmt(anchorB) : '—'}`,
+      `  first A  ${firstA ? fmt(firstA) : '—'}`,
+      `  first B  ${firstB ? fmt(firstB) : '—'}`,
       `navmesh    ${nav.ready ? 'ready' : 'FAILED (straight-line fallback)'}`,
       `camera     ${fmt(camera.position)}`,
       map.doors.length ? `doors\n  ${doorStates}` : 'doors      none',
@@ -309,7 +311,9 @@ function buildSpawnOverlay(spawns: SpawnLayout): Group {
   const cone = new ConeGeometry(0.18, 0.55, 10)
   const arrow = new BoxGeometry(0.04, 0.04, 0.7)
   for (const team of ['a', 'b'] as const) {
-    const material = new MeshBasicMaterial({ color: TEAMS[team].colorHex })
+    // depthTest off, like the door markers: spawns are usually indoors and you want to see
+    // where they are from outside the building.
+    const material = new MeshBasicMaterial({ color: TEAMS[team].colorHex, depthTest: false })
     for (const point of spawns[team]) {
       const marker = new Mesh(cone, material)
       marker.position.copy(point.position).y += 0.3
