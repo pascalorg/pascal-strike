@@ -109,10 +109,6 @@ export const DOORS = {
   botOpenRadius: 1.4,
   /** Playback speed of the baked 1 s clip. */
   openTimeScale: 2.2,
-  // Legacy auto-open radii, still read by map/doors.ts until W3-D lands manual (E) doors.
-  openRadius: 1.8,
-  closeRadius: 2.4,
-  closeDelayMs: 1_500,
 }
 
 export const NET = {
