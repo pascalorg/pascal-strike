@@ -22,7 +22,12 @@ export interface ViewModel {
 export function createViewModel(camera: Camera): ViewModel {
   const root = new Group()
   root.name = 'paintball-viewmodel'
-  root.position.set(0.29, -0.25, -0.52)
+  // Rest pose of the marker relative to the eye: low and far enough that the hopper
+  // stays out of the crosshair's quadrant (it covered ~35% of the view at -0.52).
+  const REST_X = 0.3
+  const REST_Y = -0.32
+  const REST_Z = -0.72
+  root.position.set(REST_X, REST_Y, REST_Z)
   camera.add(root)
 
   const dark = new MeshStandardMaterial({ color: 0x242428, roughness: 0.38, metalness: 0.32, depthTest: false })
@@ -63,9 +68,9 @@ export function createViewModel(camera: Camera): ViewModel {
       const bob = grounded ? Math.min(speed / 5.5, 1) : 0
       const aim = aiming ? 0.4 : 1
       root.position.set(
-        0.29 * aim + Math.sin(time) * 0.006 * bob,
-        -0.25 * aim + Math.abs(Math.cos(time)) * 0.007 * bob,
-        -0.52 + kick,
+        REST_X * aim + Math.sin(time) * 0.006 * bob,
+        REST_Y * aim + Math.abs(Math.cos(time)) * 0.007 * bob,
+        REST_Z + kick,
       )
       root.rotation.set(-0.05 + reloadTilt, -0.04, -0.03 - reloadTilt * 0.35)
       reloadTarget = 0
