@@ -12,7 +12,7 @@ Vite + TypeScript, no framework.
 ```
 bun install
 cp .env.example .env    # fill in the Playroom game id and the Supabase bucket credentials
-bun dev                 # http://localhost:5173
+bun dev                 # http://localhost:5180
 bun run build           # static bundle in dist/
 ```
 

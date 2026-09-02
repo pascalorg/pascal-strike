@@ -5,7 +5,8 @@ export default defineConfig({
     alias: { '@': new URL('./src', import.meta.url).pathname },
   },
   server: {
-    port: 5173,
+    port: 5180,
+    strictPort: true,
     // Playroom + WebGPU both want a secure context; localhost qualifies.
   },
   build: {

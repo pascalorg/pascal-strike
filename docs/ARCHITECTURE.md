@@ -28,7 +28,7 @@ Decisions already made (do not re-litigate):
 
 ```
 bun install
-bun dev                 # http://localhost:5173
+bun dev                 # http://localhost:5180
 bun run typecheck       # tsc --noEmit — must pass before you report done
 bun run build
 bun run inspect-glb public/maps/pascal-house.glb   # dump a Pascal GLB's node tree / extras
