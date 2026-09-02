@@ -318,9 +318,13 @@ export function createDebugPanel(
   read: () => GameStatus,
 ): DebugPanel {
   if (!enabled) return { update() {}, dispose() {} }
+  // Below the HUD's room-code chip (`.ps-room`, top-left at `--hud-pad`), not on top of it:
+  // the chip is ~28 px tall, so the panel starts one chip plus a gap further down.
   const node = el('div', {
+    class: 'ps-debug',
     style:
-      'position:absolute;left:12px;top:12px;z-index:9;font:11px/1.5 JetBrains Mono,monospace;' +
+      'position:absolute;left:var(--hud-pad);top:calc(var(--hud-pad) + 42px);z-index:9;' +
+      'font:11px/1.5 JetBrains Mono,monospace;' +
       'color:#a1a1aa;background:#09090bcc;border:1px solid #27272a;border-radius:8px;' +
       'padding:8px 10px;pointer-events:none;white-space:pre',
   })
