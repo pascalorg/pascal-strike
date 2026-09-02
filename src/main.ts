@@ -3,6 +3,7 @@
  *   ?dev=map      W1-A map/renderer viewer (fly camera)
  *   ?sandbox=1    W1-B player + weapons in the procedural test room
  *   ?dev=ui       W1-C lobby/HUD showcase with fake data
+ *   ?dev=net      W1-C Playroom net harness (real room, text UI)
  * Default: lobby → game (W2 wires this).
  */
 import './ui/styles.css'
@@ -22,6 +23,11 @@ async function boot() {
   }
   if (params.get('dev') === 'ui') {
     const mod = await import('./dev/ui-showcase')
+    await mod.start()
+    return
+  }
+  if (params.get('dev') === 'net') {
+    const mod = await import('./dev/net-harness')
     await mod.start()
     return
   }

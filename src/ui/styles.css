@@ -1,4 +1,4 @@
-/* Pascal Strike design tokens (Pascal dark theme). W1-C extends this file. */
+/* Pascal Strike design tokens (Pascal dark theme). W1-C owns this file. */
 :root {
   --bg: #0d0d0f;
   --fg: #fafafa;
@@ -12,7 +12,1035 @@
   --font-display: 'Barlow', system-ui, sans-serif;
   --font-ui: 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* W1-C additions */
+  --bg-deep: #08080a;
+  --card-2: #1f1f23;
+  --border-strong: #3f3f46;
+  --muted-2: #71717a;
+  --danger: #ef4444;
+  --radius-sm: 6px;
+  --radius-lg: 16px;
+  --shadow-card: 0 24px 60px -20px rgba(0, 0, 0, 0.85), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --t-fast: 130ms cubic-bezier(0.2, 0.7, 0.3, 1);
+  --t-med: 240ms cubic-bezier(0.2, 0.7, 0.3, 1);
+  --hud-pad: 22px;
 }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: var(--font-ui); }
-#app { position: relative; width: 100%; height: 100%; overflow: hidden; }
-canvas { display: block; }
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+#app {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+canvas {
+  display: block;
+}
+::selection {
+  background: color-mix(in srgb, var(--team-a) 45%, transparent);
+}
+
+/* --------------------------------------------------------------------- */
+/* Primitives                                                             */
+/* --------------------------------------------------------------------- */
+
+.ps-btn {
+  appearance: none;
+  border: 1px solid var(--border-strong);
+  background: var(--card-2);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 550;
+  letter-spacing: 0.01em;
+  padding: 0 18px;
+  height: 42px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast), transform var(--t-fast),
+    opacity var(--t-fast);
+  white-space: nowrap;
+}
+.ps-btn:hover {
+  background: #2a2a30;
+  border-color: #52525b;
+}
+.ps-btn:active {
+  transform: translateY(1px);
+}
+.ps-btn:focus-visible {
+  outline: 2px solid var(--team-a);
+  outline-offset: 2px;
+}
+.ps-btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.ps-btn--primary {
+  background: var(--fg);
+  border-color: var(--fg);
+  color: #0b0b0d;
+  font-weight: 650;
+  height: 48px;
+  font-size: 15px;
+}
+.ps-btn--primary:hover {
+  background: #fff;
+  border-color: #fff;
+  box-shadow: 0 0 0 4px rgba(250, 250, 250, 0.08);
+}
+.ps-btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  padding: 0 8px;
+  height: 32px;
+  font-size: 13px;
+}
+.ps-btn--ghost {
+  text-decoration: underline dotted;
+  text-decoration-color: #52525b;
+  text-underline-offset: 4px;
+}
+.ps-btn--ghost:hover {
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: transparent;
+  text-decoration-color: var(--muted);
+}
+.ps-btn--block {
+  width: 100%;
+}
+
+.ps-input {
+  appearance: none;
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  background: #101012;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast), background var(--t-fast);
+}
+.ps-input::placeholder {
+  color: var(--muted-2);
+}
+.ps-input:focus {
+  outline: none;
+  border-color: #52525b;
+  background: #131316;
+  box-shadow: 0 0 0 3px rgba(250, 250, 250, 0.06);
+}
+.ps-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  margin: 0 0 8px;
+}
+.ps-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------- */
+/* Lobby                                                                  */
+/* --------------------------------------------------------------------- */
+
+.ps-screen {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 72px 24px 40px;
+  box-sizing: border-box;
+  background:
+    radial-gradient(1100px 620px at 50% -8%, rgba(249, 115, 22, 0.13), transparent 62%),
+    radial-gradient(900px 520px at 88% 108%, rgba(20, 184, 166, 0.11), transparent 60%),
+    linear-gradient(180deg, #0f0f12 0%, var(--bg-deep) 100%);
+}
+.ps-screen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(circle at 50% 42%, #000 0%, transparent 72%);
+  pointer-events: none;
+}
+
+.ps-brand {
+  position: absolute;
+  top: 28px;
+  left: 32px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 2;
+}
+.ps-brand img {
+  height: 20px;
+  /* the Pascal logo ships black; the dark theme needs it white */
+  filter: invert(1);
+  opacity: 0.9;
+}
+.ps-brand span {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  border-left: 1px solid var(--border-strong);
+  padding-left: 10px;
+}
+
+.ps-card {
+  position: relative;
+  width: min(560px, 100%);
+  background: linear-gradient(180deg, rgba(30, 30, 34, 0.92), rgba(20, 20, 23, 0.95));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 28px 30px 24px;
+  box-sizing: border-box;
+  backdrop-filter: blur(8px);
+  animation: ps-rise var(--t-med) both;
+}
+@keyframes ps-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+.ps-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(34px, 5vw, 44px);
+  line-height: 0.94;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  margin: 0;
+}
+.ps-title em {
+  font-style: normal;
+  color: var(--team-a);
+}
+.ps-tagline {
+  margin: 10px 0 22px;
+  color: var(--muted);
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+.ps-tagline b {
+  color: var(--accent);
+  font-weight: 550;
+}
+
+.ps-field + .ps-field {
+  margin-top: 16px;
+}
+.ps-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.ps-maps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.ps-map {
+  position: relative;
+  text-align: left;
+  padding: 11px 13px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: #131316;
+  cursor: pointer;
+  transition: border-color var(--t-fast), background var(--t-fast), transform var(--t-fast);
+  overflow: hidden;
+}
+.ps-map:hover {
+  border-color: #52525b;
+  background: #17171b;
+}
+.ps-map[aria-pressed='true'] {
+  border-color: var(--team-a);
+  background: color-mix(in srgb, var(--team-a) 10%, #131316);
+}
+.ps-map[aria-pressed='true']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--team-a) 55%, transparent);
+  pointer-events: none;
+}
+.ps-map-name {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ps-map-meta {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--muted-2);
+  letter-spacing: 0.04em;
+}
+
+.ps-drop {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 54px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 13.5px;
+  cursor: pointer;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 255, 255, 0.014) 0 10px,
+    transparent 10px 20px
+  );
+  transition: border-color var(--t-fast), color var(--t-fast), background var(--t-fast);
+}
+.ps-drop:hover,
+.ps-drop.is-over {
+  border-color: var(--team-b);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--team-b) 8%, transparent);
+}
+.ps-drop b {
+  color: var(--fg);
+  font-weight: 600;
+}
+.ps-progress {
+  grid-column: 1 / -1;
+  height: 4px;
+  border-radius: 999px;
+  background: #232327;
+  overflow: hidden;
+}
+.ps-progress i {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--team-b), var(--team-a));
+  transition: width var(--t-med);
+}
+
+.ps-note {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted-2);
+  transition: color var(--t-fast);
+}
+.ps-note:empty {
+  display: none;
+}
+.ps-note--error {
+  color: #f87171;
+}
+.ps-note--ok {
+  color: var(--team-b);
+}
+
+.ps-join-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  margin-bottom: 18px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--team-b) 40%, var(--border));
+  background: color-mix(in srgb, var(--team-b) 12%, transparent);
+  color: var(--fg);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+.ps-join-chip .ps-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--team-b);
+  animation: ps-pulse 1.6s infinite;
+}
+@keyframes ps-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.ps-actions {
+  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ps-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ps-code-row {
+  display: none;
+  gap: 8px;
+}
+.ps-code-row.is-open {
+  display: flex;
+  animation: ps-rise var(--t-fast) both;
+}
+.ps-code-row .ps-input {
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-family: var(--font-mono);
+}
+.ps-foot {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted-2);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+}
+.ps-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 0, 0, 0.25);
+  border-top-color: #0b0b0d;
+  display: inline-block;
+  margin-right: 8px;
+  vertical-align: -2px;
+  animation: ps-spin 0.7s linear infinite;
+}
+@keyframes ps-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* --------------------------------------------------------------------- */
+/* HUD                                                                    */
+/* --------------------------------------------------------------------- */
+
+.ps-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-family: var(--font-ui);
+  user-select: none;
+  z-index: 5;
+}
+.ps-hud * {
+  box-sizing: border-box;
+}
+
+.ps-hud.is-dead .ps-crosshair,
+.ps-hud.is-dead .ps-ammo {
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+.ps-crosshair {
+  position: absolute;
+  transition: opacity var(--t-fast);
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 44px;
+  height: 44px;
+}
+.ps-crosshair svg {
+  display: block;
+  overflow: visible;
+}
+.ps-crosshair .ps-ch-arms {
+  transition: transform 60ms linear;
+  transform-origin: 22px 22px;
+}
+.ps-hitmark {
+  opacity: 0;
+  transform-origin: 22px 22px;
+}
+.ps-hitmark.is-on {
+  animation: ps-hit 260ms ease-out;
+}
+@keyframes ps-hit {
+  0% {
+    opacity: 1;
+    transform: scale(0.7);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.25);
+  }
+}
+
+.ps-topbar {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.ps-score {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 16px;
+  border-radius: 999px;
+  background: rgba(10, 10, 12, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(10px);
+}
+.ps-score b {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 26px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  transition: transform var(--t-fast);
+}
+.ps-score b.is-bump {
+  transform: scale(1.28);
+}
+.ps-score .ps-a {
+  color: var(--team-a);
+}
+.ps-score .ps-b {
+  color: var(--team-b);
+}
+.ps-score .ps-sep {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.14);
+}
+.ps-timer {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 3px #000;
+}
+.ps-timer.is-low {
+  color: #fca5a5;
+}
+.ps-phase {
+  font-size: 10.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--team-a);
+}
+
+.ps-health {
+  position: absolute;
+  left: var(--hud-pad);
+  bottom: var(--hud-pad);
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+.ps-meter {
+  display: flex;
+  gap: 4px;
+}
+.ps-seg {
+  width: 52px;
+  height: 12px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  position: relative;
+}
+.ps-seg i {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  background: linear-gradient(180deg, #fb923c, var(--team-a));
+  transition: transform var(--t-med);
+}
+.ps-seg.is-low i {
+  background: linear-gradient(180deg, #f87171, #dc2626);
+}
+.ps-hp-num {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  line-height: 1;
+  color: var(--fg);
+  text-shadow: 0 2px 6px #000;
+}
+.ps-hp-num small {
+  font-size: 11px;
+  color: var(--muted-2);
+  margin-left: 3px;
+}
+
+.ps-ammo {
+  position: absolute;
+  right: var(--hud-pad);
+  bottom: var(--hud-pad);
+  text-align: right;
+  text-shadow: 0 2px 8px #000;
+}
+.ps-ammo b {
+  font-family: var(--font-mono);
+  font-size: 34px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.ps-ammo span {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  color: var(--muted-2);
+}
+.ps-ammo em {
+  display: block;
+  font-style: normal;
+  font-size: 10.5px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--team-a);
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+.ps-ammo.is-reloading em {
+  opacity: 1;
+  animation: ps-pulse 0.9s infinite;
+}
+
+.ps-feed {
+  position: absolute;
+  top: var(--hud-pad);
+  right: var(--hud-pad);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+}
+.ps-feed-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(10, 10, 12, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 12.5px;
+  backdrop-filter: blur(6px);
+  animation: ps-feed-in 200ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  transition: opacity var(--t-med), transform var(--t-med);
+}
+.ps-feed-item.is-out {
+  opacity: 0;
+  transform: translateX(12px);
+}
+.ps-feed-item .ps-splat {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+@keyframes ps-feed-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+.ps-room {
+  position: absolute;
+  top: var(--hud-pad);
+  left: var(--hud-pad);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(10, 10, 12, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  pointer-events: auto;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.ps-room:hover {
+  color: var(--fg);
+  border-color: var(--border-strong);
+}
+.ps-room b {
+  font-family: var(--font-mono);
+  color: var(--fg);
+  letter-spacing: 0.18em;
+}
+
+.ps-vignette {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 420ms ease-out;
+  mix-blend-mode: screen;
+}
+.ps-vignette.is-on {
+  opacity: 1;
+  transition-duration: 60ms;
+}
+
+.ps-respawn {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: radial-gradient(circle at 50% 50%, rgba(8, 8, 10, 0.4), rgba(8, 8, 10, 0.82));
+}
+.ps-respawn.is-on {
+  display: flex;
+  animation: ps-rise var(--t-fast) both;
+}
+.ps-respawn h2 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 30px;
+  margin: 0;
+}
+.ps-respawn .ps-count {
+  font-family: var(--font-mono);
+  font-size: 52px;
+  line-height: 1;
+  color: var(--team-a);
+}
+.ps-respawn p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.ps-shield {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--hud-pad) + 46px);
+  transform: translateX(-50%);
+  display: none;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--team-b) 45%, transparent);
+  background: color-mix(in srgb, var(--team-b) 14%, rgba(10, 10, 12, 0.6));
+  color: #ccfbf1;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.ps-shield.is-on {
+  display: flex;
+}
+.ps-fps {
+  position: absolute;
+  left: var(--hud-pad);
+  bottom: calc(var(--hud-pad) + 44px);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--muted-2);
+  text-shadow: 0 1px 3px #000;
+  opacity: 0;
+}
+.ps-fps.is-on {
+  opacity: 1;
+}
+
+/* --------------------------------------------------------------------- */
+/* Scoreboard                                                             */
+/* --------------------------------------------------------------------- */
+
+.ps-board {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 8, 10, 0.72);
+  backdrop-filter: blur(6px);
+  font-family: var(--font-ui);
+}
+.ps-board.is-on {
+  display: flex;
+  animation: ps-fade var(--t-fast) both;
+}
+@keyframes ps-fade {
+  from {
+    opacity: 0;
+  }
+}
+.ps-board-inner {
+  width: min(900px, calc(100% - 48px));
+  background: rgba(20, 20, 23, 0.96);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+.ps-board-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.ps-board-head h2 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 22px;
+  margin: 0;
+}
+.ps-board-head span {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--muted);
+}
+.ps-board-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.ps-board-col + .ps-board-col {
+  border-left: 1px solid var(--border);
+}
+.ps-team-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 13px;
+}
+.ps-team-head b {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  letter-spacing: 0;
+}
+.ps-team-a .ps-team-head {
+  color: var(--team-a);
+  background: color-mix(in srgb, var(--team-a) 9%, transparent);
+}
+.ps-team-b .ps-team-head {
+  color: var(--team-b);
+  background: color-mix(in srgb, var(--team-b) 9%, transparent);
+}
+.ps-board table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.ps-board th {
+  text-align: right;
+  padding: 8px 20px;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  font-weight: 600;
+}
+.ps-board th:first-child {
+  text-align: left;
+}
+.ps-board td {
+  padding: 9px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  text-align: right;
+  font-family: var(--font-mono);
+  color: var(--accent);
+}
+.ps-board td:first-child {
+  text-align: left;
+  font-family: var(--font-ui);
+  color: var(--fg);
+}
+.ps-board tr.is-me td {
+  background: rgba(255, 255, 255, 0.045);
+}
+.ps-board tr.is-dead td {
+  opacity: 0.45;
+}
+.ps-tag {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  color: var(--muted-2);
+  vertical-align: 1px;
+}
+.ps-board-foot {
+  padding: 14px 24px;
+  border-top: 1px solid var(--border);
+  color: var(--muted-2);
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+}
+.ps-winner {
+  padding: 26px 24px 6px;
+  text-align: center;
+}
+.ps-winner h1 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(32px, 5vw, 46px);
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.ps-winner p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+/* --------------------------------------------------------------------- */
+/* Unsupported screen                                                     */
+/* --------------------------------------------------------------------- */
+
+.ps-unsupported {
+  text-align: center;
+  max-width: 460px;
+}
+.ps-unsupported .ps-title {
+  font-size: clamp(30px, 7vw, 42px);
+}
+.ps-unsupported p {
+  color: var(--muted);
+  font-size: 14.5px;
+  line-height: 1.6;
+}
+
+/* --------------------------------------------------------------------- */
+/* Dev harness (text UI, kept deliberately plain)                          */
+/* --------------------------------------------------------------------- */
+
+.ps-dev {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  padding: 22px;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--accent);
+  background: var(--bg-deep);
+}
+.ps-dev h1 {
+  font-family: var(--font-display);
+  font-size: 18px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin: 0 0 14px;
+}
+.ps-dev section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  background: #101013;
+}
+.ps-dev h2 {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  margin: 0 0 8px;
+  font-family: var(--font-ui);
+}
+.ps-dev table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.ps-dev th,
+.ps-dev td {
+  text-align: left;
+  padding: 3px 10px 3px 0;
+  white-space: nowrap;
+}
+.ps-dev th {
+  color: var(--muted-2);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+}
+.ps-dev .ps-a {
+  color: var(--team-a);
+}
+.ps-dev .ps-b {
+  color: var(--team-b);
+}
+.ps-dev .ps-dim {
+  color: var(--muted-2);
+}
+.ps-dev .ps-log {
+  max-height: 190px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--muted);
+}
+.ps-dev .ps-row {
+  flex-wrap: wrap;
+}
+.ps-dev .ps-btn {
+  height: 32px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+.ps-dev a {
+  color: var(--team-b);
+}
