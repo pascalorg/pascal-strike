@@ -31,7 +31,7 @@ const ray = new Ray()
 const rayDirection = new Vector3()
 
 /** Geometry-only builder used by Bun tests; it does not require a DOM or Scene. */
-export function createTestRoom(): TestRoom {
+export function buildTestRoomGeometry(): TestRoom {
   const root = new Group()
   root.name = 'test-room'
   const collisionParts: BufferGeometry[] = []
@@ -50,6 +50,11 @@ export function createTestRoom(): TestRoom {
   addBox(root, collisionParts, 'low-slab', [2.4, 0.5, 2.2], [-0.5, 1.55, 0])
   addRamp(root, collisionParts, [2.5, 0, 1.8], 1.15, 20)
   addBox(root, collisionParts, 'pillar', [0.8, 3, 0.8], [5.9, 1.5, -3.8])
+
+  // Keep the stair fixtures outside the original room so tests which depend on
+  // its obstacle layout and sight lines remain unchanged.
+  addStaircase(root, collisionParts, 'stair-45', 10, 3, 12, 0.25, 0.25)
+  addStaircase(root, collisionParts, 'stair-shallow', 13, 3.48, 12, 0.17, 0.29)
 
   const colliderGeometry = mergeGeometries(collisionParts, false)
   if (!colliderGeometry) throw new Error('Could not merge test room collider')
@@ -93,6 +98,11 @@ export function createTestRoom(): TestRoom {
   return { collider, world, bounds, doors: [], root }
 }
 
+/** Backwards-compatible headless entry point used by existing tests. */
+export function createTestRoom(): TestRoom {
+  return buildTestRoomGeometry()
+}
+
 /** Add the already-built visual room to a Scene and apply its browser-only checker texture. */
 export function addTestRoomToScene(scene: Scene, room: TestRoom): TestRoom {
   const checker = createCheckerTexture()
@@ -102,7 +112,9 @@ export function addTestRoomToScene(scene: Scene, room: TestRoom): TestRoom {
     object.castShadow = role !== 'floor'
     object.receiveShadow = true
     object.material = new MeshStandardMaterial({
-      color: role === 'step' ? 0xd97706 : role === 'low-slab' ? 0x0f766e : 0x71717a,
+      color: role === 'step' || role.startsWith('stair-')
+        ? 0xd97706
+        : role === 'low-slab' ? 0x0f766e : 0x71717a,
       map: role === 'floor' || role === 'wall' ? checker : null,
       roughness: 0.85,
     })
@@ -112,7 +124,7 @@ export function addTestRoomToScene(scene: Scene, room: TestRoom): TestRoom {
 }
 
 export function buildTestRoom(scene: Scene): TestRoom {
-  return addTestRoomToScene(scene, createTestRoom())
+  return addTestRoomToScene(scene, buildTestRoomGeometry())
 }
 
 function collisionGeometry(geometry: BufferGeometry, matrix: Matrix4): BufferGeometry {
@@ -137,6 +149,35 @@ function addBox(
   mesh.updateMatrix()
   root.add(mesh)
   colliders.push(collisionGeometry(geometry, mesh.matrix))
+}
+
+function addStaircase(
+  root: Group,
+  colliders: BufferGeometry[],
+  role: string,
+  centerX: number,
+  startZ: number,
+  stepCount: number,
+  riser: number,
+  tread: number,
+): void {
+  const width = 1.4
+  const rise = stepCount * riser
+  const run = stepCount * tread
+
+  addBox(root, colliders, `${role}-approach`, [width, 0.2, 3], [centerX, -0.1, startZ + 1.5])
+  for (let index = 0; index < stepCount; index++) {
+    const height = (index + 1) * riser
+    addBox(
+      root,
+      colliders,
+      role,
+      [width, height, tread],
+      [centerX, height / 2, startZ - (index + 0.5) * tread],
+    )
+  }
+  addBox(root, colliders, `${role}-landing`, [width, rise, 3], [centerX, rise / 2, startZ - run - 1.5])
+  addBox(root, colliders, `${role}-stop`, [width, 2, 0.2], [centerX, rise + 1, startZ - run - 3.1])
 }
 
 function addRamp(

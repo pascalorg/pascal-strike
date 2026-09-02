@@ -2,7 +2,7 @@
 import { expect, test } from 'bun:test'
 import { Vector3 } from 'three'
 import type { MoveInput } from '../types'
-import { createTestRoom } from '../dev/test-room'
+import { buildTestRoomGeometry, createTestRoom } from '../dev/test-room'
 import { createCharacterController } from './controller'
 
 const DT = 1 / 120
@@ -23,6 +23,25 @@ function spawnAt(x: number, z: number) {
   controller.setPosition(new Vector3(x, 0.01, z))
   run(controller, 0.25, idle)
   return controller
+}
+
+function climbStairs(input: MoveInput, x = 10, z = 4.5, seconds = 4) {
+  const room = buildTestRoomGeometry()
+  const controller = createCharacterController(room.collider)
+  controller.setPosition(new Vector3(x, 0.01, z))
+  run(controller, 0.25, idle)
+  const startY = controller.state.position.y
+  let airborneFrames = 0
+  let maxTreadGap = 0
+  for (let index = 0; index < Math.ceil(seconds / DT); index++) {
+    controller.update(DT, input, 0)
+    if (!controller.state.grounded) airborneFrames++
+    if (controller.state.grounded && controller.state.position.y > 0.05 && controller.state.position.y < 2.95) {
+      const nearestTread = Math.round(controller.state.position.y / 0.25) * 0.25
+      maxTreadGap = Math.max(maxTreadGap, Math.abs(controller.state.position.y - nearestTread))
+    }
+  }
+  return { controller, rise: controller.state.position.y - startY, airborneFrames, maxTreadGap }
 }
 
 test('walking into a wall stops without penetrating by more than 1 cm', () => {
@@ -56,6 +75,53 @@ test('climbs the 20 degree ramp', () => {
   run(controller, 0.95, { ...idle, forward: 1 })
   expect(controller.state.position.y).toBeGreaterThan(1.05)
   expect(controller.state.position.z).toBeLessThan(0.7)
+})
+
+test('automatically climbs consecutive 0.25 m stairs when running, walking, or crouching', () => {
+  const cases: MoveInput[] = [
+    { ...idle, forward: 1 },
+    { ...idle, forward: 1, walk: true },
+    { ...idle, forward: 1, crouch: true },
+  ]
+  for (const input of cases) {
+    const result = climbStairs(input)
+    expect(result.controller.state.position.y).toBeGreaterThanOrEqual(3)
+    expect(result.rise).toBeCloseTo(3, 5)
+    expect(result.airborneFrames).toBe(0)
+    expect(result.maxTreadGap).toBeLessThanOrEqual(0.05)
+  }
+})
+
+test('automatically climbs the shallow staircase', () => {
+  const result = climbStairs({ ...idle, forward: 1 }, 13, 5, 3)
+  expect(result.controller.state.position.y).toBeGreaterThanOrEqual(2.04)
+  expect(result.airborneFrames).toBe(0)
+})
+
+test('descends the 0.25 m staircase without bouncing or losing ground', () => {
+  const room = buildTestRoomGeometry()
+  const controller = createCharacterController(room.collider)
+  controller.setPosition(new Vector3(10, 3.01, -1))
+  run(controller, 0.25, idle)
+  let airborneFrames = 0
+  let highestFeet = controller.state.position.y
+  let maxUpwardMove = 0
+  let maxTreadGap = 0
+  let previousFeet = controller.state.position.y
+  for (let index = 0; index < 1 / DT; index++) {
+    controller.update(DT, { ...idle, forward: 1 }, Math.PI)
+    if (!controller.state.grounded) airborneFrames++
+    highestFeet = Math.max(highestFeet, controller.state.position.y)
+    maxUpwardMove = Math.max(maxUpwardMove, controller.state.position.y - previousFeet)
+    const nearestTread = Math.round(controller.state.position.y / 0.25) * 0.25
+    maxTreadGap = Math.max(maxTreadGap, Math.abs(controller.state.position.y - nearestTread))
+    previousFeet = controller.state.position.y
+  }
+  expect(controller.state.position.y).toBeLessThan(0.05)
+  expect(airborneFrames).toBe(0)
+  expect(highestFeet).toBeLessThan(3.02)
+  expect(maxUpwardMove).toBeLessThan(0.001)
+  expect(maxTreadGap).toBeLessThanOrEqual(0.05)
 })
 
 test('never falls through the floor over 20 seconds of deterministic random input', () => {

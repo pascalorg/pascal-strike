@@ -55,6 +55,7 @@ class CapsuleController implements CharacterController {
   private contactGround = false
   private contactCeiling = false
   private contactWall = false
+  private stepBlocked = false
   private castMode: 'resolve' | 'test' = 'resolve'
   private castTolerance = SKIN
   private castCorrected = false
@@ -73,7 +74,9 @@ class CapsuleController implements CharacterController {
   private readonly beforeMove = new Vector3()
   private readonly regularResult = new Vector3()
   private readonly stepResult = new Vector3()
+  private readonly probeResult = new Vector3()
   private readonly ray = new Ray()
+  private readonly groundProbeOffsets = [0, 0.5, 0.99, -0.5, -0.99]
   private readonly shapecastCallbacks = {
     intersectsBounds: (box: Box3) => box.intersectsBox(this.capsuleBounds),
     intersectsTriangle: (triangle: ExtendedTriangle) => this.castTriangle(triangle),
@@ -159,16 +162,30 @@ class CapsuleController implements CharacterController {
     this.resolveCapsule(this.state.position, this.currentHeight)
     this.regularResult.copy(this.state.position)
     const regularGround = this.contactGround
+    const regularCeiling = this.contactCeiling
+    const regularWall = this.contactWall
+    const regularStepBlocked = this.stepBlocked
 
-    const canStep = wasGrounded && !input.jump && this.desiredHorizontal.lengthSq() > EPSILON
-    if (canStep && this.horizontalProgress(this.regularResult) < 0.98) {
-      if (this.tryStep() && this.horizontalProgress(this.stepResult) > this.horizontalProgress(this.regularResult) + 0.02) {
+    const canStep = wasGrounded && !input.jump
+      && this.desiredHorizontal.lengthSq() > EPSILON * EPSILON
+    if (canStep && (regularStepBlocked || regularWall || regularGround)
+      && this.horizontalProgress(this.regularResult) < 0.98) {
+      if (this.tryStep()
+        && this.horizontalProgress(this.stepResult) > this.horizontalProgress(this.regularResult) + 0.05) {
         this.state.position.copy(this.stepResult)
         this.contactGround = true
       } else {
         this.state.position.copy(this.regularResult)
         this.contactGround = regularGround
+        this.contactCeiling = regularCeiling
+        this.contactWall = regularWall
+        this.stepBlocked = regularStepBlocked
       }
+    }
+
+    if (wasGrounded && !input.jump && !this.contactGround && this.tryGroundSnap()) {
+      this.state.position.copy(this.stepResult)
+      this.contactGround = true
     }
 
     this.state.grounded = this.contactGround
@@ -203,13 +220,14 @@ class CapsuleController implements CharacterController {
 
   private horizontalProgress(position: Vector3): number {
     const desiredSq = this.desiredHorizontal.lengthSq()
-    if (desiredSq < EPSILON) return 1
+    if (desiredSq < EPSILON * EPSILON) return 1
     return ((position.x - this.beforeMove.x) * this.desiredHorizontal.x
       + (position.z - this.beforeMove.z) * this.desiredHorizontal.z) / desiredSq
   }
 
   private tryStep(): boolean {
-    const lift = this.stepHeight + 0.025
+    const lift = this.stepHeight + 0.01
+    if (!this.hasLiftClearance(this.beforeMove, this.currentHeight, lift)) return false
     this.stepResult.copy(this.beforeMove)
     this.stepResult.y += lift
     this.stepResult.x += this.desiredHorizontal.x
@@ -220,23 +238,55 @@ class CapsuleController implements CharacterController {
     this.resolveCapsule(this.stepResult, this.currentHeight)
     if (Math.hypot(this.stepResult.x - beforeResolveX, this.stepResult.z - beforeResolveZ) > this.radius * 0.5) return false
     if (this.contactCeiling) return false
+    return this.findGround(this.stepResult, this.beforeMove.y, this.stepHeight + 0.01, GROUND_PROBE, false)
+  }
 
-    this.ray.origin.copy(this.stepResult)
-    // Probe under the leading edge of the capsule. At the instant a step is
-    // encountered its centre is still one radius in front of the top face.
+  private tryGroundSnap(): boolean {
+    this.stepResult.copy(this.state.position)
+    return this.findGround(this.stepResult, this.beforeMove.y, 0.025, this.stepHeight + GROUND_PROBE, true)
+  }
+
+  /** Finds the highest walkable support beneath the capsule footprint. */
+  private findGround(
+    position: Vector3,
+    referenceY: number,
+    maxRise: number,
+    maxDrop: number,
+    flatOnly: boolean,
+  ): boolean {
     const horizontalLength = Math.hypot(this.desiredHorizontal.x, this.desiredHorizontal.z)
-    if (horizontalLength > EPSILON) {
-      this.ray.origin.x += this.desiredHorizontal.x / horizontalLength * this.radius * 0.95
-      this.ray.origin.z += this.desiredHorizontal.z / horizontalLength * this.radius * 0.95
-    }
-    this.ray.origin.y += 0.02
+    const directionX = horizontalLength > EPSILON ? this.desiredHorizontal.x / horizontalLength : 0
+    const directionZ = horizontalLength > EPSILON ? this.desiredHorizontal.z / horizontalLength : 0
+    const originY = referenceY + maxRise + 0.02
+    const rayLength = maxRise + maxDrop + 0.04
+    let bestY = -Infinity
+
     this.ray.direction.set(0, -1, 0)
-    const hit = this.bvh.raycastFirst(this.ray, DoubleSide, 0, lift + GROUND_PROBE + 0.04)
-    if (!hit?.face || Math.abs(hit.face.normal.y) < this.slopeY) return false
-    const rise = hit.point.y - this.beforeMove.y
-    if (rise < -GROUND_PROBE || rise > this.stepHeight + 0.01) return false
-    this.stepResult.y = hit.point.y + SKIN
-    return !this.hasPenetration(this.stepResult, this.currentHeight, 2e-3)
+    for (let index = 0; index < this.groundProbeOffsets.length; index++) {
+      const offset = this.groundProbeOffsets[index]!
+      this.ray.origin.set(
+        position.x + directionX * this.radius * offset,
+        originY,
+        position.z + directionZ * this.radius * offset,
+      )
+      const hit = this.bvh.raycastFirst(this.ray, DoubleSide, 0, rayLength)
+      if (!hit?.face) continue
+      const normalY = Math.abs(hit.face.normal.y)
+      // Slopes are handled continuously by capsule push-out. Snapping to the
+      // floor beside or beneath one would pull the player off the ramp.
+      if (flatOnly && normalY >= this.slopeY && normalY < 0.95) return false
+      if (normalY < (flatOnly ? 0.95 : this.slopeY)) continue
+      if (hit.point.y < referenceY - maxDrop - SKIN || hit.point.y > referenceY + maxRise + SKIN) continue
+      if (hit.point.y <= bestY) continue
+
+      this.probeResult.copy(position)
+      this.probeResult.y = hit.point.y + SKIN
+      if (this.hasPenetration(this.probeResult, this.currentHeight, 2e-3)) continue
+      bestY = hit.point.y
+    }
+    if (bestY === -Infinity) return false
+    position.y = bestY + SKIN
+    return true
   }
 
   private setCapsule(position: Vector3, height: number): void {
@@ -258,12 +308,32 @@ class CapsuleController implements CharacterController {
     return this.castPenetrating
   }
 
+  private hasLiftClearance(position: Vector3, height: number, lift: number): boolean {
+    // Sweeping the capsule's top sphere covers precisely the new volume entered
+    // by an upward translation, without treating the floor or current wall
+    // contacts as blockers.
+    const topY = position.y + height - this.radius
+    this.capsule.start.set(position.x, topY, position.z)
+    this.capsule.end.set(position.x, topY + lift, position.z)
+    this.capsuleBounds.makeEmpty()
+    this.capsuleBounds.expandByPoint(this.capsule.start)
+    this.capsuleBounds.expandByPoint(this.capsule.end)
+    this.capsuleBounds.min.addScalar(-this.radius)
+    this.capsuleBounds.max.addScalar(this.radius)
+    this.castMode = 'test'
+    this.castTolerance = 2e-3
+    this.castPenetrating = false
+    this.bvh.shapecast(this.shapecastCallbacks)
+    return !this.castPenetrating
+  }
+
   private resolveCapsule(position: Vector3, height: number): void {
     this.castPosition = position
     this.castTolerance = SKIN
     this.contactGround = false
     this.contactCeiling = false
     this.contactWall = false
+    this.stepBlocked = false
     for (let pass = 0; pass < 5; pass++) {
       this.setCapsule(position, height)
       this.castMode = 'resolve'
@@ -298,7 +368,14 @@ class CapsuleController implements CharacterController {
     const normalY = this.correction.y
     if (normalY > this.slopeY) this.contactGround = true
     else if (normalY < -0.5) this.contactCeiling = true
-    else this.contactWall = true
+    else {
+      this.contactWall = true
+      triangle.getNormal(this.triangleNormal)
+      if (Math.abs(this.triangleNormal.y) < 0.25
+        && this.trianglePoint.y <= this.castPosition.y + this.stepHeight + SKIN) {
+        this.stepBlocked = true
+      }
+    }
     this.correction.multiplyScalar(depth)
     this.castPosition.add(this.correction)
     this.capsule.start.add(this.correction)
