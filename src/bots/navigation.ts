@@ -7,6 +7,9 @@ const REPLAN_SECONDS = 1.5
 const PROGRESS_SECONDS = 1
 const MIN_PROGRESS = 0.3
 const JUMP_SECONDS = 0.2
+const STAIR_RISE = 0.3
+const STAIR_PUSH_SECONDS = 0.4
+const VERTICAL_ARRIVAL_DISTANCE = 0.5
 const EPSILON = 1e-8
 const EMPTY_PATH: Vector3[] = []
 
@@ -44,6 +47,7 @@ export function createPathFollower(nav: Navigation): PathFollower {
   let progressElapsed = 0
   let trackingProgress = false
   let jumpRemaining = 0
+  let stairPushRemaining = 0
 
   function plan(feet: Vector3): void {
     path = nav.findPath(feet, goal)
@@ -60,7 +64,8 @@ export function createPathFollower(nav: Navigation): PathFollower {
       const corner = path[cornerIndex]
       const dx = corner.x - feet.x
       const dz = corner.z - feet.z
-      if (dx * dx + dz * dz > CORNER_DISTANCE * CORNER_DISTANCE) break
+      if (dx * dx + dz * dz > CORNER_DISTANCE * CORNER_DISTANCE
+        || Math.abs(corner.y - feet.y) > VERTICAL_ARRIVAL_DISTANCE) break
       cornerIndex++
     }
   }
@@ -98,6 +103,7 @@ export function createPathFollower(nav: Navigation): PathFollower {
       trackingProgress = false
       progressElapsed = 0
       jumpRemaining = 0
+      stairPushRemaining = 0
     },
 
     update(feet, dt) {
@@ -107,16 +113,20 @@ export function createPathFollower(nav: Navigation): PathFollower {
 
       const goalDx = goal.x - feet.x
       const goalDz = goal.z - feet.z
-      if (goalDx * goalDx + goalDz * goalDz <= ARRIVAL_DISTANCE * ARRIVAL_DISTANCE) {
+      if (goalDx * goalDx + goalDz * goalDz <= ARRIVAL_DISTANCE * ARRIVAL_DISTANCE
+        && Math.abs(goal.y - feet.y) <= VERTICAL_ARRIVAL_DISTANCE) {
         hasGoal = false
         path = EMPTY_PATH
         jumpRemaining = 0
+        stairPushRemaining = 0
         return stop(true)
       }
 
-      replanElapsed += dt
+      const pushingUpStair = stairPushRemaining > 0
+      if (!pushingUpStair) replanElapsed += dt
       result.stuck = false
-      if (needsReplan || path.length === 0 || replanElapsed >= REPLAN_SECONDS) plan(feet)
+      if (!pushingUpStair
+        && (needsReplan || path.length === 0 || replanElapsed >= REPLAN_SECONDS)) plan(feet)
       if (path.length === 0) return pauseWhileJumping()
 
       advanceCorners(feet)
@@ -133,7 +143,10 @@ export function createPathFollower(nav: Navigation): PathFollower {
       const dz = corner.z - feet.z
       const wantsMove = dx * dx + dz * dz > EPSILON
       if (wantsMove) {
-        if (!trackingProgress) {
+        if (pushingUpStair) {
+          trackingProgress = false
+          progressElapsed = 0
+        } else if (!trackingProgress) {
           progressOrigin.copy(feet)
           progressElapsed = 0
           trackingProgress = true
@@ -144,8 +157,17 @@ export function createPathFollower(nav: Navigation): PathFollower {
             const movedZ = feet.z - progressOrigin.z
             if (movedX * movedX + movedZ * movedZ < MIN_PROGRESS * MIN_PROGRESS) {
               result.stuck = true
-              jumpRemaining = JUMP_SECONDS
-              plan(feet)
+              if (corner.y - feet.y > STAIR_RISE) {
+                // Stair lips need a committed jump. Replanning immediately tends to return the
+                // same corner and leaves the bot oscillating at the bottom of the flight.
+                stairPushRemaining = STAIR_PUSH_SECONDS
+                jumpRemaining = STAIR_PUSH_SECONDS
+                trackingProgress = false
+                progressElapsed = 0
+              } else {
+                jumpRemaining = JUMP_SECONDS
+                plan(feet)
+              }
             } else {
               progressOrigin.copy(feet)
               progressElapsed = 0
@@ -171,6 +193,10 @@ export function createPathFollower(nav: Navigation): PathFollower {
       result.move.crouch = false
       result.arrived = false
       if (jumpRemaining > 0) jumpRemaining = Math.max(0, jumpRemaining - dt)
+      if (stairPushRemaining > 0) {
+        stairPushRemaining = Math.max(0, stairPushRemaining - dt)
+        if (stairPushRemaining === 0) needsReplan = true
+      }
       return result
     },
   }

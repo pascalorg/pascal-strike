@@ -63,3 +63,34 @@ test('detects no progress, replans, and requests a 0.2 second jump', () => {
   expect(jumpFrames).toBeGreaterThanOrEqual(11)
   expect(jumpFrames).toBeLessThanOrEqual(13)
 })
+
+test('pushes and jumps toward a higher corner for 0.4 seconds before replanning', () => {
+  let pathRequests = 0
+  const nav = navigationWithPath(
+    (from, to) => [from.clone(), new Vector3(0, 0.8, -2), to.clone()],
+    () => { pathRequests++ },
+  )
+  const follower = createPathFollower(nav)
+  const feet = new Vector3(0, 0, 0)
+  follower.setGoal(new Vector3(0, 1, -4))
+
+  let stuckFrame = -1
+  let requestsWhenStuck = -1
+  let jumpFramesAfterStuck = 0
+  for (let frame = 0; frame < 100; frame++) {
+    const output = follower.update(feet, 1 / 60)
+    if (output.stuck && stuckFrame < 0) {
+      stuckFrame = frame
+      requestsWhenStuck = pathRequests
+    }
+    if (stuckFrame >= 0 && output.move.jump) jumpFramesAfterStuck++
+    if (stuckFrame >= 0 && frame - stuckFrame < 24) {
+      expect(output.move.forward).toBe(1)
+      expect(pathRequests).toBe(requestsWhenStuck)
+    }
+  }
+
+  expect(stuckFrame).toBeGreaterThanOrEqual(0)
+  expect(jumpFramesAfterStuck).toBeGreaterThanOrEqual(23)
+  expect(pathRequests).toBeGreaterThan(requestsWhenStuck)
+})

@@ -12,6 +12,7 @@ import type {
 import { createMarker, type Marker } from '../weapons/marker'
 import { createBotBrain, type BotBrain } from './brain'
 import { createPathFollower } from './navigation'
+import { createRoamTargetSet } from './roam'
 
 interface SimulatedBot {
   entity: PlayerEntity
@@ -30,6 +31,7 @@ interface SimulatedBot {
 export function createBotRunner(opts: BotRunnerOptions): BotRunner {
   const bots: SimulatedBot[] = []
   const snapshotPeriod = 1 / NET.botSnapshotHz
+  const roamTargets = createRoamTargetSet(opts.map, opts.world, opts.nav)
 
   function findBot(id: string): SimulatedBot | undefined {
     for (let index = 0; index < bots.length; index++) {
@@ -114,6 +116,7 @@ export function createBotRunner(opts: BotRunnerOptions): BotRunner {
         nav: botNavigation,
         rng,
         pathFollower,
+        roamTargets,
       })
 
       bots.push({

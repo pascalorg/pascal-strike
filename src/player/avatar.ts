@@ -23,6 +23,7 @@ export interface Avatar {
   setInvincible(value: boolean): void
   setTeam(team: TeamId): void
   setName(name: string): void
+  setNameTagVisible(visible: boolean): void
   hittable(): Hittable
   dispose(): void
 }
@@ -76,6 +77,7 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
   root.add(deathSplat)
 
   let currentName = initialName
+  let nameTagVisible = true
   let nameTag = makeNameTag(currentName, initialTeam)
   nameTag.position.set(0, 2, 0)
   root.add(nameTag)
@@ -181,6 +183,10 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
       currentName = value
       replaceNameTag(value)
     },
+    setNameTagVisible(visible) {
+      nameTagVisible = visible
+      nameTag.visible = visible
+    },
     hittable() {
       updateCapsule()
       return hittable
@@ -199,6 +205,7 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
   function replaceNameTag(value: string): void {
       const next = makeNameTag(value, team)
       next.position.copy(nameTag.position)
+      next.visible = nameTagVisible
       root.remove(nameTag)
       disposeSprite(nameTag)
       nameTag = next
@@ -240,7 +247,7 @@ function makeNameTag(name: string, team: TeamId): Sprite {
   context.fillStyle = TEAMS[team].color
   context.fillText(name, 256, 64)
   const texture = new CanvasTexture(canvas)
-  const material = new SpriteMaterial({ map: texture, transparent: true, depthTest: false })
+  const material = new SpriteMaterial({ map: texture, transparent: true, depthTest: true })
   const sprite = new Sprite(material)
   sprite.scale.set(1.5, 0.375, 1)
   return sprite

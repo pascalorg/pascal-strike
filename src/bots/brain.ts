@@ -8,6 +8,7 @@ import type {
   WorldQuery,
 } from '../types'
 import { createPathFollower, type PathFollower } from './navigation'
+import type { RoamTargetSet } from './roam'
 
 const DEG_TO_RAD = Math.PI / 180
 const MAX_TURN_RATE = 540 * DEG_TO_RAD
@@ -21,6 +22,7 @@ const ROAM_ARRIVAL_DISTANCE_SQ = 0.6 * 0.6
 const ROAM_TIMEOUT_MS = 12_000
 const RETREAT_MS = 3_000
 const RETREAT_RADIUS = 6
+const OUTDOOR_RETURN_MS = 6_000
 
 export type BotState = 'roam' | 'hunt' | 'engage' | 'retreat'
 
@@ -32,6 +34,8 @@ export interface BotBrainOptions {
   difficulty?: Partial<typeof BOTS>
   /** Runner injection point; callers normally let the brain create its own follower. */
   pathFollower?: PathFollower
+  /** Shared map-level roam candidates, built once by the runner. */
+  roamTargets?: RoamTargetSet
 }
 
 export interface BotBrain {
@@ -107,6 +111,8 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
   let burstActive = false
   let burstEndsAt = -Infinity
   let nextBurstAt = -Infinity
+  let outdoorWithoutEnemySince = -Infinity
+  let returningIndoors = false
 
   function setEye(): void {
     eye.copy(opts.self.position)
@@ -268,6 +274,13 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
   }
 
   function pickRoamGoal(now: number, spawns: SpawnLayout): void {
+    const buildingTarget = opts.roamTargets?.sample(opts.rng)
+    if (buildingTarget) {
+      setNavigationGoal(buildingTarget)
+      roamPickedAt = now
+      return
+    }
+
     const ownSpawns = spawns[opts.self.team]
     const enemySpawns = spawns[opts.self.team === 'a' ? 'b' : 'a']
     const hasOwnAnchor = averageSpawn(ownSpawns, ownAnchor)
@@ -320,14 +333,29 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
   function updatePathMovement(dt: number, now: number, spawns: SpawnLayout): void {
     if (state === 'retreat' && now >= retreatUntil) enterState('roam')
     if (state === 'hunt' && now - lastSeenAt > memoryMs) enterState('roam')
-    if (state === 'roam' && (!hasNavGoal || now - roamPickedAt >= ROAM_TIMEOUT_MS
+    const needsIndoorGoal = state === 'roam'
+      && now - outdoorWithoutEnemySince > OUTDOOR_RETURN_MS
+      && !returningIndoors
+    if (needsIndoorGoal) {
+      const indoorTarget = opts.roamTargets?.sampleIndoor(opts.rng)
+      if (indoorTarget) {
+        setNavigationGoal(indoorTarget)
+        roamPickedAt = now
+        returningIndoors = true
+      }
+    }
+    if (state === 'roam' && !returningIndoors
+      && (!hasNavGoal || now - roamPickedAt >= ROAM_TIMEOUT_MS
       || navGoal.distanceToSquared(opts.self.position) < ROAM_ARRIVAL_DISTANCE_SQ)) {
       pickRoamGoal(now, spawns)
     }
 
     const path = follower.update(opts.self.position, dt)
     if (state === 'hunt' && path.arrived) enterState('roam')
-    if (state === 'roam' && path.arrived) pickRoamGoal(now, spawns)
+    if (state === 'roam' && path.arrived) {
+      returningIndoors = false
+      pickRoamGoal(now, spawns)
+    }
 
     const pathSin = Math.sin(path.yaw)
     const pathCos = Math.cos(path.yaw)
@@ -497,6 +525,8 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
     retreatUsedForThreat = false
     burstActive = false
     nextBurstAt = -Infinity
+    outdoorWithoutEnemySince = -Infinity
+    returningIndoors = false
   }
 
   return {
@@ -507,6 +537,12 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
       if (perceptionAccumulator >= perceptionPeriod) {
         perceptionAccumulator %= perceptionPeriod
         perceive(now, enemies)
+        if (visibleTarget || opts.roamTargets?.isIndoor(opts.self.position)) {
+          outdoorWithoutEnemySince = -Infinity
+          returningIndoors = false
+        } else if (outdoorWithoutEnemySince === -Infinity) {
+          outdoorWithoutEnemySince = now
+        }
       }
 
       if (state === 'engage') updateEngage(dt, now, allies)
