@@ -17,7 +17,7 @@ import { buildNavigation, type MapNavigation } from '../map/navmesh'
 import { resolveSpawns } from '../map/spawns'
 import type { MapData, MapSelection, SpawnLayout, SpawnPoint, TeamId, WorldQuery } from '../types'
 import { createDecals, type Decals } from '../weapons/decals'
-import { createEffects, type Effects, type EffectsCallbacks } from '../weapons/effects'
+import { createEffects, type Effects } from '../weapons/effects'
 import { createProjectiles, type Projectiles } from '../weapons/projectiles'
 
 export interface MapSessionOptions {
@@ -25,7 +25,6 @@ export interface MapSessionOptions {
   loaders: Loaders
   selection: MapSelection
   audio: Audio
-  effects?: EffectsCallbacks
   /** 0..1 while the GLB downloads, then 1 once the map is parsed. */
   onProgress?: (progress: number, label: string) => void
 }
@@ -72,12 +71,13 @@ export async function createMapSession(opts: MapSessionOptions): Promise<MapSess
   const doors = createDoorSystem(map)
   const environment = createEnvironment(engine, map.bounds)
   const decals = createDecals(engine.scene)
-  const effects = createEffects(engine.scene, opts.effects ?? {})
+  const effects = createEffects(engine.scene)
   const projectiles = createProjectiles(engine.scene, world, decals, effects, audio)
 
   // Spawns are resolved twice on purpose: once now (no navmesh, so the game is playable the
   // moment the map is up) and once when recast is ready, which filters out points bots could
   // never reach. Only the host reads the layout, so swapping it mid-match is harmless.
+  let disposed = false
   const session: MapSession = {
     selection,
     map,
@@ -112,6 +112,10 @@ export async function createMapSession(opts: MapSessionOptions): Promise<MapSess
       return best
     },
     dispose() {
+      // Called from `changeMap` and again from `game.dispose()` on the way out; freeing the
+      // recast handles twice would take the WASM heap with it.
+      if (disposed) return
+      disposed = true
       projectiles.dispose()
       decals.dispose()
       effects.dispose()
@@ -127,13 +131,6 @@ export async function createMapSession(opts: MapSessionOptions): Promise<MapSess
   }
 
   opts.onProgress?.(1, 'Ready')
-
-  let disposed = false
-  const originalDispose = session.dispose
-  session.dispose = () => {
-    disposed = true
-    originalDispose()
-  }
 
   session.navReady = buildNavigation(map)
     .then((nav) => {

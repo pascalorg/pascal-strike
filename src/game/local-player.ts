@@ -51,7 +51,6 @@ export interface LocalPlayerDebug {
   setFire(on: boolean): void
   reload(): void
   clear(): void
-  readonly active: boolean
 }
 
 export interface LocalPlayer {
@@ -367,9 +366,6 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
         override.jump = false
         override.crouch = false
         override.walk = false
-      },
-      get active() {
-        return overrideMove || overrideFire !== null
       },
     },
 

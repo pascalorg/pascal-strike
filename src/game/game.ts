@@ -68,6 +68,8 @@ export interface Game {
 
 const MAP_POLL_MS = 500
 const HUD_POLL_MS = 100
+/** How long the `respawn` RPC outranks a stale `alive: false` still on the wire. */
+const RESPAWN_RPC_GRACE_MS = 600
 
 const _hittables: Hittable[] = []
 const _damageDir = new Vector3()
@@ -115,6 +117,8 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   let match: MatchState | null = null
   let disposed = false
   let deathAt = 0
+  /** Clock time of the last `respawn` RPC for us — see the alive/RPC race in `updateHud`. */
+  let revivedAt = 0
   let lastTeam: TeamId | null = null
 
   /**
@@ -134,10 +138,6 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       loaders,
       selection: next,
       audio,
-      effects: {
-        hitMarker: () => hud.hitMarker(),
-        damageVignette: (team) => hud.damageFrom(null, team),
-      },
       onProgress: (progress, label) => loading.set(progress, label),
     })
     built.doors.onToggle((door) => audio.play('door', door.center, localPlayer.listener))
@@ -304,6 +304,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       localPlayer.place(ev.position, ev.yaw)
       localPlayer.revive()
       deathAt = 0
+      revivedAt = clock.now()
       hud.setRespawn(0)
       hud.setHp(PLAYER.maxHp)
       audio.play('respawn')
@@ -443,13 +444,19 @@ export async function startGame(opts: GameOptions): Promise<Game> {
         localPlayer.setTeam(me.team)
       }
       hud.setInvincible(me.alive && me.invincibleUntil > now)
-      if (!me.alive) {
+      // The `respawn` RPC and the reliable `alive` state race on the wire, and the two used to
+      // fight over the same HUD: an `alive: false` still in flight when the RPC landed froze
+      // us again and restarted the countdown at 2.5. The RPC wins for a moment (it is the one
+      // that carries the position); after that this is still what unfreezes us if it is lost.
+      if (!me.alive && now - revivedAt > RESPAWN_RPC_GRACE_MS) {
+        // Normally the `kill` RPC starts the clock; if only the state arrived (dropped RPC,
+        // host migration) start it here instead of counting down from nothing.
+        if (!deathAt) deathAt = now
         // `setRespawn(0)` means "hide the overlay", so the countdown is clamped to 1 ms
         // instead: it reads 0.0 for its last frames rather than sticking at 0.1.
-        const left = PLAYER.respawnDelayMs - (now - (deathAt || now))
-        hud.setRespawn(Math.max(1, left))
+        hud.setRespawn(Math.max(1, PLAYER.respawnDelayMs - (now - deathAt)))
         if (!localPlayer.dead) localPlayer.die()
-      } else if (localPlayer.dead) {
+      } else if (me.alive && localPlayer.dead) {
         // Reliable state beat the respawn RPC (or it was dropped) — unfreeze anyway.
         localPlayer.revive()
         hud.setRespawn(0)
