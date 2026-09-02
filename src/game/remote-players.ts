@@ -11,8 +11,11 @@ import type { EntityRegistry } from './entities'
 import type { Hittable, PlayerEntity } from '../types'
 
 export interface RemotePlayers {
-  /** Sync avatars with the registry and pose them. `now` is the host clock (invincibility). */
-  update(now: number): void
+  /**
+   * Sync avatars with the registry and pose them. `now` is the host clock (invincibility),
+   * `eye` the local camera position so we can drop avatars that are inside our own head.
+   */
+  update(now: number, eye?: Vector3): void
   /** Capsules the local projectile sim tests against. Rebuilt only when membership changes. */
   hittables(): Hittable[]
   /** Feet positions of every remote actor — door proximity. */
@@ -34,6 +37,14 @@ interface Slot {
   alive: boolean
   invincible: boolean
 }
+
+/**
+ * Horizontal distance under which a remote avatar is not drawn for us: the camera is then inside
+ * their capsule, so all we would see is a wall of torso and marker box clipped by the near plane.
+ * They stay hittable — this only skips the draw.
+ */
+const HIDE_RADIUS = 0.5
+const HIDE_RADIUS_SQ = HIDE_RADIUS * HIDE_RADIUS
 
 export function createRemotePlayers(scene: Scene, registry: EntityRegistry): RemotePlayers {
   const slots = new Map<string, Slot>()
@@ -78,7 +89,7 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
   })
 
   return {
-    update(now) {
+    update(now, eye) {
       for (const entity of registry.list()) {
         if (entity.isLocal) continue
         let slot = slots.get(entity.id)
@@ -105,6 +116,12 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
           slot.avatar.setInvincible(invincible)
         }
         slot.avatar.set(entity.position, entity.yaw, entity.pitch, entity.crouching, entity.speed)
+        if (eye) {
+          const dx = entity.position.x - eye.x
+          const dz = entity.position.z - eye.z
+          slot.avatar.object.visible =
+            dx * dx + dz * dz > HIDE_RADIUS_SQ || Math.abs(entity.position.y - eye.y) > 2
+        }
       }
 
       // Anyone the registry dropped without an event (defensive).

@@ -261,7 +261,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
 
     localPlayer.frameUpdate(dt)
     binding.update(now)
-    remotePlayers.update(now)
+    remotePlayers.update(now, localPlayer.listener.position)
 
     _actors.length = 0
     _actors.push(localPlayer.position)
