@@ -97,7 +97,7 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
       el('h1', { class: 'ps-title', html: 'Pascal <em>Strike</em>' }),
       el('p', {
         class: 'ps-tagline',
-        html: '<b>WASD</b> move · <b>SPACE</b> jump · <b>CTRL</b> crouch · <b>R</b> reload · <b>TAB</b> scores · <b>ESC</b> menu',
+        html: '<b>WASD</b> move · <b>SHIFT</b> walk · <b>SPACE</b> jump · <b>CTRL</b> crouch · <b>R</b> reload · <b>E</b> doors · <b>TAB</b> scores · <b>ESC</b> menu',
       }),
       mapsField,
       el('div', { class: 'ps-actions' }, [resume, invite, sound, leave, note]),
