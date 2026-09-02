@@ -165,17 +165,47 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
   }
 
   fileInput.addEventListener('change', () => void handleFile(fileInput.files?.[0]))
+
+  /** Only file drags are ours: dragging text into the name input must keep working. */
+  const dragHasFiles = (e: DragEvent) => !!e.dataTransfer?.types?.includes('Files')
+
+  /**
+   * A GLB dropped a few pixels outside the zone used to navigate the tab to the file itself —
+   * the browser's default for an unhandled file drop — and the lobby was gone. While the lobby
+   * is mounted every file drag that reaches the document is swallowed instead (both events:
+   * without `dragover` prevented the browser never fires `drop` in the first place).
+   */
+  const swallowDrag = (e: DragEvent) => {
+    if (dragHasFiles(e)) e.preventDefault()
+  }
+  document.addEventListener('dragover', swallowDrag)
+  document.addEventListener('drop', swallowDrag)
+
+  const clearDragOver = () => {
+    drop.classList.remove('is-over')
+    mapsGrid.classList.remove('is-over')
+  }
+  // The whole map area accepts the drop, not just the dashed strip: nobody should have to aim
+  // at a 54 px band. `drop` sits inside the grid, so its own events bubble here too.
   for (const type of ['dragenter', 'dragover'] as const) {
-    drop.addEventListener(type, (e) => {
+    mapsGrid.addEventListener(type, (e) => {
+      if (!opts.uploader || !dragHasFiles(e)) return
       e.preventDefault()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
       drop.classList.add('is-over')
+      mapsGrid.classList.add('is-over')
     })
   }
-  for (const type of ['dragleave', 'drop'] as const) {
-    drop.addEventListener(type, () => drop.classList.remove('is-over'))
-  }
-  drop.addEventListener('drop', (e) => {
+  mapsGrid.addEventListener('dragleave', (e) => {
+    // Crossing from one card to the next fires `dragleave` on the card we left; only a leave
+    // that lands outside the grid ends the drag.
+    if (mapsGrid.contains(e.relatedTarget as Node | null)) return
+    clearDragOver()
+  })
+  mapsGrid.addEventListener('drop', (e) => {
+    if (!opts.uploader || !dragHasFiles(e)) return
     e.preventDefault()
+    clearDragOver()
     void handleFile(e.dataTransfer?.files?.[0])
   })
 
@@ -248,6 +278,8 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
         )
       },
       dispose() {
+        document.removeEventListener('dragover', swallowDrag)
+        document.removeEventListener('drop', swallowDrag)
         screen.remove()
       },
     }

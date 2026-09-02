@@ -275,7 +275,8 @@ canvas {
   border: 1px solid var(--border);
   background: #131316;
   cursor: pointer;
-  transition: border-color var(--t-fast), background var(--t-fast), transform var(--t-fast);
+  transition: border-color var(--t-fast), background var(--t-fast), transform var(--t-fast),
+    opacity var(--t-fast);
   overflow: hidden;
 }
 .ps-map:hover {
@@ -329,6 +330,10 @@ canvas {
     transparent 10px 20px
   );
   transition: border-color var(--t-fast), color var(--t-fast), background var(--t-fast);
+}
+/* The whole map area takes the drop, so the cards step back while one is in flight. */
+.ps-maps.is-over .ps-map {
+  opacity: 0.5;
 }
 .ps-drop:hover,
 .ps-drop.is-over {
