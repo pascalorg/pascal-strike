@@ -418,7 +418,11 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       updateHud(now)
     }
 
-    if (input.scoreboard !== boardOpen) {
+    // While the round is over the end screen owns the board: `board.show()` would paint the
+    // winner banner away and `board.hide()` cannot take it back (the end screen is not
+    // dismissible). `updateHud` refuses to refresh the board in that phase for the same
+    // reason — the two must agree, or Tab erases the result.
+    if (match?.phase !== 'ended' && input.scoreboard !== boardOpen) {
       boardOpen = input.scoreboard
       if (boardOpen) board.show(registry.list(), match)
       else board.hide()
