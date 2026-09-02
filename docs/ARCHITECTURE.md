@@ -194,12 +194,15 @@ mesh gets its own `computeBoundsTree()` once; they move with their door, so use
    on the label; if labels carry no team, the first matching zone is A, the second B.
    Sample `pointsPerZone` points inside the polygon (rejection sampling on the bbox,
    point-in-polygon), y = zone `floorY`. Yaw = facing the map centre.
-2. **Spawn nodes** (`kind: 'spawn'`): team from label like above, else alternate by index.
-3. **Auto**: candidate points = zone centroids on the lowest level that has zones, else random
+2. **Auto**: candidate points = zone centroids on the lowest level that has zones, else random
    navmesh points (if `nav` given), else a grid of raycast-validated floor points inside
    `bounds` (raycast down, hit normal.y > 0.7, and a 1.8 m clear capsule above). Pick the two
    candidates farthest apart as anchors; A = points within 2.5 m of anchor A, B likewise (ensure
-   at least one each). Yaw faces the other anchor.
+   at least one each). Yaw faces the other anchor. If the map has a `kind: 'spawn'` node, use it
+   as anchor A (it is Pascal's single walkthrough start marker, not a team spawn).
+
+Pascal's `spawn` node is a single walkthrough start point, so it is never a team spawn source.
+`SpawnLayout.source` is `'zones' | 'auto'` (the `'spawn-nodes'` value in `types.ts` is unused).
 
 ## Player controller (W1-B)
 
