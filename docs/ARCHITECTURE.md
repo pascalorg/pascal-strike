@@ -14,7 +14,12 @@ Decisions already made (do not re-litigate):
   is shared through Playroom state.
 - Mode v1: **Team deathmatch**, 3 hits to die (100 hp, 34 dmg), instant respawn at team spawn
   after 2.5 s with 3 s invincibility. First team to 30 kills or 5 min.
-- Doors **auto-open on approach** (no key). Closed door leaves block paintballs, never players.
+- Doors and openable windows toggle with **E** (state synced to every client). Doors are for
+  passage (leaves never block players, closed leaves block paintballs); windows are for paint
+  (sashes never let players through; a closed sash blocks paintballs, an open one does not).
+- Movement: running is the default, **Shift walks** (slow, precise). Accuracy depends on
+  motion (standing 0.12° → running 1.6° → airborne 2.8°). Damage by body part: head 50,
+  torso 34, arms/legs 20.
 - Desktop only (pointer lock + WASD). Mobile gets a "play on desktop" screen.
 - Branding: Pascal's palette (zinc dark theme), fonts Barlow (display) / Inter (UI) / JetBrains
   Mono (numbers), logo in `public/brand/`. Team colours: Orange `#f97316` vs Teal `#14b8a6`.
@@ -175,16 +180,23 @@ Use `bun run inspect-glb <file>` to see any file's tree.
 mesh gets its own `computeBoundsTree()` once; they move with their door, so use
 `mesh.matrixWorld` at query time) and returns the nearest hit.
 
-## Doors (W1-A)
+## Doors and windows (openables)
 
-`DoorSystem(map, mixer)`:
-- One `AnimationAction` per door from its clip: `LoopOnce`, `clampWhenFinished`,
-  `timeScale = ±DOORS.openTimeScale`.
-- `update(dt, actorPositions: Vector3[])`: a door opens when any actor (local, remote, bot) is
-  within `openRadius` of `door.center` (XZ distance, plus |dy| < 2). It closes after
-  `closeDelayMs` with no actor within `closeRadius`. Every client runs this locally on the
-  positions it knows; no network traffic.
-- Expose `isOpen(id)`, `openness(id)` (0..1), and a `door` SFX hook (`onToggle` callback).
+`map-parse.ts` turns every `openable && clips` node of kind `door` or `window` into a
+`DoorInfo` (with `kind`). `createDoorSystem(map)`:
+- One `AnimationAction` per openable from its clip: `LoopOnce`, `clampWhenFinished`,
+  `timeScale = ±DOORS.openTimeScale`; reversing mid-swing continues from the current pose.
+- `toggle(id)`, `setOpen(id, open, instant)`, `isOpen`, `openness`, `openStates()`, `onToggle`,
+  `findInteractable(origin, dir, range)` (ray vs moving leaf AABBs + closed-pose bbox).
+- Interaction: `input.interact` (E edge) → `findInteractable` from the camera within
+  `DOORS.interactRange` → RPC `door { id, open, by }` (mode ALL). The host mirrors the state into
+  global `doors` so late joiners and map changes apply it instantly (no tween).
+- Bots (host only, `game/host-side.ts`): a shut **door** within `DOORS.botOpenRadius` of a bot's
+  feet on its floor is toggled through the same RPC (one toggle per door per 1.5 s). Never windows.
+- `ui/prompt.ts` shows "E · Open door" / "E · Close window" under the crosshair while in range.
+- Colliders: the movement collider excludes door leaves and includes window sashes at their
+  closed pose (windows are never passable); the bullet collider excludes all animated leaves,
+  which `WorldQuery` tests dynamically via their own BVHs and current `matrixWorld`.
 
 ## Spawns (W1-A)
 
@@ -212,7 +224,11 @@ three-mesh-bvh's `characterMovement` example and Pascal's floating capsule contr
 - Capsule of `PLAYER.radius`, height `PLAYER.height` (crouch: `crouchHeight`, only stand up
   if a `shapecast` upward finds clearance).
 - Integrate velocity: horizontal acceleration toward the wished direction (`accel`/`decel`,
-  `airControl` in the air), gravity, jump when grounded.
+  `airControl` in the air), gravity, jump when grounded. Target speed: `runSpeed` by default,
+  `walkSpeed` while `MoveInput.walk` (Shift), `crouchSpeed` when crouching.
+- Stairs: a step-up sweep (up ≤ `stepHeight`, forward, down onto the tread) climbs 0.25 m
+  risers at 45° at run, walk and crouch speed without leaving the ground; descending snaps down
+  so the player never bounces.
 - Collision: move, then iterate 3–5 push-out passes with `geometry.boundsTree.shapecast`
   (capsule segment vs triangles, `closestPointToSegment`) exactly like the example. A contact
   whose normal.y > cos(maxSlope) counts as ground; resolve steps by allowing the capsule to be
@@ -226,29 +242,32 @@ three-mesh-bvh's `characterMovement` example and Pascal's floating capsule contr
 when crouching), look yaw/pitch from `input.ts`, recoil (impulse + spring recovery), subtle
 view bob while moving and grounded, landing dip.
 
-## Weapons (W1-B)
+## Weapons
 
-- `marker.ts`: hold-to-fire at `WEAPON.fireRate`, gaussian spread, hopper of 40, reload
-  (`R` or auto when empty) with the view model tilting. Produces `ShotEvent`s with a
-  deterministic `seed`. Recoil goes to camera.
-- `projectiles.ts`: simulates **all** shots (local and remote): `p += v dt`, `v.y -= g dt`, step
-  raycast (`WorldQuery.raycast` from previous to next position). Rendering: one `InstancedMesh`
-  of small spheres tinted by team (max 256 live). On static/door hit → `decals.add(point, normal,
-  team, seed)` + `effects.splat(...)` + SFX. For shots fired by the **local** player only, also
-  test the segment against every `Hittable` capsule (closest-point segment/segment ≤ radius sum)
-  and emit `onPlayerHit(HitEvent)` — the net layer forwards it to the host. Remote shots never
-  damage locally; they only paint.
-- `decals.ts`: `DecalGeometry` (`three/examples/jsm/geometries/DecalGeometry.js`) projected onto
-  the hit object (static collider mesh or door leaf), size random in `[minSize, maxSize]`, random
-  roll from `seed`. Material: `MeshStandardMaterial` with a **procedural splat alpha map**
-  (canvas: irregular blob + 2–4 drips, 4 variants), `color` = team, `transparent`,
-  `depthWrite: false`, `polygonOffset: true, polygonOffsetFactor: -4`. Pool of `DECALS.maxCount`
-  meshes; recycle the oldest. Decals on door leaves are parented to the leaf so they move with it.
-- `effects.ts`: muzzle puff (2–3 sprite particles), splat burst (6–10 tinted particles with
-  gravity, 0.4 s), hit marker on the crosshair (HUD callback), damage vignette (HUD callback).
-- `audio.ts`: everything procedural via WebAudio (no files): marker "thwip" (noise burst +
-  pitched sine drop), splat (filtered noise), hit tick, reload clacks, respawn chime, door
-  whoosh, footsteps (soft noise ticks by speed). Positional: simple distance attenuation + pan.
+- `weapon-model.ts`: procedural blaster (white chamfered polymer body, charcoal receiver/grip/
+  stock, top rail with sights, angled foregrip, squared muzzle; team-colour accent strip, muzzle
+  ring and translucent hopper whose paint level follows the hopper count). `'first'` quality for
+  the view model, `'third'` (~60 % of the parts) mounted in avatars' hands.
+- `marker.ts`: hold-to-fire at `WEAPON.fireRate`, hopper of 40, reload (`R` or auto). Accuracy
+  model: gaussian sigma by motion state (`setMotion(speedXZ, grounded, crouching, walking)`):
+  crouched still < standing (`spreadStandingDeg`) < walking (`spreadWalkingDeg`, Shift caps
+  here) < running (`spreadRunningDeg`, blended by speed) < airborne (`spreadAirDeg`), plus a
+  per-shot bloom (`spreadPerShotDeg`, recovering at `spreadRecoveryPerSec`, capped at
+  `spreadBloomMaxDeg`). Recovery outpaces the fire rate so standing fire stays precise.
+  `currentSpreadDeg` drives the HUD crosshair. Shots carry a deterministic `seed`.
+- `projectiles.ts`: simulates **all** shots (local and remote) at `WEAPON.projectileSpeed` with
+  gravity, sub-stepped raycasts against `WorldQuery`. Static/door hit → decal + splat burst +
+  SFX. Hits on players are detected only by the shot's owner (local player on its client, bots
+  on the host): broad phase = coarse capsule, narrow phase = `Hittable.shapes` (head / torso /
+  arms / legs from `player/hitshapes.ts`) → `HitEvent.part`; the host applies `DAMAGE[part]`.
+- `decals.ts`: `DecalGeometry` splats with procedural alpha maps (4 variants, shared with
+  avatars via `getSplatTexture`), pooled (`DECALS.maxCount`), parented to door leaves when hit.
+- `effects.ts`: muzzle flash, one-frame tracer, splat bursts. `audio.ts`: everything procedural
+  (shot with a low thump, dry fire, splat, hit, reload, respawn, door, footsteps).
+- Feedback: camera recoil with a random yaw component and a short screen shake; victims get a
+  paint splash overlay in the shooter's colour (`hud.paintHit`), heavier for headshots; shooters
+  get a hit marker (`hud.hitMarker(part)`); avatars receive `addSplat` in the shooter's colour
+  (max 12, cleared on respawn) and a big splat on death.
 
 ## Avatars (W1-B)
 
