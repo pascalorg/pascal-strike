@@ -328,6 +328,8 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   const offDoorRpc = room.rpc.register<DoorEvent>(RPCS.door, (ev) => {
     if (!ev?.id || !session) return
     session.doors.setOpen(ev.id, ev.open === true)
+    // The host remembers who did it: bots must not re-open what a player just closed.
+    hostSide.noteDoor(ev)
     publishDoorStates()
   })
 

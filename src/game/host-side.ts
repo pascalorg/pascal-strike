@@ -9,7 +9,7 @@ import { Vector3 } from 'three'
 import { DOORS } from '../config'
 import type { Audio, AudioListenerPose } from '../engine/audio'
 import { startHostAuthority, type HostAuthority } from '../net/host'
-import { PS, RPCS, type FellEvent } from '../net/protocol'
+import { PS, RPCS, type DoorEvent, type FellEvent } from '../net/protocol'
 import type { Room } from '../net/room'
 import type { NetClock } from '../net/sync'
 import type { BotRunner, EventBus, SpawnPoint, TeamId } from '../types'
@@ -43,6 +43,11 @@ export interface HostSide {
   suspend(): void
   /** Rebuild the bot runner against the current session (after a map change). */
   reload(): void
+  /**
+   * Note a door toggle so bots leave a door a player just shut alone for a while. Called by
+   * `game.ts` from the `door` RPC (every client's, so `by` decides whether it counts).
+   */
+  noteDoor(event: DoorEvent): void
   dispose(): void
 }
 
@@ -56,6 +61,11 @@ const FALL_CHECK_MS = 1000
 const BOT_DOOR_CHECK_MS = 90
 /** One toggle per door per this long, so two bots in a doorway cannot flap it. */
 const BOT_DOOR_COOLDOWN_MS = 1_500
+/**
+ * A door a *player* just closed stays closed for the bots this long. Without it the bot that
+ * made the player close it re-opens it within a tick, and the door reads as broken.
+ */
+const BOT_DOOR_PLAYER_CLOSE_MS = 6_000
 /** A bot only opens doors on its own floor (door centres sit ~1 m above the slab). */
 const BOT_DOOR_MAX_VERTICAL = 2
 const BOT_DOOR_RADIUS_SQ = DOORS.botOpenRadius * DOORS.botOpenRadius
@@ -164,6 +174,21 @@ export function createHostSide(opts: HostSideOptions): HostSide {
   // sash swinging into a room it is walking past looks like a bug.
 
   const doorCooldown = new Map<string, number>()
+  /** Door id → `Date.now()` at which a human closed it. */
+  const playerClosedAt = new Map<string, number>()
+
+  function noteDoor(event: DoorEvent): void {
+    if (!event?.id) return
+    if (event.open) {
+      playerClosedAt.delete(event.id)
+      return
+    }
+    // Only a human's close is protected: a bot has no intent to defend. An id we do not know
+    // counts as human — the registry is the only thing that can tell a bot apart.
+    if (registry.get(event.by)?.isBot) return
+    playerClosedAt.set(event.id, Date.now())
+  }
+
   const doorTimer = window.setInterval(() => {
     const session = opts.session()
     if (!authority || !session) return
@@ -177,6 +202,7 @@ export function createHostSide(opts: HostSideOptions): HostSide {
         if ((door.kind ?? 'door') !== 'door') continue
         if (session.doors.isOpen(door.id)) continue
         if ((doorCooldown.get(door.id) ?? 0) > now) continue
+        if (now - (playerClosedAt.get(door.id) ?? -Infinity) < BOT_DOOR_PLAYER_CLOSE_MS) continue
         if (Math.abs(feet.y - (door.center.y - 1)) >= BOT_DOOR_MAX_VERTICAL) continue
         const dx = feet.x - door.center.x
         const dz = feet.z - door.center.z
@@ -212,13 +238,16 @@ export function createHostSide(opts: HostSideOptions): HostSide {
     reload() {
       stopBots()
       doorCooldown.clear()
+      playerClosedAt.clear()
       if (authority) void startBots()
     },
+    noteDoor,
     dispose() {
       disposed = true
       window.clearInterval(fallTimer)
       window.clearInterval(doorTimer)
       doorCooldown.clear()
+      playerClosedAt.clear()
       offHostChange()
       offFell()
       offChange()
