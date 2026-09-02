@@ -1,13 +1,15 @@
 // @ts-ignore Bun provides this runtime module; the project intentionally has no @types/bun dependency.
 import { expect, test } from 'bun:test'
 import { Scene, Vector3 } from 'three'
-import type { HitEvent, Hittable, ShotEvent, WorldQuery } from '../types'
+import type { BodyPart, HitEvent, Hittable, ShotEvent, WorldQuery } from '../types'
 import { createTestRoom } from '../dev/test-room'
+import { computeHitShapes, createHitShapes } from '../player/hitshapes'
 import { createProjectiles } from './projectiles'
 
 const noDecals = { add() {} }
 const noEffects = { splat() {} }
 const noAudio = { play() {} }
+const emptyWorld: WorldQuery = { raycast: () => null, lineOfSight: () => true }
 
 function shot(id: string, origin: [number, number, number], dir: [number, number, number]): ShotEvent {
   return { id, by: 'local', team: 'a', origin, dir, speed: 70, t: 0, seed: 123 }
@@ -34,10 +36,6 @@ test('a wall shot from 5 m produces one static hit at the gravity-adjusted point
 })
 
 test('capsule hits respect detectPlayers', () => {
-  const emptyWorld: WorldQuery = {
-    raycast: () => null,
-    lineOfSight: () => true,
-  }
   const target: Hittable = {
     id: 'enemy',
     team: 'b',
@@ -54,6 +52,8 @@ test('capsule hits respect detectPlayers', () => {
   detecting.update(0.1, [target])
   expect(detected).toHaveLength(1)
   expect(detected[0].target).toBe('enemy')
+  // No `shapes` on this hittable (the local player still has none) — the coarse capsule decides.
+  expect(detected[0].part).toBe('torso')
   detecting.dispose()
 
   const ignored: HitEvent[] = []
@@ -64,4 +64,54 @@ test('capsule hits respect detectPlayers', () => {
   expect(ignored).toHaveLength(0)
   expect(paintingOnly.liveCount).toBe(1)
   paintingOnly.dispose()
+})
+
+/** An enemy standing at z = -5, facing +Z (towards the shooter at the origin). */
+function standingTarget(crouching = false): Hittable {
+  const feet = new Vector3(0, 0, -5)
+  const shapes = computeHitShapes(createHitShapes(), feet, 0, crouching)
+  const height = crouching ? 1.15 : 1.75
+  return {
+    id: 'enemy',
+    team: 'b',
+    alive: true,
+    capsuleStart: new Vector3(0, 0.3, -5),
+    capsuleEnd: new Vector3(0, height - 0.3, -5),
+    capsuleRadius: 0.3,
+    shapes,
+  }
+}
+
+/** Fires one flat shot from `origin` at the target and returns the body part it reported. */
+function partHitFrom(origin: [number, number, number], target: Hittable): BodyPart | undefined {
+  const hits: HitEvent[] = []
+  const projectiles = createProjectiles(new Scene(), emptyWorld, noDecals, noEffects, noAudio)
+  projectiles.onPlayerHit((hit) => hits.push(hit))
+  projectiles.spawn(shot(`local:${origin.join(',')}`, origin, [0, 0, -1]), { detectPlayers: true })
+  for (let index = 0; index < 20 && projectiles.liveCount; index++) projectiles.update(1 / 120, [target])
+  projectiles.dispose()
+  expect(hits).toHaveLength(1)
+  return hits[0].part
+}
+
+test('the narrow phase names the body part that was hit', () => {
+  const target = standingTarget()
+  expect(partHitFrom([0, 1.66, 0], target)).toBe('head')
+  expect(partHitFrom([0, 0.95, 0], target)).toBe('torso')
+  expect(partHitFrom([0.3, 1.4, 0], target)).toBe('arm')
+  expect(partHitFrom([0.12, 0.5, 0], target)).toBe('leg')
+})
+
+test('crouching lowers the head into what would be chest height', () => {
+  const standing = standingTarget()
+  const crouched = standingTarget(true)
+  // 1.08 m: the head of a crouching player, the chest of a standing one.
+  expect(partHitFrom([0, 1.08, 0], standing)).toBe('torso')
+  expect(partHitFrom([0, 1.08, 0], crouched)).toBe('head')
+})
+
+test('a shot that clips the capsule but no shape still counts as a torso hit', () => {
+  const target = standingTarget()
+  // 1.5 m up, between the shoulders and the head: inside the coarse capsule, outside every shape.
+  expect(partHitFrom([0.28, 1.5, 0], target)).toBe('torso')
 })

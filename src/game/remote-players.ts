@@ -5,7 +5,8 @@
  * the interpolator (`net/client.ts`) for remotes and from the bot runner for host bots, so both
  * paths end up in `entity.position` and this file never cares which.
  */
-import type { Scene, Vector3 } from 'three'
+import { Vector3 } from 'three'
+import type { Scene } from 'three'
 import { createAvatar, type Avatar } from '../player/avatar'
 import type { EntityRegistry } from './entities'
 import type { Hittable, PlayerEntity } from '../types'
@@ -20,9 +21,12 @@ export interface RemotePlayers {
   hittables(): Hittable[]
   /** Feet positions of every remote actor — door proximity. */
   positions(): Vector3[]
-  kill(id: string): void
+  /** `colorHex` paints the death splat in the killer's team colour. */
+  kill(id: string, colorHex?: number): void
   spawn(id: string): void
   flashHit(id: string): void
+  /** Paint a hit on the victim's body, in the shooter's team colour. */
+  splat(id: string, point: [number, number, number], colorHex: number): void
   has(id: string): boolean
   /** Drop every avatar (map change); they come back on the next `update()`. */
   clear(): void
@@ -45,6 +49,8 @@ interface Slot {
  */
 const HIDE_RADIUS = 0.5
 const HIDE_RADIUS_SQ = HIDE_RADIUS * HIDE_RADIUS
+
+const _splatPoint = new Vector3()
 
 export function createRemotePlayers(scene: Scene, registry: EntityRegistry): RemotePlayers {
   const slots = new Map<string, Slot>()
@@ -157,11 +163,11 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
     positions() {
       return positionList
     },
-    kill(id) {
+    kill(id, colorHex) {
       const slot = slots.get(id)
       if (!slot || !slot.alive) return
       slot.alive = false
-      slot.avatar.die()
+      slot.avatar.die(colorHex)
       slot.avatar.setInvincible(false)
       slot.invincible = false
     },
@@ -173,6 +179,14 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
     },
     flashHit(id) {
       slots.get(id)?.avatar.flashHit()
+    },
+    splat(id, point, colorHex) {
+      const slot = slots.get(id)
+      if (!slot || !slot.alive) return
+      _splatPoint.set(point[0], point[1], point[2])
+      // The avatar snaps the point onto the nearest body part, so a hit point computed on the
+      // shooter's machine still lands on the body here.
+      slot.avatar.addSplat(_splatPoint, null, colorHex)
     },
     has(id) {
       return slots.has(id)

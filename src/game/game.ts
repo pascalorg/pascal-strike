@@ -9,7 +9,7 @@
  *   frame      : look/camera/marker → net interpolation → avatars → projectiles → doors → HUD
  */
 import { Vector3 } from 'three'
-import { BUILTIN_MAPS, PLAYER } from '../config'
+import { BUILTIN_MAPS, PLAYER, TEAMS } from '../config'
 import { createAudio, type Audio } from '../engine/audio'
 import { createEventBus } from '../engine/events'
 import { createInput } from '../engine/input'
@@ -192,13 +192,19 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   })
 
   events.on('damage', (dmg) => {
-    if (dmg.by === room.me.id && dmg.target !== room.me.id) hud.hitMarker()
+    // W3-B: the host names the body part, so the feedback can differ per part — a headshot
+    // marker for the shooter, a heavier paint splash for the victim, paint on the victim's body.
+    const byTeam = registry.get(dmg.by)?.team ?? 'b'
+    if (dmg.by === room.me.id && dmg.target !== room.me.id) {
+      hud.hitMarker(dmg.part, registry.local?.team)
+    }
     if (dmg.target === room.me.id) {
       hud.setHp(dmg.hp)
-      hud.damageFrom(viewSpaceDirection(dmg.point), registry.get(dmg.by)?.team ?? 'b')
+      hud.paintHit(viewSpaceDirection(dmg.point), byTeam, dmg.part)
       audio.play('hit')
     } else {
       remotePlayers.flashHit(dmg.target)
+      remotePlayers.splat(dmg.target, dmg.point, TEAMS[byTeam].colorHex)
     }
   })
 
@@ -220,7 +226,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       deathAt = clock.now()
       audio.play('death')
     } else {
-      remotePlayers.kill(kill.victim)
+      remotePlayers.kill(kill.victim, TEAMS[kill.killerTeam].colorHex)
       if (victim) audio.play('death', victim.position, localPlayer.listener)
     }
   })

@@ -5,11 +5,12 @@
  * whoever inherits the room after a migration, adopting whatever state the previous host
  * published (teams, scores, match phase) instead of resetting the match.
  */
-import { MATCH, PLAYER } from '../config'
+import { DAMAGE, MATCH, PLAYER } from '../config'
 import type { EntityRegistry } from '../game/entities'
 import { createMatch, isLive, type Match } from '../game/match'
 import { botName, otherTeam, pickTeam } from '../game/teams'
 import type {
+  BodyPart,
   EventBus,
   HitEvent,
   MapSelection,
@@ -281,11 +282,14 @@ export function startHostAuthority(
     const { shooter, target } = valid
     const now = clock.now()
 
-    target.hp = Math.max(0, target.hp - PLAYER.hitDamage)
+    // The shooter names the body part; the host still owns the number that goes with it.
+    const part = bodyPart(hit.part)
+    const amount = DAMAGE[part]
+    target.hp = Math.max(0, target.hp - amount)
     write(target.id, PS.hp, target.hp)
     void room.rpc.call(
       RPCS.damage,
-      { target: target.id, by: shooter.id, hp: target.hp, point: hit.point },
+      { target: target.id, by: shooter.id, hp: target.hp, point: hit.point, part, amount },
       'all',
     )
 
@@ -412,6 +416,11 @@ function fakeCount(counts: { a: number; b: number }): { team: TeamId }[] {
   for (let i = 0; i < counts.a; i++) out.push({ team: 'a' })
   for (let i = 0; i < counts.b; i++) out.push({ team: 'b' })
   return out
+}
+
+/** Never trust a body part off the wire: an unknown one is a torso hit. */
+function bodyPart(value: unknown): BodyPart {
+  return typeof value === 'string' && value in DAMAGE ? (value as BodyPart) : 'torso'
 }
 
 function num(value: unknown, fallback: number): number {

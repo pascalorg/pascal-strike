@@ -8,7 +8,7 @@ import {
   Vector3,
 } from 'three'
 import { TEAMS, WEAPON } from '../config'
-import type { HitEvent, Hittable, ShotEvent, TeamId, WorldQuery } from '../types'
+import type { BodyPart, HitEvent, HitShape, Hittable, ShotEvent, TeamId, WorldQuery } from '../types'
 import type { Audio } from '../engine/audio'
 import type { Decals } from './decals'
 import type { Effects } from './effects'
@@ -68,6 +68,8 @@ export function createProjectiles(
   let liveCount = 0
   let playerHitTarget: Hittable | null = null
   let playerHitDistance = Infinity
+  let playerHitPart: BodyPart = 'torso'
+  let playerHitShape: HitShape | null = null
 
   function makeInstances(team: TeamId): InstancedMesh {
     const material = new MeshStandardMaterial({
@@ -94,6 +96,8 @@ export function createProjectiles(
     const shot = ball.shot!
     playerHitTarget = null
     playerHitDistance = Infinity
+    playerHitPart = 'torso'
+    playerHitShape = null
     for (const target of hittables) {
       if (!target.alive || target.team === shot.team || target.id === shot.by) continue
       const distance = rayCapsuleDistance(
@@ -109,6 +113,39 @@ export function createProjectiles(
         playerHitDistance = distance
       }
     }
+    if (playerHitTarget) narrowPhase(playerHitTarget, ball.position, maxDistance)
+  }
+
+  /**
+   * Which body part the coarse capsule hit. The capsule stays the broad phase (it is what the
+   * host validates against and it forgives network jitter), so a shot that clips the capsule
+   * without touching a shape still counts — as a torso hit, per types.ts.
+   */
+  function narrowPhase(target: Hittable, origin: Vector3, maxDistance: number): void {
+    const shapes = target.shapes
+    if (!shapes || shapes.length === 0) return
+    let bestDistance = Infinity
+    let best: HitShape | null = null
+    for (const shape of shapes) {
+      const distance = rayCapsuleDistance(
+        origin,
+        direction,
+        maxDistance,
+        shape.start,
+        shape.end,
+        shape.radius + WEAPON.projectileRadius,
+      )
+      if (distance !== null && distance < bestDistance) {
+        bestDistance = distance
+        best = shape
+      }
+    }
+    if (!best) return
+    playerHitPart = best.part
+    playerHitShape = best
+    // Refine the impact to the shape that was actually struck: the splat has to land on the
+    // head, not on the capsule wall a hand's width in front of it.
+    playerHitDistance = bestDistance
   }
 
   return {
@@ -158,8 +195,10 @@ export function createProjectiles(
 
           if (playerHitTarget && (!staticHit || playerHitDistance < staticHit.distance)) {
             const target = playerHitTarget
+            const shape = playerHitShape
             bulletPoint.copy(ball.position).addScaledVector(direction, playerHitDistance)
-            closestPointOnSegment(target.capsuleStart, target.capsuleEnd, bulletPoint, capsulePoint)
+            if (shape) closestPointOnSegment(shape.start, shape.end, bulletPoint, capsulePoint)
+            else closestPointOnSegment(target.capsuleStart, target.capsuleEnd, bulletPoint, capsulePoint)
             hitNormal.subVectors(bulletPoint, capsulePoint)
             if (hitNormal.lengthSq() < 1e-8) hitNormal.copy(direction).negate()
             else hitNormal.normalize()
@@ -169,6 +208,7 @@ export function createProjectiles(
               target: target.id,
               point: [bulletPoint.x, bulletPoint.y, bulletPoint.z],
               normal: [hitNormal.x, hitNormal.y, hitNormal.z],
+              part: playerHitPart,
             }
             for (const callback of callbacks) callback(event)
             audio.play('hitConfirm')
@@ -250,6 +290,12 @@ function rayCapsuleDistance(
   const oay = origin.y - start.y
   const oaz = origin.z - start.z
   const baba = bax * bax + bay * bay + baz * baz
+  // A HitShape with start === end is a sphere (the head): the capsule maths degenerates to
+  // 0 === 0 there and would report a hit for any ray, so branch out before it does.
+  if (baba < 1e-12) {
+    const distance = raySphereDistance(origin, rayDirection, start, radius)
+    return distance <= maxDistance ? distance : null
+  }
   const bard = bax * rayDirection.x + bay * rayDirection.y + baz * rayDirection.z
   const baoa = bax * oax + bay * oay + baz * oaz
   const rdoa = rayDirection.x * oax + rayDirection.y * oay + rayDirection.z * oaz

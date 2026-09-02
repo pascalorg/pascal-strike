@@ -40,7 +40,7 @@ const rotation = new Quaternion()
 const inverse = new Matrix4()
 
 export function createDecals(scene: Scene): Decals {
-  const alphaMaps = Array.from({ length: 4 }, (_, index) => makeSplatTexture(index))
+  const alphaMaps = SPLAT_VARIANTS.map((_, index) => getSplatTexture(index))
   const materials: Record<TeamId, MeshStandardMaterial[]> = {
     a: makeMaterials('a'),
     b: makeMaterials('b'),
@@ -118,7 +118,8 @@ export function createDecals(scene: Scene): Decals {
       for (const teamMaterials of Object.values(materials)) {
         for (const material of teamMaterials) material.dispose()
       }
-      for (const texture of alphaMaps) texture.dispose()
+      // `alphaMaps` are the shared module-level splat textures (avatars paint with the same
+      // ones), so a session teardown must not dispose them.
       count = 0
     },
   }
@@ -130,6 +131,24 @@ function seededRandom(seed: number): () => number {
     value = Math.imul(value ^ value >>> 15, value | 1)
     return ((value ^ value >>> 13) >>> 0) / 4294967296
   }
+}
+
+/** The four procedural splat shapes, built once and shared by decals and avatar paint. */
+export const SPLAT_VARIANTS = [0, 1, 2, 3] as const
+
+const splatTextures: (CanvasTexture | null)[] = [null, null, null, null]
+
+/**
+ * Alpha map for one splat variant. Lazy so importing this module outside a DOM (tests) is safe,
+ * and shared so a wall decal and the paint on a player use the very same blob.
+ */
+export function getSplatTexture(variant: number): CanvasTexture {
+  const index = ((variant % SPLAT_VARIANTS.length) + SPLAT_VARIANTS.length) % SPLAT_VARIANTS.length
+  const existing = splatTextures[index]
+  if (existing) return existing
+  const texture = makeSplatTexture(index)
+  splatTextures[index] = texture
+  return texture
 }
 
 function makeSplatTexture(variant: number): CanvasTexture {
