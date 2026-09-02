@@ -333,7 +333,11 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
   function updatePathMovement(dt: number, now: number, spawns: SpawnLayout): void {
     if (state === 'retreat' && now >= retreatUntil) enterState('roam')
     if (state === 'hunt' && now - lastSeenAt > memoryMs) enterState('roam')
+    // `-Infinity` is the "not outdoors" sentinel, so it must be excluded before the age
+    // test: `now - (-Infinity)` is `Infinity`, which would make every indoor bot think it
+    // had been stranded outside forever and repick a goal on every tick.
     const needsIndoorGoal = state === 'roam'
+      && outdoorWithoutEnemySince !== -Infinity
       && now - outdoorWithoutEnemySince > OUTDOOR_RETURN_MS
       && !returningIndoors
     if (needsIndoorGoal) {
