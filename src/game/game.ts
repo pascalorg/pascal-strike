@@ -539,8 +539,8 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       host: () => hostSide.authority,
       bots: () => hostSide.bots,
       menu: (open: boolean) => (open ? menu.open() : menu.close()),
-      move: (forward: number, right: number, jump = false, crouch = false) =>
-        localPlayer.debug.setMove(forward, right, jump, crouch),
+      move: (forward: number, right: number, jump = false, crouch = false, walk = false) =>
+        localPlayer.debug.setMove(forward, right, jump, crouch, walk),
       look: (dx: number, dy: number) => localPlayer.debug.look(dx, dy),
       fire: (on: boolean) => localPlayer.debug.setFire(on),
       fireFor: (ms: number) => {
