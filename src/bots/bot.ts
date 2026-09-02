@@ -79,6 +79,15 @@ export function createBotRunner(opts: BotRunnerOptions): BotRunner {
         )
 
         bot.marker.setTeam(entity.team)
+        // Same call the local player makes every frame: without it the marker keeps its
+        // standing sigma, so a bot sprinting sideways shot as straight as one standing still.
+        // Bots never walk (no Shift), so the walking flag is always false.
+        bot.marker.setMotion(
+          entity.speed,
+          bot.controller.state.grounded,
+          bot.controller.state.crouching,
+          false,
+        )
         const shots = bot.marker.update(dt, decision.fire, false, bot.origin, bot.direction)
         for (let shotIndex = 0; shotIndex < shots.length; shotIndex++) {
           opts.onShot(entity, shots[shotIndex])
