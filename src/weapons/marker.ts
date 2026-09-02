@@ -124,7 +124,7 @@ function applySpread(direction: Vector3, seed: number, out: Vector3): Vector3 {
   const u1 = Math.max(random(), 1e-7)
   const u2 = random()
   const gaussianRadius = Math.sqrt(-2 * Math.log(u1))
-  const sigma = WEAPON.spreadDeg * Math.PI / 180
+  const sigma = WEAPON.spreadWalkingDeg /* W3-A replaces with the motion-state model */ * Math.PI / 180
   const x = gaussianRadius * Math.cos(2 * Math.PI * u2) * sigma
   const y = gaussianRadius * Math.sin(2 * Math.PI * u2) * sigma
   tangent.set(0, 1, 0).cross(out)
