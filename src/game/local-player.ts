@@ -16,6 +16,7 @@ import type { Engine } from '../engine/renderer'
 import { createFpsCamera, type FpsCamera } from '../player/camera'
 import { createCharacterController } from '../player/controller'
 import { createViewModel, type ViewModel } from '../player/viewmodel'
+import { computeHitShapes, createHitShapes } from '../player/hitshapes'
 import type {
   CharacterController,
   Hittable,
@@ -117,6 +118,8 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
     capsuleStart: new Vector3(),
     capsuleEnd: new Vector3(),
     capsuleRadius: PLAYER.radius,
+    // Body parts so the host's projectile sim (bots shooting me) applies head/limb damage.
+    shapes: createHitShapes(),
   }
 
   let yaw = 0
@@ -305,6 +308,7 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
       hittable.team = entity.team
       hittable.capsuleStart.set(p.x, p.y + PLAYER.radius, p.z)
       hittable.capsuleEnd.set(p.x, p.y + controller.height - PLAYER.radius, p.z)
+      computeHitShapes(hittable.shapes!, p, entity.yaw, controller.state.crouching)
       return hittable
     },
 
