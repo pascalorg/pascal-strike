@@ -11,7 +11,15 @@ import { msLeft } from '../game/match'
 import { createEventBus } from '../engine/events'
 import { bindNetToRegistry, type NetBinding } from '../net/client'
 import { startHostAuthority, type HostAuthority } from '../net/host'
-import { GS, PS, RPCS } from '../net/protocol'
+import {
+  BOTS_FILL_DEFAULT,
+  botsFillFrom,
+  botsFillIsSet,
+  botsFillValue,
+  GS,
+  PS,
+  RPCS,
+} from '../net/protocol'
 import { joinRoom, roomCodeFromHash, type Room } from '../net/room'
 import { createClock, createSnapshotSender, type NetClock } from '../net/sync'
 import type { MatchState, PlayerSnapshot, SpawnPoint, TeamId } from '../types'
@@ -41,9 +49,16 @@ export async function start(): Promise<void> {
   })
   const createBtn = el('button', { class: 'ps-btn ps-btn--primary' }, ['Create room'])
   const joinBtn = el('button', { class: 'ps-btn' }, ['Join code'])
+  // Only meaningful on "Create room": a joiner adopts whatever the host published.
+  const fillInput = el('input', { type: 'checkbox', id: 'ps-fill' })
+  fillInput.checked = localStorage.getItem('ps.botsFill') !== '0'
+  const fillLabel = el('label', { class: 'ps-dim', for: 'ps-fill' }, [
+    fillInput,
+    ' fill empty slots with bots',
+  ])
   const landing = el('section', {}, [
     el('h2', { text: 'connect' }),
-    el('div', { class: 'ps-row' }, [nameInput, createBtn, codeInput, joinBtn]),
+    el('div', { class: 'ps-row' }, [nameInput, fillLabel, createBtn, codeInput, joinBtn]),
     el('div', {
       class: 'ps-dim',
       style: 'margin-top:8px',
@@ -56,15 +71,17 @@ export async function start(): Promise<void> {
   root.appendChild(el('h1', { text: 'Pascal Strike · net harness' }))
   root.appendChild(landing)
 
-  const connect = async (roomCode?: string) => {
+  const connect = async (roomCode?: string, creating = false) => {
     createBtn.toggleAttribute('disabled', true)
     joinBtn.toggleAttribute('disabled', true)
     const name = nameInput.value.trim() || 'Tester'
+    const botsFill = fillInput.checked
     localStorage.setItem('ps.name', name)
+    localStorage.setItem('ps.botsFill', botsFill ? '1' : '0')
     try {
-      const room = await joinRoom({ name, roomCode })
+      const room = await joinRoom({ name, roomCode, botsFill: creating ? botsFill : undefined })
       landing.remove()
-      run(root, room, name)
+      run(root, room, name, creating ? botsFill : undefined)
     } catch (err) {
       landing.appendChild(
         el('div', { style: 'color:#f87171;margin-top:8px', text: String((err as Error)?.message ?? err) }),
@@ -74,11 +91,11 @@ export async function start(): Promise<void> {
     }
   }
 
-  createBtn.addEventListener('click', () => void connect(hashCode ?? undefined))
+  createBtn.addEventListener('click', () => void connect(hashCode ?? undefined, true))
   joinBtn.addEventListener('click', () => void connect(codeInput.value.trim() || undefined))
 }
 
-function run(root: HTMLElement, room: Room, name: string): void {
+function run(root: HTMLElement, room: Room, name: string, botsFill?: boolean): void {
   const events = createEventBus()
   const registry = createEntityRegistry()
   const clock = createClock(room)
@@ -127,6 +144,11 @@ function run(root: HTMLElement, room: Room, name: string): void {
   const ensureHost = () => {
     if (room.isHost() && !host) host = startHostAuthority(room, registry, spawnFor, events, clock)
   }
+  // The harness has no `game.ts` to publish the room's settings, so it does the same thing:
+  // the creator states the bot fill once, and never overwrites a value the room already has.
+  if (room.isHost() && !botsFillIsSet(room.getGlobal<unknown>(GS.botsFill))) {
+    room.setGlobal(GS.botsFill, botsFillValue(botsFill ?? BOTS_FILL_DEFAULT), true)
+  }
   ensureHost()
   room.onHostChange((isHost) => {
     log(`host changed → ${isHost ? 'I am the host now' : 'someone else hosts'}`)
@@ -154,6 +176,11 @@ function run(root: HTMLElement, room: Room, name: string): void {
   const hitBtn = el('button', { class: 'ps-btn' }, ['Send hit on random enemy'])
   const targetSelect = el('select', { class: 'ps-input', style: 'max-width:220px;height:32px' })
   const hitSelBtn = el('button', { class: 'ps-btn' }, ['Send hit on selected'])
+  const fillToggle = el('input', { type: 'checkbox', id: 'ps-fill-live' })
+  const fillToggleLabel = el('label', { class: 'ps-dim', for: 'ps-fill-live' }, [
+    fillToggle,
+    ' bots fill (host)',
+  ])
   const leaveBtn = el('button', { class: 'ps-btn' }, ['Leave'])
   const invite = el('a', { href: room.inviteUrl, target: '_blank', text: room.inviteUrl })
 
@@ -168,7 +195,14 @@ function run(root: HTMLElement, room: Room, name: string): void {
   root.appendChild(
     el('section', {}, [
       el('h2', { text: 'actions' }),
-      el('div', { class: 'ps-row' }, [shotBtn, hitBtn, targetSelect, hitSelBtn, leaveBtn]),
+      el('div', { class: 'ps-row' }, [
+        shotBtn,
+        hitBtn,
+        targetSelect,
+        hitSelBtn,
+        fillToggleLabel,
+        leaveBtn,
+      ]),
     ]),
   )
   root.appendChild(el('section', {}, [el('h2', { text: 'events' }), logBox]))
@@ -253,6 +287,14 @@ function run(root: HTMLElement, room: Room, name: string): void {
   hitBtn.addEventListener('click', () => sendHit())
   hitSelBtn.addEventListener('click', () => sendHit(targetSelect.value || undefined))
 
+  fillToggle.addEventListener('change', () => {
+    const on = fillToggle.checked
+    if (host && room.isHost()) host.setBotsFill(on)
+    else if (room.isHost()) room.setGlobal(GS.botsFill, botsFillValue(on), true)
+    else return log('only the host can change the bot fill')
+    log(`bots fill → ${on ? 'on' : 'off'}`)
+  })
+
   leaveBtn.addEventListener('click', () => {
     window.clearInterval(botTimer)
     window.clearInterval(refresh)
@@ -272,6 +314,9 @@ function run(root: HTMLElement, room: Room, name: string): void {
 
     const match = room.getGlobal<MatchState>(GS.match) ?? null
     const me = registry.get(room.me.id)
+    const fill = botsFillFrom(room.getGlobal<unknown>(GS.botsFill))
+    if (fillToggle.checked !== fill) fillToggle.checked = fill
+    fillToggle.toggleAttribute('disabled', !room.isHost())
     info.replaceChildren(
       row('room', room.roomCode),
       row('me', `${name} · ${room.me.id.slice(0, 6)} · team ${me?.team ?? '?'}`),
@@ -285,6 +330,7 @@ function run(root: HTMLElement, room: Room, name: string): void {
             ).toFixed(1)}s left`
           : '—',
       ),
+      row('bots fill', fill ? 'on' : 'off'),
       row('teams', teamSummary(registry)),
     )
 

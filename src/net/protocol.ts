@@ -62,7 +62,39 @@ export const GS = {
    * `door` RPC so a late joiner can adopt the house as it is instead of a house of shut doors.
    */
   doors: 'doors',
+  /**
+   * `'on' | 'off'` — "fill empty slots with bots". The room creator picks it in the lobby and
+   * the host can flip it mid-match from the Esc menu; `host.ts` reads it on every balance pass.
+   * Living in global state means a host migration inherits it like everything else.
+   *
+   * Not a boolean on the wire on purpose: playroomkit 0.0.97 never delivers a global whose
+   * value is exactly `false` to the other clients (`0`, `'off'` and `true` all arrive), which
+   * would leave joiners showing a stale "bots on" and — worse — hand a new host after a
+   * migration a room that refills itself. Always encode with `botsFillValue`, decode with
+   * `botsFillFrom`; a missing value (old rooms) reads as ON.
+   */
+  botsFill: 'botsFill',
 } as const
+
+/** What `botsFill` means when the room state has no value for it. */
+export const BOTS_FILL_DEFAULT = true
+
+/** Encode the flag for `setGlobal`. */
+export function botsFillValue(on: boolean): 'on' | 'off' {
+  return on ? 'on' : 'off'
+}
+
+/** Read the flag, tolerating a room that never published one (and legacy booleans). */
+export function botsFillFrom(value: unknown): boolean {
+  if (value === 'off' || value === false) return false
+  if (value === 'on' || value === true) return true
+  return BOTS_FILL_DEFAULT
+}
+
+/** Has anybody published the flag yet? (An unset room is not the same as one set to on.) */
+export function botsFillIsSet(value: unknown): boolean {
+  return value === 'on' || value === 'off' || typeof value === 'boolean'
+}
 
 /** RPC names. */
 export const RPCS = {

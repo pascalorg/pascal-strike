@@ -19,7 +19,14 @@ import {
 } from 'playroomkit'
 import { ENV, MATCH } from '../config'
 import type { MapSelection } from '../types'
-import { DEFAULT_PLAYER_STATES, DEFAULT_STATES, GS, PS, type RpcMode } from './protocol'
+import {
+  botsFillValue,
+  DEFAULT_PLAYER_STATES,
+  DEFAULT_STATES,
+  GS,
+  PS,
+  type RpcMode,
+} from './protocol'
 
 /**
  * Playroom instantiates the bot class on every client (the host drives it, the others just
@@ -82,6 +89,11 @@ export interface JoinOptions {
   roomCode?: string
   /** Host-only: the map everyone will load. */
   map?: MapSelection | null
+  /**
+   * Host-only: "fill empty slots with bots". Seeded as a room default so the flag exists from
+   * the first tick; the host republishes it whenever it changes.
+   */
+  botsFill?: boolean
 }
 
 const RPC_MODE = { all: RPC.Mode.ALL, others: RPC.Mode.OTHERS, host: RPC.Mode.HOST } as const
@@ -137,6 +149,7 @@ async function connect(opts: JoinOptions): Promise<Room> {
   const defaultPlayerStates = { ...DEFAULT_PLAYER_STATES }
   const defaultStates = { ...DEFAULT_STATES }
   if (opts.map) defaultStates[GS.map] = opts.map
+  if (typeof opts.botsFill === 'boolean') defaultStates[GS.botsFill] = botsFillValue(opts.botsFill)
 
   try {
     await insertCoin({

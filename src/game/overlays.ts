@@ -72,6 +72,10 @@ export interface PauseMenuOptions {
   onMap(map: MapSelection): void
   onAudio(on: boolean): void
   onLeave(): void
+  /** Room state: does the host fill empty slots with bots? Read while the menu is open. */
+  botsFill(): boolean
+  /** Host-only — the menu never calls this for anyone else. */
+  setBotsFill(on: boolean): void
 }
 
 export interface PauseMenu {
@@ -91,6 +95,7 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
   const resume = el('button', { class: 'ps-btn ps-btn--primary ps-btn--block' }, ['Play'])
   const invite = el('button', { class: 'ps-btn ps-btn--block' }, ['Copy invite link'])
   const sound = el('button', { class: 'ps-btn ps-btn--block' }, ['Sound: on'])
+  const bots = el('button', { class: 'ps-btn ps-btn--block' }, ['Bots: on'])
   const leave = el('button', { class: 'ps-btn ps-btn--ghost ps-btn--block' }, ['Leave to lobby'])
   const screen = el('div', { class: 'ps-screen', style: 'z-index:15;display:none' }, [
     el('div', { class: 'ps-card', style: 'max-width:440px' }, [
@@ -100,7 +105,7 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
         html: '<b>WASD</b> move · <b>SHIFT</b> walk · <b>SPACE</b> jump · <b>CTRL</b> crouch · <b>R</b> reload · <b>E</b> doors · <b>TAB</b> scores · <b>ESC</b> menu',
       }),
       mapsField,
-      el('div', { class: 'ps-actions' }, [resume, invite, sound, leave, note]),
+      el('div', { class: 'ps-actions' }, [resume, invite, sound, bots, leave, note]),
     ]),
   ])
   opts.mount.appendChild(screen)
@@ -143,6 +148,23 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
     }
   }
 
+  /**
+   * The host owns the setting, so everyone else gets the same line without a button: the state
+   * is the room's, not this client's. Re-read on a timer so a flip by the host (or a host
+   * migration) shows up on a menu that is already open.
+   */
+  const renderBots = () => {
+    const on = opts.botsFill()
+    const host = opts.isHost()
+    bots.textContent = host
+      ? `Bots fill empty slots: ${on ? 'on' : 'off'}`
+      : `Bots: ${on ? 'on' : 'off'}`
+    bots.toggleAttribute('disabled', !host)
+    bots.title = host
+      ? 'Off empties the room of bots; on refills both teams to three.'
+      : 'Only the host can change this.'
+  }
+
   let open = false
   let audioOn = true
 
@@ -154,6 +176,7 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
       if (open) return
       open = true
       renderMaps()
+      renderBots()
       screen.style.display = ''
     },
     close() {
@@ -162,9 +185,14 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
       screen.style.display = 'none'
     },
     dispose() {
+      window.clearInterval(botsTimer)
       screen.remove()
     },
   }
+
+  const botsTimer = window.setInterval(() => {
+    if (open) renderBots()
+  }, 500)
 
   resume.addEventListener('click', () => {
     menu.close()
@@ -180,6 +208,15 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
     audioOn = !audioOn
     sound.textContent = `Sound: ${audioOn ? 'on' : 'off'}`
     opts.onAudio(audioOn)
+  })
+  bots.addEventListener('click', () => {
+    if (!opts.isHost()) return
+    const next = !opts.botsFill()
+    opts.setBotsFill(next)
+    renderBots()
+    note.textContent = next
+      ? 'Bots will refill both teams to three.'
+      : 'Bots kicked — humans only until you turn this back on.'
   })
   leave.addEventListener('click', () => opts.onLeave())
 
@@ -202,6 +239,8 @@ export interface GameStatus {
   match: MatchState | null
   local: LocalPlayer
   bots: boolean
+  /** Room setting, not "is the bot runner up": whether empty slots get filled with bots. */
+  botsFill: boolean
   menuOpen: boolean
   locked: boolean
 }
@@ -228,6 +267,7 @@ export function statusSnapshot(s: GameStatus) {
     decals: s.session.decals.count,
     balls: s.session.projectiles.liveCount,
     bots: s.bots,
+    botsFill: s.botsFill,
     menuOpen: s.menuOpen,
     locked: s.locked,
     match: s.match && {
@@ -288,7 +328,7 @@ export function createDebugPanel(
       node.textContent = [
         `${s.backend} · ${Math.round(s.fps)} fps`,
         `room ${s.room.roomCode}${s.room.isHost() ? ' (host)' : ''} · clock ${s.clockOffset} ms`,
-        `entities ${s.registry.size} · bots ${s.bots ? 'on' : 'off'} · nav ${s.session.nav?.ready ? 'ready' : '…'}`,
+        `entities ${s.registry.size} · bots ${s.bots ? 'on' : 'off'} · fill ${s.botsFill ? 'on' : 'off'} · nav ${s.session.nav?.ready ? 'ready' : '…'}`,
         `spawns ${s.session.spawns.source} a=${s.session.spawns.a.length} b=${s.session.spawns.b.length}`,
         `decals ${s.session.decals.count} · balls ${s.session.projectiles.liveCount}`,
         `pos ${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)} · yaw ${s.local.yaw.toFixed(2)}`,

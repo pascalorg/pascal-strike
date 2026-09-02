@@ -17,7 +17,17 @@ import { createLoaders } from '../engine/loaders'
 import { createRenderer, type Engine } from '../engine/renderer'
 import { createNavMeshHelper } from '../map/navmesh'
 import { bindNetToRegistry } from '../net/client'
-import { GS, RPCS, type DoorEvent, type DoorStates, type FellEvent } from '../net/protocol'
+import {
+  BOTS_FILL_DEFAULT,
+  botsFillFrom,
+  botsFillIsSet,
+  botsFillValue,
+  GS,
+  RPCS,
+  type DoorEvent,
+  type DoorStates,
+  type FellEvent,
+} from '../net/protocol'
 import type { Room } from '../net/room'
 import { createClock, createSnapshotSender } from '../net/sync'
 import type { DoorInfo, Hittable, MapSelection, MatchState, TeamId } from '../types'
@@ -42,6 +52,11 @@ export interface GameOptions {
   room: Room
   /** Map the host picked in the lobby; joiners pass null and wait for the room state. */
   map: MapSelection | null
+  /**
+   * "Fill empty slots with bots" from the lobby. Like `map`, only the room creator passes it;
+   * a joiner leaves it undefined and adopts whatever the room already says.
+   */
+  botsFill?: boolean
   mount: HTMLElement
   debug?: boolean
 }
@@ -65,6 +80,11 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   const loading = createLoadingOverlay(mount)
   loading.set(0, 'Waiting for the host to pick a map')
   const selection = await resolveMapSelection(room, opts.map)
+  // Same rule as the map: the creator publishes its lobby answer, everyone else adopts the
+  // room's. Never overwrite a value that is already there — a joiner must not reset the host.
+  if (room.isHost() && !botsFillIsSet(room.getGlobal<unknown>(GS.botsFill))) {
+    room.setGlobal(GS.botsFill, botsFillValue(opts.botsFill ?? BOTS_FILL_DEFAULT), true)
+  }
 
   const engine = await createRenderer(mount)
   const loaders = createLoaders(engine.renderer)
@@ -426,6 +446,12 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       if (hostSide.authority) hostSide.authority.setMap(next)
       else room.setGlobal(GS.map, next, true)
     },
+    botsFill: () => botsFillFrom(room.getGlobal<unknown>(GS.botsFill)),
+    setBotsFill: (on) => {
+      // The menu only offers this to the host; the authority kicks or refills on its next tick.
+      if (hostSide.authority) hostSide.authority.setBotsFill(on)
+      else if (room.isHost()) room.setGlobal(GS.botsFill, botsFillValue(on), true)
+    },
     onAudio: (on) => {
       muted = !on
       if (on) void audio.resume()
@@ -480,6 +506,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     match,
     local: localPlayer,
     bots: !!hostSide.bots,
+    botsFill: botsFillFrom(room.getGlobal<unknown>(GS.botsFill)),
     menuOpen: menu.isOpen,
     locked: input.locked,
   })
@@ -538,6 +565,14 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       local: () => localPlayer,
       host: () => hostSide.authority,
       bots: () => hostSide.bots,
+      /** Read the room's bot fill, or (as host) flip it — the Esc menu without the pointer. */
+      botsFill: (on?: boolean) => {
+        if (typeof on === 'boolean') {
+          if (hostSide.authority) hostSide.authority.setBotsFill(on)
+          else if (room.isHost()) room.setGlobal(GS.botsFill, botsFillValue(on), true)
+        }
+        return botsFillFrom(room.getGlobal<unknown>(GS.botsFill))
+      },
       menu: (open: boolean) => (open ? menu.open() : menu.close()),
       move: (forward: number, right: number, jump = false, crouch = false, walk = false) =>
         localPlayer.debug.setMove(forward, right, jump, crouch, walk),

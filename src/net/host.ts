@@ -19,7 +19,7 @@ import type {
   SpawnPoint,
   TeamId,
 } from '../types'
-import { GS, HIT_MAX_DESYNC_M, PS, RPCS, SEEN_SHOTS } from './protocol'
+import { botsFillFrom, botsFillValue, GS, HIT_MAX_DESYNC_M, PS, RPCS, SEEN_SHOTS } from './protocol'
 import { isBotPlayer, type Room } from './room'
 import type { NetClock } from './sync'
 
@@ -32,6 +32,13 @@ export interface HostAuthority {
   submitHit(hit: HitEvent): boolean
   /** Host-only map change; everyone reloads from the `map` global. */
   setMap(map: MapSelection): void
+  /** Room state: are empty slots filled with bots? */
+  readonly botsFill: boolean
+  /**
+   * Host-only: flip the bot fill. Off kicks every bot at once (their entities leave through the
+   * usual onLeave path), on refills to `MATCH.maxPlayers`.
+   */
+  setBotsFill(on: boolean): void
   /** Force everyone back to a spawn point (used on round change). */
   respawnAll(): void
   /**
@@ -81,6 +88,8 @@ export function startHostAuthority(
   let adopted = false
   let addingBot = false
   let lastBalance = 0
+  /** Last seen `botsFill`; a change rebalances on the very next tick instead of after 500 ms. */
+  let lastFill: boolean | null = null
 
   // --- helpers -------------------------------------------------------------
 
@@ -165,11 +174,20 @@ export function startHostAuthority(
 
   // --- teams, bot fill -----------------------------------------------------
 
+  /** The room's "fill empty slots with bots" flag; absent (old rooms) means on. */
+  const botsFill = () => botsFillFrom(room.getGlobal<unknown>(GS.botsFill))
+
+  const dropBot = (hp: HostPlayer) => {
+    players.delete(hp.id)
+    room.kick(hp.id)
+  }
+
   const balance = () => {
     const list = room.players()
     const humans: HostPlayer[] = []
     const bots: HostPlayer[] = []
     const live = new Set<string>()
+    const fill = botsFill()
 
     for (const p of list) {
       live.add(p.id)
@@ -177,6 +195,13 @@ export function startHostAuthority(
       ;(hp.isBot ? bots : humans).push(hp)
     }
     for (const id of [...players.keys()]) if (!live.has(id)) players.delete(id)
+
+    // Humans only: every bot goes, and none is ever added below. Team balancing for the
+    // humans is untouched — they still spread over both teams.
+    if (!fill) {
+      for (const hp of bots) dropBot(hp)
+      bots.length = 0
+    }
 
     const counts = { a: 0, b: 0 }
     for (const hp of humans) {
@@ -196,8 +221,7 @@ export function startHostAuthority(
         if (counts[alt] < MATCH.teamSize) team = alt
         else {
           // Both sides are full: this bot is the one a joining human replaces.
-          players.delete(hp.id)
-          room.kick(hp.id)
+          dropBot(hp)
           continue
         }
       }
@@ -213,7 +237,7 @@ export function startHostAuthority(
     }
 
     const total = counts.a + counts.b
-    if (total < MATCH.maxPlayers && !addingBot) {
+    if (fill && total < MATCH.maxPlayers && !addingBot) {
       addingBot = true
       room
         .addBot()
@@ -345,7 +369,14 @@ export function startHostAuthority(
     if (!adopted) adopt()
 
     const now = clock.now()
-    if (now - lastBalance > BALANCE_MS) {
+    const fill = botsFill()
+    if (fill !== lastFill) {
+      // Somebody (maybe another client's Esc menu, before it handed the room over) flipped the
+      // flag: kick or refill now rather than at the next balance window.
+      lastFill = fill
+      lastBalance = now
+      balance()
+    } else if (now - lastBalance > BALANCE_MS) {
       lastBalance = now
       balance()
     }
@@ -392,6 +423,16 @@ export function startHostAuthority(
     setMap(map) {
       room.setGlobal(GS.map, map, true)
       events.emit('map-changed', map)
+    },
+    get botsFill() {
+      return botsFill()
+    },
+    setBotsFill(on) {
+      if (!room.isHost()) return
+      room.setGlobal(GS.botsFill, botsFillValue(on), true)
+      lastFill = on
+      lastBalance = clock.now()
+      balance()
     },
     respawnAll,
     respawnPlayer(id) {

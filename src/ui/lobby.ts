@@ -7,6 +7,8 @@ import type { MapSelection } from '../types'
 import { appRoot, el } from './dom'
 
 const NAME_KEY = 'ps.name'
+/** "Fill empty slots with bots", remembered next to the name. Absent = on. */
+const BOTS_KEY = 'ps.botsFill'
 /** Mirrors MAX_MAP_BYTES in storage/maps-upload; kept local so the lobby stays Supabase-free. */
 const MAX_MAP_BYTES = 50 * 1024 * 1024
 
@@ -24,6 +26,11 @@ export interface LobbyResult {
   name: string
   map: MapSelection | null
   roomCode?: string
+  /**
+   * "Fill empty slots with bots". Only the room creator's answer counts — a joiner adopts the
+   * room's setting — but the value is always filled in (from localStorage, default on).
+   */
+  botsFill: boolean
   /** Feedback while the caller connects ("Creating room…", or an error). */
   setStatus(message: string, kind?: 'info' | 'error' | 'ok'): void
   /** Re-enables Play after a failed connection. */
@@ -52,6 +59,30 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
     autocomplete: 'off',
     spellcheck: false,
   })
+
+  const botsInput = el('input', { type: 'checkbox', class: 'ps-switch-input' })
+  botsInput.checked = localStorage.getItem(BOTS_KEY) !== '0'
+  const botsHint = el('span', { class: 'ps-switch-hint' })
+  const modeNote = el('span', { class: 'ps-map-meta' })
+  const botsField = el('div', { class: 'ps-field' }, [
+    el('label', { class: 'ps-label', text: 'Bots' }),
+    el('label', { class: 'ps-switch' }, [
+      botsInput,
+      el('span', { class: 'ps-switch-track' }, [el('i')]),
+      el('span', { class: 'ps-switch-copy' }, [
+        el('span', { class: 'ps-switch-title', text: 'Fill empty slots with bots' }),
+        botsHint,
+      ]),
+    ]),
+  ])
+  const renderBots = () => {
+    botsHint.textContent = botsInput.checked
+      ? 'Both teams stay 3v3 — a bot leaves whenever a human joins.'
+      : 'Humans only: nobody joins your room unless you invite them.'
+    modeNote.textContent = botsInput.checked ? '3v3 · bots fill empty slots' : '3v3 · humans only'
+  }
+  renderBots()
+  botsInput.addEventListener('change', renderBots)
 
   const playBtn = el('button', { class: 'ps-btn ps-btn--primary ps-btn--block' }, [
     joining ? 'Join match' : 'Play',
@@ -175,12 +206,14 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
           el('label', { class: 'ps-label', text: 'Map' }),
           mapsGrid,
         ]),
+    // Only the creator's answer reaches the room, so a joiner is not asked.
+    joining ? null : botsField,
     el('div', { class: 'ps-actions' }, [
       playBtn,
       note,
       joining
         ? null
-        : el('div', { class: 'ps-secondary' }, [codeToggle, el('span', { class: 'ps-map-meta', text: '3v3 · bots fill empty slots' })]),
+        : el('div', { class: 'ps-secondary' }, [codeToggle, modeNote]),
       joining ? null : codeRow,
     ]),
     el('div', { class: 'ps-foot' }, [
@@ -204,6 +237,7 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
     const result: LobbyResult = {
       name: '',
       map: null,
+      botsFill: botsInput.checked,
       setStatus: setNote,
       setBusy(busy) {
         playBtn.toggleAttribute('disabled', busy)
@@ -221,8 +255,10 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
     const finish = (roomCode?: string) => {
       const name = (nameInput.value || '').trim().slice(0, 16) || 'Player'
       localStorage.setItem(NAME_KEY, name)
+      localStorage.setItem(BOTS_KEY, botsInput.checked ? '1' : '0')
       result.name = name
       result.map = joining || roomCode ? null : selected
+      result.botsFill = botsInput.checked
       result.roomCode = roomCode ?? joinCode ?? undefined
       result.setBusy(true)
       setNote(roomCode || joining ? 'Joining room…' : 'Creating room…')

@@ -54,15 +54,24 @@ async function play(): Promise<void> {
     })
     banner.clear()
     try {
+      // Creating a room (no code): our lobby answers decide the map and the bot fill. Joining
+      // one: both come from the room state the host published.
+      const creating = !lobby.roomCode
       const room = await joinRoom({
         name: lobby.name,
         roomCode: lobby.roomCode,
         map: lobby.map,
+        botsFill: creating ? lobby.botsFill : undefined,
       })
       lobby.setStatus('Loading the map…', 'ok')
       const { startGame } = await import('./game/game')
       lobby.dispose()
-      await startGame({ room, map: lobby.map, mount })
+      await startGame({
+        room,
+        map: lobby.map,
+        botsFill: creating ? lobby.botsFill : undefined,
+        mount,
+      })
       // Only once the game is really up: until then the banner is the only way to explain a
       // failure to the player, and `show()` on a detached node says nothing.
       banner.dispose()
