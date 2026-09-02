@@ -1,0 +1,27 @@
+{
+  "name": "pascal-strike",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "inspect-glb": "node scripts/inspect-glb.mjs"
+  },
+  "dependencies": {
+    "@recast-navigation/core": "0.43.1",
+    "@recast-navigation/three": "0.43.1",
+    "@supabase/supabase-js": "2.114.0",
+    "playroomkit": "0.0.97",
+    "recast-navigation": "0.43.1",
+    "three": "0.185.1",
+    "three-mesh-bvh": "0.9.14"
+  },
+  "devDependencies": {
+    "@types/three": "0.185.4",
+    "typescript": "7.0.2",
+    "vite": "8.2.2"
+  }
+}
