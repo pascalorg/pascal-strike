@@ -98,7 +98,7 @@ test('the narrow phase names the body part that was hit', () => {
   const target = standingTarget()
   expect(partHitFrom([0, 1.66, 0], target)).toBe('head')
   expect(partHitFrom([0, 0.95, 0], target)).toBe('torso')
-  expect(partHitFrom([0.3, 1.4, 0], target)).toBe('arm')
+  expect(partHitFrom([0.3, 1.2, 0], target)).toBe('arm')
   expect(partHitFrom([0.12, 0.5, 0], target)).toBe('leg')
 })
 
