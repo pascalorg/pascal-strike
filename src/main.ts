@@ -62,8 +62,10 @@ async function play(): Promise<void> {
       lobby.setStatus('Loading the map…', 'ok')
       const { startGame } = await import('./game/game')
       lobby.dispose()
-      banner.dispose()
       await startGame({ room, map: lobby.map, mount })
+      // Only once the game is really up: until then the banner is the only way to explain a
+      // failure to the player, and `show()` on a detached node says nothing.
+      banner.dispose()
       return
     } catch (err) {
       if (err instanceof RendererInitError) {
