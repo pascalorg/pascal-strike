@@ -17,7 +17,6 @@ import {
   Group,
   Line,
   LineBasicMaterial,
-  LineLoop,
   Mesh,
   MeshBasicMaterial,
   Object3D,
@@ -289,15 +288,17 @@ function buildZoneOverlay(map: MapData): { group: Group } {
   group.name = 'overlay-zones'
   for (const zone of map.zones) {
     const color = new Color(zone.color || '#8b8b93')
-    const positions = new Float32Array(zone.polygon.length * 3)
-    zone.polygon.forEach((p, i) => {
+    // WebGPURenderer does not support LineLoop, so close the ring by repeating the first point.
+    const ring = [...zone.polygon, zone.polygon[0]]
+    const positions = new Float32Array(ring.length * 3)
+    ring.forEach((p, i) => {
       positions[i * 3] = p.x
       positions[i * 3 + 1] = zone.floorY + 0.03
       positions[i * 3 + 2] = p.y
     })
     const geometry = new BufferGeometry()
     geometry.setAttribute('position', new BufferAttribute(positions, 3))
-    group.add(new LineLoop(geometry, new LineBasicMaterial({ color, depthTest: false })))
+    group.add(new Line(geometry, new LineBasicMaterial({ color, depthTest: false })))
     const sprite = makeLabel(zone.label, zone.color || '#e4e4e7')
     sprite.position.set(zone.centroid.x, zone.floorY + 1.2, zone.centroid.z)
     group.add(sprite)

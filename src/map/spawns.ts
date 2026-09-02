@@ -48,7 +48,7 @@ export function resolveSpawns(map: MapData, world: WorldQuery, nav?: Navigation)
   map.bounds.getCenter(_mapCenter)
   const center = _mapCenter.clone()
 
-  const fromZones = spawnsFromZones(map, center)
+  const fromZones = spawnsFromZones(map, world, center)
   if (fromZones) return fromZones
 
   return autoSpawns(map, world, nav)
@@ -58,7 +58,7 @@ export function resolveSpawns(map: MapData, world: WorldQuery, nav?: Navigation)
 // Rule 1 — spawn zones
 // ---------------------------------------------------------------------------
 
-function spawnsFromZones(map: MapData, center: Vector3): SpawnLayout | null {
+function spawnsFromZones(map: MapData, world: WorldQuery, center: Vector3): SpawnLayout | null {
   const zones = map.zones.filter((z) => SPAWN.zonePattern.test(z.label))
   if (zones.length < 2) return null
 
@@ -69,7 +69,7 @@ function spawnsFromZones(map: MapData, center: Vector3): SpawnLayout | null {
   for (let i = 0; i < zones.length; i++) {
     const bucket = teamed[i] === 'a' ? a : b
     if (bucket.length >= MAX_POINTS_PER_TEAM) continue
-    for (const p of samplePolygon(zones[i], SPAWN.pointsPerZone)) {
+    for (const p of samplePolygon(zones[i], world, SPAWN.pointsPerZone)) {
       bucket.push({ position: p, yaw: yawToward(p, center) })
       if (bucket.length >= MAX_POINTS_PER_TEAM) break
     }
@@ -79,7 +79,13 @@ function spawnsFromZones(map: MapData, center: Vector3): SpawnLayout | null {
   return { a, b, source: 'zones' }
 }
 
-function samplePolygon(zone: ZoneInfo, count: number): Vector3[] {
+/**
+ * Rejection-sample points inside the zone polygon. Each candidate is floor-validated the same
+ * way auto spawns are, so a zone drawn over a wall, a stairwell or a hole cannot spawn a player
+ * inside geometry, and each point gets the floor height actually under it rather than the zone's
+ * single averaged `floorY` (which matters on terrain that is not perfectly flat).
+ */
+function samplePolygon(zone: ZoneInfo, world: WorldQuery, count: number): Vector3[] {
   const polygon = zone.polygon
   let minX = Infinity
   let maxX = -Infinity
@@ -99,9 +105,16 @@ function samplePolygon(zone: ZoneInfo, count: number): Vector3[] {
     const x = minX + rand() * (maxX - minX)
     const z = minZ + rand() * (maxZ - minZ)
     if (!pointInPolygon(polygon, x, z)) continue
-    out.push(new Vector3(x, zone.floorY, z))
+    const floorY = validateFloor(world, x, zone.floorY, z)
+    if (floorY === null) continue
+    out.push(new Vector3(x, floorY, z))
   }
-  if (out.length === 0) out.push(zone.centroid.clone())
+  if (out.length === 0) {
+    // Zone is unusable (drawn over geometry, or floating) — fall back to its centroid so the
+    // team still has somewhere to spawn, and say so.
+    console.warn(`[spawns] zone "${zone.label}" yielded no valid floor points; using its centroid`)
+    out.push(zone.centroid.clone())
+  }
   return out
 }
 
