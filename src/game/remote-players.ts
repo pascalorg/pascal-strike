@@ -7,7 +7,7 @@
  */
 import { Vector3 } from 'three'
 import type { Scene } from 'three'
-import { createAvatar, type Avatar } from '../player/avatar'
+import { createAvatar, NAME_TAG_MAX_DISTANCE, type Avatar } from '../player/avatar'
 import type { EntityRegistry } from './entities'
 import type { Hittable, PlayerEntity } from '../types'
 
@@ -40,6 +40,7 @@ interface Slot {
   name: string
   alive: boolean
   invincible: boolean
+  tagVisible: boolean
 }
 
 /**
@@ -69,6 +70,7 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
       name: entity.name,
       alive: true,
       invincible: false,
+      tagVisible: true,
     }
     if (!entity.alive) {
       avatar.die()
@@ -127,6 +129,14 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
           const dz = entity.position.z - eye.z
           slot.avatar.object.visible =
             dx * dx + dz * dz > HIDE_RADIUS_SQ || Math.abs(entity.position.y - eye.y) > 2
+          // Name tags are labels, not geometry: constant pixel height whatever the range, and
+          // gone past NAME_TAG_MAX_DISTANCE, where they are unreadable anyway.
+          const tagDistance = slot.avatar.sizeNameTagFor(eye)
+          const tagVisible = tagDistance <= NAME_TAG_MAX_DISTANCE
+          if (slot.tagVisible !== tagVisible) {
+            slot.tagVisible = tagVisible
+            slot.avatar.setNameTagVisible(tagVisible)
+          }
         }
       }
 

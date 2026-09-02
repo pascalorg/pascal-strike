@@ -36,6 +36,12 @@ export interface Avatar {
   setName(name: string): void
   setNameTagVisible(visible: boolean): void
   /**
+   * Size the name tag for a camera at `eye` and return the tag's distance in metres. The tag
+   * keeps roughly the pixel height it has at `NAME_TAG_REF_DISTANCE` instead of growing into a
+   * wall of text at contact range; the caller owns visibility (see `NAME_TAG_MAX_DISTANCE`).
+   */
+  sizeNameTagFor(eye: Vector3): number
+  /**
    * Stick a paint splat on the body part nearest to `worldPoint`. The splat is projected onto
    * that part's surface (so a slightly desynced hit point still lands on the avatar) and
    * parented to it, so it follows the limb. Oldest one is recycled past `MAX_SPLATS`.
@@ -57,6 +63,23 @@ const SPLAT_LIFT = 0.012
 const SPLAT_RAY_LENGTH = 0.9
 /** Rest angle of both arms: reaching forward around the marker, not hanging at the sides. */
 const ARM_REST = 0.8
+
+/** Height of the name tag above the avatar's feet. */
+const NAME_TAG_Y = 2
+/** Authored size of the tag sprite, in metres — the size it is drawn at NAME_TAG_REF_DISTANCE. */
+const NAME_TAG_WIDTH = 1.5
+const NAME_TAG_HEIGHT = 0.375
+/**
+ * A sprite with size attenuation grows as you close in, and at point-blank an enemy's name
+ * covered a quarter of the screen. The tag is therefore scaled with the camera distance so it
+ * holds the pixel height it has at this distance (~33 px at 1080p with the 75deg FOV) at any
+ * range. Clamped at both ends: closer than a metre it may grow a little (the avatar itself is
+ * culled at 0.5 m anyway), and past the hide range it stops growing altogether.
+ */
+const NAME_TAG_REF_DISTANCE = 8
+const NAME_TAG_MIN_DISTANCE = 1
+/** Beyond this a name tag is hidden: unreadable, and it gives an enemy away through a window. */
+export const NAME_TAG_MAX_DISTANCE = 25
 
 const clamp = (value: number, min: number, max: number) => (value < min ? min : value > max ? max : value)
 
@@ -182,8 +205,9 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
 
   let currentName = initialName
   let nameTagVisible = true
+  let nameTagScale = 1
   let nameTag = makeNameTag(currentName, initialTeam)
-  nameTag.position.set(0, 2, 0)
+  nameTag.position.set(0, NAME_TAG_Y, 0)
   root.add(nameTag)
 
   let team = initialTeam
@@ -318,6 +342,19 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
       nameTagVisible = visible
       nameTag.visible = visible
     },
+    sizeNameTagFor(eye) {
+      const dx = root.position.x - eye.x
+      const dy = root.position.y + NAME_TAG_Y - eye.y
+      const dz = root.position.z - eye.z
+      const distance = Math.sqrt(dx * dx + dy * dy + dz * dz)
+      const scale =
+        clamp(distance, NAME_TAG_MIN_DISTANCE, NAME_TAG_MAX_DISTANCE) / NAME_TAG_REF_DISTANCE
+      if (scale !== nameTagScale) {
+        nameTagScale = scale
+        nameTag.scale.set(NAME_TAG_WIDTH * scale, NAME_TAG_HEIGHT * scale, 1)
+      }
+      return distance
+    },
     addSplat(worldPoint, worldNormal, colorHex) {
       if (!alive) return
       updateCapsule()
@@ -401,6 +438,7 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
   function replaceNameTag(value: string): void {
       const next = makeNameTag(value, team)
       next.position.copy(nameTag.position)
+      next.scale.copy(nameTag.scale)
       next.visible = nameTagVisible
       root.remove(nameTag)
       disposeSprite(nameTag)
@@ -470,7 +508,7 @@ function makeNameTag(name: string, team: TeamId): Sprite {
   const texture = new CanvasTexture(canvas)
   const material = new SpriteMaterial({ map: texture, transparent: true, depthTest: true })
   const sprite = new Sprite(material)
-  sprite.scale.set(1.5, 0.375, 1)
+  sprite.scale.set(NAME_TAG_WIDTH, NAME_TAG_HEIGHT, 1)
   return sprite
 }
 
