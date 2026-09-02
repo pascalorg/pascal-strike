@@ -4,6 +4,8 @@ export interface Input {
   readonly move: MoveInput
   readonly fire: boolean
   readonly reload: boolean
+  /** E pressed this frame (edge): open/close the door or window under the crosshair. */
+  readonly interact: boolean
   readonly scoreboard: boolean
   readonly locked: boolean
   consumeLook(): { dx: number; dy: number }
@@ -17,11 +19,12 @@ export interface Input {
 export function createInput(canvas: HTMLCanvasElement): Input {
   const keys = new Set<string>()
   const lockCallbacks = new Set<(locked: boolean) => void>()
-  const move: MoveInput = { forward: 0, right: 0, jump: false, crouch: false }
+  const move: MoveInput = { forward: 0, right: 0, jump: false, crouch: false, walk: false }
   const look = { dx: 0, dy: 0 }
   const consumedLook = { dx: 0, dy: 0 }
   let fire = false
   let reload = false
+  let interact = false
   let locked = document.pointerLockElement === canvas
 
   const syncMove = () => {
@@ -31,11 +34,13 @@ export function createInput(canvas: HTMLCanvasElement): Input {
       - Number(keys.has('KeyA') || keys.has('ArrowLeft'))
     move.jump = keys.has('Space')
     move.crouch = keys.has('ControlLeft') || keys.has('ControlRight') || keys.has('KeyC')
+    move.walk = keys.has('ShiftLeft') || keys.has('ShiftRight')
   }
 
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.code === 'Tab') event.preventDefault()
     if (event.code === 'KeyR' && !event.repeat) reload = true
+    if (event.code === 'KeyE' && !event.repeat) interact = true
     keys.add(event.code)
     syncMove()
   }
@@ -85,6 +90,7 @@ export function createInput(canvas: HTMLCanvasElement): Input {
     move,
     get fire() { return fire },
     get reload() { return reload },
+    get interact() { return interact },
     get scoreboard() { return keys.has('Tab') },
     get locked() { return locked },
     consumeLook() {
@@ -101,6 +107,7 @@ export function createInput(canvas: HTMLCanvasElement): Input {
     },
     update() {
       reload = false
+      interact = false
     },
     dispose() {
       document.removeEventListener('keydown', onKeyDown)

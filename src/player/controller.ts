@@ -36,6 +36,7 @@ class CapsuleController implements CharacterController {
   private readonly crouchHeight: number
   private readonly standingEyeHeight: number
   private readonly crouchingEyeHeight: number
+  private readonly runSpeed: number
   private readonly walkSpeed: number
   private readonly crouchSpeed: number
   private readonly airControl: number
@@ -85,6 +86,7 @@ class CapsuleController implements CharacterController {
     this.crouchHeight = config.crouchHeight
     this.standingEyeHeight = config.eyeHeight
     this.crouchingEyeHeight = config.crouchEyeHeight
+    this.runSpeed = config.runSpeed
     this.walkSpeed = config.walkSpeed
     this.crouchSpeed = config.crouchSpeed
     this.airControl = config.airControl
@@ -133,7 +135,7 @@ class CapsuleController implements CharacterController {
       0,
       (-cos * input.forward - sin * input.right) * scale,
     )
-    const speed = this.state.crouching ? this.crouchSpeed : this.walkSpeed
+    const speed = this.state.crouching ? this.crouchSpeed : input.walk ? this.walkSpeed : this.runSpeed
     const targetX = this.wish.x * speed
     const targetZ = this.wish.z * speed
     const rate = (inputLength > EPSILON ? this.accel : this.decel)

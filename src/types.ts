@@ -92,6 +92,8 @@ export interface SpawnNodeInfo {
 export interface DoorInfo {
   id: string
   label: string
+  /** 'door' (walk-through opening) or 'window' (openable sash). Missing = door. */
+  kind?: 'door' | 'window'
   node: Object3D
   /** The baked "<id>: open" clip (1 s, rest pose = closed). */
   clip: AnimationClip
@@ -161,7 +163,21 @@ export interface WorldQuery {
   lineOfSight(a: Vector3, b: Vector3): boolean
 }
 
-/** A capsule that paintballs can hit (players and bots). */
+export type BodyPart = 'head' | 'torso' | 'arm' | 'leg'
+
+/** A capsule (start === end for a sphere) tagged with the body part it represents. World space. */
+export interface HitShape {
+  part: BodyPart
+  start: Vector3
+  end: Vector3
+  radius: number
+}
+
+/**
+ * Something paintballs can hit (players and bots). The coarse capsule is the broad phase;
+ * `shapes` (head / torso / arms / legs, see player/hitshapes.ts) is the narrow phase that
+ * decides the body part. When `shapes` is empty or missing the hit counts as 'torso'.
+ */
 export interface Hittable {
   id: string
   team: TeamId
@@ -170,6 +186,7 @@ export interface Hittable {
   capsuleStart: Vector3
   capsuleEnd: Vector3
   capsuleRadius: number
+  shapes?: HitShape[]
 }
 
 // ---------------------------------------------------------------------------
@@ -183,6 +200,8 @@ export interface MoveInput {
   right: number
   jump: boolean
   crouch: boolean
+  /** Shift held: slow, precise walk (default movement is running). */
+  walk?: boolean
 }
 
 export interface CharacterState {
@@ -270,6 +289,8 @@ export interface HitEvent {
   target: string
   point: [number, number, number]
   normal: [number, number, number]
+  /** Body part hit; missing = torso (host uses DAMAGE[part]). */
+  part?: BodyPart
 }
 
 export interface KillEvent {
@@ -292,6 +313,10 @@ export interface DamageEvent {
   by: string
   hp: number
   point: [number, number, number]
+  /** Body part hit (host fills it from the HitEvent). */
+  part?: BodyPart
+  /** Damage applied. */
+  amount?: number
 }
 
 // ---------------------------------------------------------------------------

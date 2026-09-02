@@ -39,9 +39,10 @@ export const PLAYER = {
   crouchHeight: 1.15,
   eyeHeight: 1.6,
   crouchEyeHeight: 1.0,
-  // Movement (m/s, m/s^2)
-  walkSpeed: 5.5,
-  crouchSpeed: 2.6,
+  // Movement (m/s, m/s^2). Default movement is running; Shift walks (slow, precise).
+  runSpeed: 5.5,
+  walkSpeed: 2.8,
+  crouchSpeed: 2.2,
   airControl: 0.35,
   accel: 45,
   decel: 55,
@@ -58,9 +59,18 @@ export const PLAYER = {
 export const WEAPON = {
   /** shots per second while holding fire */
   fireRate: 9,
-  /** degrees, gaussian sigma */
-  spreadDeg: 1.2,
-  projectileSpeed: 70,
+  /**
+   * Gaussian spread sigma in degrees by motion state. Standing/walking/crouching is
+   * precise; running and airborne pay a penalty. Blend by speed between walk and run.
+   */
+  spreadStandingDeg: 0.12,
+  spreadWalkingDeg: 0.3,
+  spreadRunningDeg: 1.6,
+  spreadAirDeg: 2.8,
+  /** Extra sigma added right after a shot, decays with `spreadRecoveryPerSec`. */
+  spreadPerShotDeg: 0.35,
+  spreadRecoveryPerSec: 3.0,
+  projectileSpeed: 95,
   projectileGravity: 9.8,
   projectileRadius: 0.025,
   /** metres before the projectile is discarded */
@@ -68,7 +78,15 @@ export const WEAPON = {
   hopperSize: 40,
   reloadMs: 1_400,
   /** Recoil kick in radians applied to pitch per shot, recovers quickly. */
-  recoilPitch: 0.006,
+  recoilPitch: 0.0045,
+}
+
+/** Damage per body part. 100 hp: head = 2 hits, torso = 3, limbs = 5. */
+export const DAMAGE: Record<'head' | 'torso' | 'arm' | 'leg', number> = {
+  head: 50,
+  torso: 34,
+  arm: 20,
+  leg: 20,
 }
 
 export const DECALS = {
@@ -80,12 +98,10 @@ export const DECALS = {
 }
 
 export const DOORS = {
-  /** Distance (m) from a player capsule centre to the door centre that triggers opening. */
-  openRadius: 1.8,
-  /** Distance beyond which the door may close again. */
-  closeRadius: 2.4,
-  /** Doors close after this long with nobody near. */
-  closeDelayMs: 1_500,
+  /** Players toggle doors/windows with E when the crosshair is on one within this range (m). */
+  interactRange: 2.5,
+  /** Bots open a closed door on their path when within this distance of it (m). */
+  botOpenRadius: 1.4,
   /** Playback speed of the baked 1 s clip. */
   openTimeScale: 2.2,
 }
