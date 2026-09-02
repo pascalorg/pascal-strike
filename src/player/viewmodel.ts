@@ -62,8 +62,13 @@ export function createViewModel(camera: Camera): ViewModel {
     object: root,
     update(dt, speed, grounded, aiming = false) {
       time += dt * (5 + speed)
-      kickVelocity += (-95 * kick - 18 * kickVelocity) * dt
-      kick += kickVelocity * dt
+      // Sub-stepped for the same reason as the camera springs (long frames diverge Euler).
+      const springSteps = Math.max(1, Math.ceil(dt / (1 / 120)))
+      const h = dt / springSteps
+      for (let i = 0; i < springSteps; i++) {
+        kickVelocity += (-95 * kick - 18 * kickVelocity) * h
+        kick += kickVelocity * h
+      }
       reloadTilt += (reloadTarget - reloadTilt) * Math.min(1, dt * 14)
       const bob = grounded ? Math.min(speed / 5.5, 1) : 0
       const aim = aiming ? 0.4 : 1

@@ -1,5 +1,8 @@
 import { MathUtils, PerspectiveCamera, Vector3 } from 'three'
 
+/** Largest stable integration step for the k=75..95 springs below. */
+const SPRING_MAX_STEP = 1 / 120
+
 export interface FpsCamera {
   update(
     dt: number,
@@ -29,13 +32,19 @@ export function createFpsCamera(camera: PerspectiveCamera): FpsCamera {
     update(dt, feet, eyeHeight, yaw, pitch, speed, grounded) {
       const spring = 75
       const damping = 15
-      recoilPitchVelocity += (-spring * recoilPitch - damping * recoilPitchVelocity) * dt
-      recoilYawVelocity += (-spring * recoilYaw - damping * recoilYawVelocity) * dt
-      recoilPitch += recoilPitchVelocity * dt
-      recoilYaw += recoilYawVelocity * dt
+      // Semi-implicit Euler springs diverge past dt ~0.1 s; a frame hitch (navmesh build,
+      // shader compile) once sent the camera to y = 2371 m. Sub-step with a stable h.
+      const springSteps = Math.max(1, Math.ceil(dt / SPRING_MAX_STEP))
+      const h = dt / springSteps
+      for (let i = 0; i < springSteps; i++) {
+        recoilPitchVelocity += (-spring * recoilPitch - damping * recoilPitchVelocity) * h
+        recoilYawVelocity += (-spring * recoilYaw - damping * recoilYawVelocity) * h
+        recoilPitch += recoilPitchVelocity * h
+        recoilYaw += recoilYawVelocity * h
 
-      landingVelocity += (-95 * landingDip - 18 * landingVelocity) * dt
-      landingDip += landingVelocity * dt
+        landingVelocity += (-95 * landingDip - 18 * landingVelocity) * h
+        landingDip += landingVelocity * h
+      }
       if (grounded && speed > 0.15) bobTime += dt * (7 + speed * 1.1)
 
       const bobWeight = grounded ? MathUtils.clamp(speed / 5.5, 0, 1) : 0
