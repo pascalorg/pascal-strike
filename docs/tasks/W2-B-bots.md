@@ -40,15 +40,17 @@ move, yaw)`; the brain may override yaw for aiming while still moving toward the
 (compute forward/right by rotating the desired world-space velocity into the aim frame).
 
 ### `src/bots/bot.ts`
-`createBotRunner(opts: { registry; room; map: MapData; world; nav; doors; projectiles; events;
-spawnsProvider }) → { update(dt, now); addBot(entity: PlayerEntity); removeBot(id); dispose() }`.
-For each bot entity (host only): a `CharacterController`, a `Marker`, a `BotBrain`, a
-`PathFollower`. Each frame: brain → decision → controller.update → write `entity.position/yaw/
-pitch/crouching/speed` → marker.update(fire) → `projectiles.spawn(shot, { detectPlayers: true })`
-+ `room.rpc.call('shot', shot, 'others')` → snapshots to Playroom at `NET.botSnapshotHz` via
-the bot's `PlayerState` (`p`, unreliable). Dead bots do nothing until the host respawns them
-(`respawn` event → `controller.setPosition`). Bot decisions must be deterministic for a given
-seed (use a small seeded PRNG, e.g. mulberry32 keyed by bot id) so behaviour is reproducible.
+`createBotRunner(opts: BotRunnerOptions) → BotRunner` (both types in `src/types.ts`; read them).
+The runner never imports from `src/net`, `src/weapons/projectiles.ts` or `src/game`: it only
+uses the callbacks in `BotRunnerOptions`. For each bot entity (host only): a
+`CharacterController` (`src/player/controller.ts`, built on `opts.map.collider`), a `Marker`
+(`src/weapons/marker.ts`), a `BotBrain`, a `PathFollower`. Each `update(dt)`: brain → decision →
+`controller.update(dt, move, yaw)` → write `entity.position/yaw/pitch/crouching/speed` →
+`marker.update(...)` → for each `ShotEvent` call `opts.onShot(entity, shot)` → at
+`NET.botSnapshotHz` call `opts.onSnapshot(entity, snapshot)`. Dead bots (`entity.alive ===
+false`) do nothing until `respawn(id, position, yaw)` teleports their controller. Bot decisions
+must be deterministic for a given seed (mulberry32 keyed by `opts.seed` + bot id hash).
+Enemies = `opts.entities()` filtered by other team and alive; allies likewise.
 
 ## Verification
 - `bun run typecheck` clean; `bun test` still green.

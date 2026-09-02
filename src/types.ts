@@ -369,3 +369,37 @@ export interface EventBus {
   on<K extends EventKey>(key: K, handler: (payload: GameEventMap[K]) => void): () => void
   emit<K extends EventKey>(key: K, payload: GameEventMap[K]): void
 }
+
+// ---------------------------------------------------------------------------
+// Bot runner (host-only). Bots never touch the network or projectiles directly:
+// the game supplies callbacks so the bots package stays free of net/weapons imports.
+// ---------------------------------------------------------------------------
+
+export interface BotRunnerOptions {
+  map: MapData
+  world: WorldQuery
+  nav: Navigation
+  /** All entities (humans + bots) for perception. */
+  entities: () => PlayerEntity[]
+  /** Current spawn layout (for roaming targets). */
+  spawns: () => SpawnLayout
+  /** Called when a bot fires: the game spawns the projectile (detectPlayers: true) and broadcasts the shot. */
+  onShot: (bot: PlayerEntity, shot: ShotEvent) => void
+  /** Called at NET.botSnapshotHz per bot with its current pose: the game writes it to the bot's PlayerState. */
+  onSnapshot: (bot: PlayerEntity, snapshot: PlayerSnapshot) => void
+  /** Host clock in ms. */
+  now: () => number
+  /** Per-map seed so behaviour is reproducible. */
+  seed?: number
+}
+
+export interface BotRunner {
+  /** Step every simulated bot (call from the fixed update). */
+  update(dt: number): void
+  /** Start simulating an entity (isBot must be true). Places it at `entity.position`. */
+  addBot(entity: PlayerEntity): void
+  removeBot(id: string): void
+  /** The host respawned this bot: teleport its controller. */
+  respawn(id: string, position: Vector3, yaw: number): void
+  dispose(): void
+}
