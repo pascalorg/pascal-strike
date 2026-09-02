@@ -145,6 +145,12 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
     if (!/\.glb$/i.test(file.name)) return setNote('That is not a .glb file.', 'error')
     if (file.size > MAX_MAP_BYTES) return setNote('That map is over the 50 MB limit.', 'error')
     progressBar.style.display = ''
+    // A second upload starts from zero: without the reflow the bar would slide *down* from the
+    // previous run's 100 % instead of filling up again.
+    progress.style.transition = 'none'
+    progress.style.width = '0%'
+    void progress.offsetWidth
+    progress.style.transition = ''
     progress.style.width = '4%'
     setNote(`Uploading ${file.name}…`)
     try {
@@ -164,7 +170,13 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
     }
   }
 
-  fileInput.addEventListener('change', () => void handleFile(fileInput.files?.[0]))
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files?.[0]
+    // Picking the same file again fires no `change` event unless the input is cleared first —
+    // which is exactly what someone does after a rejected upload.
+    fileInput.value = ''
+    void handleFile(file)
+  })
 
   /** Only file drags are ours: dragging text into the name input must keep working. */
   const dragHasFiles = (e: DragEvent) => !!e.dataTransfer?.types?.includes('Files')
@@ -306,7 +318,9 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
       if (codeRow.classList.contains('is-open')) codeInput.focus()
     })
     const joinByCode = () => {
-      const code = codeInput.value.trim().replace(/^R/i, '')
+      // Room codes are bare (GG5V); the leading "R" belongs to the `#r=R…` hash alone, so a
+      // typed code must keep every character it has.
+      const code = codeInput.value.trim().toUpperCase()
       if (!code) return setNote('Enter the room code your friend sent you.', 'error')
       finish(code)
     }
