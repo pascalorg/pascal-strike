@@ -35,6 +35,12 @@ export interface ParsedScene {
    */
   doorLeafNodes: Set<Object3D>
   windowLeafNodes: Set<Object3D>
+  /**
+   * `kind: 'roof'` subtrees. Solid for players and bullets, but kept out of the NAVMESH source:
+   * recast accepts a house pitch as walkable at `NAVMESH.walkableSlopeAngle`, and bots then pick
+   * roam goals on the ridge that no path can reach.
+   */
+  roofNodes: Set<Object3D>
   /** Zone and spawn marker nodes — excluded from the collider so markers never block anything. */
   markerNodes: Set<Object3D>
 }
@@ -58,6 +64,7 @@ export function parsePascalScene(gltf: GLTF): ParsedScene {
   const doors: DoorInfo[] = []
   const doorLeafNodes = new Set<Object3D>()
   const windowLeafNodes = new Set<Object3D>()
+  const roofNodes = new Set<Object3D>()
   const markerNodes = new Set<Object3D>()
 
   // Levels first: zones/spawns/doors resolve their owning level by walking up the tree.
@@ -88,6 +95,10 @@ export function parsePascalScene(gltf: GLTF): ParsedScene {
         if (zone) zones.push(zone)
         break
       }
+      case 'roof': {
+        roofNodes.add(node)
+        break
+      }
       case 'spawn': {
         markerNodes.add(node)
         spawnNodes.push(parseSpawnNode(node, extras, levelOf(node, levelByNode), spawnNodes.length))
@@ -109,7 +120,16 @@ export function parsePascalScene(gltf: GLTF): ParsedScene {
     }
   })
 
-  return { levels, zones, spawnNodes, doors, doorLeafNodes, windowLeafNodes, markerNodes }
+  return {
+    levels,
+    zones,
+    spawnNodes,
+    doors,
+    doorLeafNodes,
+    windowLeafNodes,
+    roofNodes,
+    markerNodes,
+  }
 }
 
 // ---------------------------------------------------------------------------

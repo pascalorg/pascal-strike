@@ -6,12 +6,19 @@
  */
 import { Box3, FrontSide, Group, Material, Mesh, Object3D, Vector3 } from 'three'
 import { loadGltf, type Loaders } from '../engine/loaders'
+import { batchOpenableLeaves, batchStaticMeshes } from './batch'
 import { buildStaticColliders, createWorldQuery, DOWN } from './collider'
 import { parsePascalScene } from './map-parse'
 import type { MapData, ZoneInfo } from '../types'
 
 export interface LoadMapOptions {
   name?: string
+  /**
+   * Merge the visible static meshes by material into one mesh each (default true). Pascal keeps
+   * every wall course, tile and roof shingle as its own node — thousands of ~30-triangle draw
+   * calls. `?nobatch=1` in the map viewer turns it off to compare.
+   */
+  batchStatic?: boolean
 }
 
 const _origin = new Vector3()
@@ -37,12 +44,22 @@ export async function loadMap(
     markers: parsed.markerNodes,
     doorLeaves: parsed.doorLeafNodes,
     windowLeaves: parsed.windowLeafNodes,
+    roofs: parsed.roofNodes,
   })
   const collider = colliders.movement
   const bounds = new Box3()
   if (collider.geometry.boundingBox) bounds.copy(collider.geometry.boundingBox)
 
   prepareMaterials(root)
+
+  // Batch after the materials are final (the batches reuse the very same instances) and after
+  // the colliders are baked (they read the original meshes' world matrices).
+  if (opts?.batchStatic !== false) {
+    batchStaticMeshes(root, [parsed.markerNodes, parsed.doorLeafNodes, parsed.windowLeafNodes])
+    // Then the openables, each merge staying inside one animated node so it still swings.
+    // This rewrites `leafMeshes`, so it has to run before anything builds their BVHs.
+    batchOpenableLeaves(parsed.doors, [parsed.doorLeafNodes, parsed.windowLeafNodes])
+  }
 
   // Zone floor heights need the collider, so they are resolved here rather than in the parser.
   if (parsed.zones.length > 0) {
@@ -60,8 +77,9 @@ export async function loadMap(
     collider,
     bulletCollider: colliders.bullet,
     bounds,
-    // Recast walks the movement collider, so it cannot cut a path through a window either.
-    navMeshSource: [collider.mesh],
+    // Movement geometry minus roofs: recast cannot cut a path through a window, and cannot
+    // hand the bots a roof pitch to roam on either.
+    navMeshSource: [colliders.navSource],
   }
 }
 

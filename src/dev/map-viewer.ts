@@ -2,6 +2,8 @@
  * `?dev=map` — W1-A dev entry: load a Pascal GLB, fly around it, inspect everything the map
  * pipeline produced (zones, spawns, doors, collider, navmesh, raycasts).
  *
+ * `?nobatch=1` loads the map without static batching, to compare draw calls.
+ *
  * Controls: click to capture the mouse (or drag), WASD + Space/Q up-down, Shift to sprint,
  * E toggles the door or window the camera is looking at, Esc to release.
  * Overlays: Z zones · S spawns · D doors · C collider (movement → bullet → off) ·
@@ -70,12 +72,13 @@ export async function start(): Promise<void> {
 
   const params = new URLSearchParams(location.search)
   const mapUrl = params.get('map') ?? '/maps/pascal-house.glb'
+  const batchStatic = params.get('nobatch') !== '1'
 
   const engine = await createRenderer(container)
   const loaders = createLoaders(engine.renderer)
 
   const t0 = performance.now()
-  const map = await loadMap(mapUrl, loaders)
+  const map = await loadMap(mapUrl, loaders, { batchStatic })
   const loadMs = performance.now() - t0
   engine.scene.add(map.root)
 
@@ -205,6 +208,15 @@ export async function start(): Promise<void> {
   ].join(';')
   container.appendChild(panel)
 
+  // `renderer.info` is reset at the top of every `render()`, and the panel is built inside the
+  // frame — so sample it from a timer, which lands between frames with last frame's totals.
+  const info = engine.renderer.info
+  let draws = 0
+  let drawnTris = 0
+  window.setInterval(() => {
+    draws = info.render.drawCalls
+    drawnTris = info.render.triangles
+  }, 250)
   const sceneTris = countSceneTriangles(map)
   const colliderTris = colliderTriangleCount(map.collider)
   const bulletTris = map.bulletCollider ? colliderTriangleCount(map.bulletCollider) : colliderTris
@@ -233,7 +245,8 @@ export async function start(): Promise<void> {
       `PASCAL STRIKE · map viewer`,
       `map        ${map.name}`,
       `backend    ${engine.backend}   ${fps.toFixed(0)} fps`,
-      `load       ${loadMs.toFixed(0)} ms`,
+      `load       ${loadMs.toFixed(0)} ms   batching ${batchStatic ? 'on' : 'off (?nobatch=1)'}`,
+      `draws      ${draws} calls / ${drawnTris.toLocaleString()} tris drawn`,
       `tris       ${sceneTris.toLocaleString()} scene / ${colliderTris.toLocaleString()} movement` +
         ` / ${bulletTris.toLocaleString()} bullet collider`,
       `levels     ${map.levels.length}   zones ${map.zones.length}   openables ${map.doors.length}` +
@@ -485,11 +498,12 @@ function makeLabel(text: string, color: string): Sprite {
   return sprite
 }
 
+/** Only what is actually drawn: batching hides the originals rather than deleting them all. */
 function countSceneTriangles(map: MapData): number {
   let total = 0
   map.root.traverse((obj) => {
     const mesh = obj as Mesh
-    if (!mesh.isMesh || !mesh.geometry) return
+    if (!mesh.isMesh || !mesh.geometry || !mesh.visible) return
     const index = mesh.geometry.getIndex()
     const position = mesh.geometry.getAttribute('position')
     if (index) total += index.count / 3

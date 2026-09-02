@@ -7,11 +7,15 @@
  * - the MOVEMENT collider keeps window sashes in their closed rest pose (a window is never a
  *   way through a wall) and drops door panels (a doorway always is);
  * - the BULLET collider drops both, so a paintball goes through an open sash and meets a closed
- *   one on the sash's own moving BVH.
+ *   one on the sash's own moving BVH;
+ * - the NAVMESH source is the movement collider minus roofs, which recast would otherwise hand
+ *   the bots as a walkable 45° pitch. It is a bare mesh: recast voxelises it, nothing raycasts
+ *   it, so it gets no bounds tree.
  *
- * Both come out of ONE traversal: the expensive part is baking each mesh into world space, and
- * that result is shared, so the second collider only costs a merge plus its bounds tree. A map
- * with no openable window gets literally one collider, returned as both.
+ * All three come out of ONE traversal: the expensive part is baking each mesh into world space,
+ * and that result is shared, so the extra outputs only cost a merge each. A map with no openable
+ * window gets literally one collider, returned as both; one with no roof reuses the movement
+ * mesh as its navmesh source.
  *
  * Leaves of an openable stay out of the merge because they move; each gets its own (local-space)
  * bounds tree and the ray is transformed into its space at query time.
@@ -55,6 +59,8 @@ export interface ColliderExclusions {
   doorLeaves: Set<Object3D>
   /** Window sashes: out of the bullet collider only; solid (closed pose) for movement. */
   windowLeaves: Set<Object3D>
+  /** Roofs: out of the navmesh source only; players and bullets still collide with them. */
+  roofs: Set<Object3D>
 }
 
 export interface StaticColliders {
@@ -62,6 +68,8 @@ export interface StaticColliders {
   movement: StaticCollider
   /** Paintballs and line of sight. Identical object as `movement` when the map has no sashes. */
   bullet: StaticCollider
+  /** Fed to recast. `movement.mesh` itself when the map has no roof. */
+  navSource: Mesh
 }
 
 /**
@@ -77,9 +85,11 @@ export function buildStaticColliders(
   // Flatten the excluded subtrees once so the per-mesh tests are single Set lookups.
   const skip = flatten(exclusions.markers, exclusions.doorLeaves)
   const sashes = flatten(exclusions.windowLeaves)
+  const roofs = flatten(exclusions.roofs)
 
   const movementGeometries: BufferGeometry[] = []
   const bulletGeometries: BufferGeometry[] = []
+  const navGeometries: BufferGeometry[] = []
   root.traverse((obj) => {
     if (skip.has(obj)) return
     if (!(obj as Mesh).isMesh) return
@@ -89,9 +99,10 @@ export function buildStaticColliders(
     if (!isVisibleInHierarchy(mesh, root)) return
     const geo = toWorldGeometry(mesh)
     if (!geo) return
-    // The same baked geometry feeds both merges — `mergeGeometries` only reads its inputs.
+    // The same baked geometry feeds every merge — `mergeGeometries` only reads its inputs.
     movementGeometries.push(geo)
     if (!sashes.has(obj)) bulletGeometries.push(geo)
+    if (!roofs.has(obj)) navGeometries.push(geo)
   })
 
   const movement = finishCollider(merge(movementGeometries), 'static-collider')
@@ -99,10 +110,14 @@ export function buildStaticColliders(
     bulletGeometries.length === movementGeometries.length
       ? movement
       : finishCollider(merge(bulletGeometries), 'bullet-collider')
+  const navSource =
+    navGeometries.length === movementGeometries.length
+      ? movement.mesh
+      : colliderMesh(merge(navGeometries), 'navmesh-source')
 
   for (const g of movementGeometries) g.dispose()
 
-  return { movement, bullet }
+  return { movement, bullet, navSource }
 }
 
 function flatten(...sets: Set<Object3D>[]): Set<Object3D> {
@@ -128,9 +143,14 @@ function merge(geometries: BufferGeometry[]): BufferGeometry {
 }
 
 function finishCollider(geometry: BufferGeometry, name: string): StaticCollider {
+  geometry.computeBoundsTree({ targetLeafSize: LEAF_SIZE })
+  return { mesh: colliderMesh(geometry, name), geometry }
+}
+
+/** Invisible, identity-transform mesh wrapping an already-world-space geometry. */
+function colliderMesh(geometry: BufferGeometry, name: string): Mesh {
   geometry.computeBoundingBox()
   geometry.computeBoundingSphere()
-  geometry.computeBoundsTree({ targetLeafSize: LEAF_SIZE })
 
   const mesh = new Mesh(geometry, new MeshBasicMaterial({ wireframe: true, color: 0x00ff88 }))
   mesh.name = name
@@ -140,7 +160,7 @@ function finishCollider(geometry: BufferGeometry, name: string): StaticCollider 
   mesh.frustumCulled = false
   mesh.updateMatrix()
 
-  return { mesh, geometry }
+  return mesh
 }
 
 function isVisibleInHierarchy(obj: Object3D, root: Object3D): boolean {
