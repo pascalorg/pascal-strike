@@ -4,40 +4,117 @@
  *   ?sandbox=1    W1-B player + weapons in the procedural test room
  *   ?dev=ui       W1-C lobby/HUD showcase with fake data
  *   ?dev=net      W1-C Playroom net harness (real room, text UI)
- * Default: lobby → game (W2 wires this).
+ *   ?debug=1      in-game debug panel (FPS, backend, entities, N navmesh, C collider)
+ * Default: platform check → lobby → room → game.
  */
 import './ui/styles.css'
+import { RendererInitError } from './engine/renderer'
+import { joinRoom, roomCodeFromHash, RoomError } from './net/room'
+import { isConfigured, uploadMap } from './storage/maps-upload'
+import { appRoot, el } from './ui/dom'
+import { showLobby } from './ui/lobby'
+import { isTouchOnly, showUnsupported } from './ui/unsupported'
 
 const params = new URLSearchParams(location.search)
 
-async function boot() {
-  if (params.get('dev') === 'map') {
-    const mod = await import('./dev/map-viewer')
-    await mod.start()
+async function boot(): Promise<void> {
+  if (params.get('dev') === 'map') return (await import('./dev/map-viewer')).start()
+  if (params.get('sandbox') === '1') return (await import('./dev/sandbox')).start()
+  if (params.get('dev') === 'ui') return (await import('./dev/ui-showcase')).start()
+  if (params.get('dev') === 'net') return (await import('./dev/net-harness')).start()
+
+  if (isTouchOnly()) {
+    showUnsupported('mobile')
     return
   }
-  if (params.get('sandbox') === '1') {
-    const mod = await import('./dev/sandbox')
-    await mod.start()
+  if (!hasGpu()) {
+    showUnsupported('gpu')
     return
   }
-  if (params.get('dev') === 'ui') {
-    const mod = await import('./dev/ui-showcase')
-    await mod.start()
-    return
+  await play()
+}
+
+async function play(): Promise<void> {
+  const mount = appRoot()
+  const joinCode = roomCodeFromHash() ?? null
+  const banner = createBanner(mount)
+
+  for (;;) {
+    const lobby = await showLobby({
+      joinCode,
+      uploader: isConfigured() ? uploadMap : undefined,
+      mount,
+    })
+    banner.clear()
+    try {
+      const room = await joinRoom({
+        name: lobby.name,
+        roomCode: lobby.roomCode,
+        map: lobby.map,
+      })
+      lobby.setStatus('Loading the map…', 'ok')
+      const { startGame } = await import('./game/game')
+      lobby.dispose()
+      banner.dispose()
+      await startGame({ room, map: lobby.map, mount })
+      return
+    } catch (err) {
+      if (err instanceof RendererInitError) {
+        lobby.dispose()
+        banner.dispose()
+        showUnsupported('gpu')
+        return
+      }
+      // The lobby promise is already settled, so a retry needs a fresh screen; the banner
+      // carries the reason across it.
+      const message = err instanceof RoomError ? err.message : String((err as Error)?.message ?? err)
+      console.error('[main]', err)
+      lobby.dispose()
+      banner.show(message)
+    }
   }
-  if (params.get('dev') === 'net') {
-    const mod = await import('./dev/net-harness')
-    await mod.start()
-    return
+}
+
+/** WebGPU, or the WebGL2 fallback the renderer would pick. */
+function hasGpu(): boolean {
+  if ('gpu' in navigator) return true
+  try {
+    return !!document.createElement('canvas').getContext('webgl2')
+  } catch {
+    return false
   }
-  const app = document.getElementById('app')!
-  app.innerHTML = `<div style="padding:2rem;font-family:system-ui;color:#fafafa;background:#0d0d0f;min-height:100vh">
-    <h1>Pascal Strike</h1><p>Game wiring not done yet. Try <code>?dev=map</code>, <code>?sandbox=1</code> or <code>?dev=ui</code>.</p></div>`
+}
+
+function createBanner(mount: HTMLElement) {
+  const node = el('div', {
+    style:
+      'position:absolute;top:0;left:0;right:0;z-index:30;display:none;padding:10px 16px;' +
+      'text-align:center;font:500 13px Inter,system-ui;color:#fecaca;background:#7f1d1d;',
+  })
+  mount.appendChild(node)
+  return {
+    show(message: string) {
+      node.textContent = `${message} — try again`
+      node.style.display = ''
+    },
+    clear() {
+      node.style.display = 'none'
+    },
+    dispose() {
+      node.remove()
+    },
+  }
 }
 
 boot().catch((err) => {
   console.error(err)
   const app = document.getElementById('app')
-  if (app) app.textContent = `Boot failed: ${err?.message ?? err}`
+  if (app) {
+    app.appendChild(
+      el('div', {
+        style: 'padding:2rem;font:14px Inter,system-ui;color:#fafafa',
+        text: `Boot failed: ${err?.message ?? err}`,
+      }),
+    )
+  }
 })

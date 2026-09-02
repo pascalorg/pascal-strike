@@ -33,6 +33,11 @@ export interface HostAuthority {
   setMap(map: MapSelection): void
   /** Force everyone back to a spawn point (used on round change). */
   respawnAll(): void
+  /**
+   * Put one player back on a spawn point immediately. W2 needs it for the `fell` RPC: falling
+   * out of the world is not damage, so it cannot go through `submitHit`.
+   */
+  respawnPlayer(id: string | undefined): boolean
   readonly match: Match
   readonly scores: { a: number; b: number }
 }
@@ -385,6 +390,13 @@ export function startHostAuthority(
       events.emit('map-changed', map)
     },
     respawnAll,
+    respawnPlayer(id) {
+      if (!id || !room.isHost()) return false
+      const hp = players.get(id)
+      if (!hp) return false
+      respawn(hp, clock.now())
+      return true
+    },
     get match() {
       return match
     },

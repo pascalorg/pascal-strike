@@ -71,6 +71,11 @@ export const RPCS = {
   kill: 'kill',
   /** ALL — RespawnEvent, teleport + shield */
   respawn: 'respawn',
+  /**
+   * HOST — FellEvent. Falling out of the world is not damage, so it cannot go through `hit`:
+   * the victim asks the host to put it back on a spawn point (W2 addition).
+   */
+  fell: 'fell',
 } as const
 
 export type RpcName = (typeof RPCS)[keyof typeof RPCS]
@@ -100,6 +105,12 @@ export const DEFAULT_STATES: Record<string, unknown> = {
   [GS.hostNow]: 0,
 }
 
+/** Sent to the host by a player whose controller fell out of the world. */
+export interface FellEvent {
+  /** Who fell — the host trusts the sender id, this is only a sanity check. */
+  player: string
+}
+
 /** Payload of every RPC, keyed by name — lets `rpc.register` stay type safe. */
 export interface RpcPayloads {
   shot: ShotEvent
@@ -107,4 +118,5 @@ export interface RpcPayloads {
   damage: DamageEvent
   kill: KillEvent
   respawn: RespawnEvent
+  fell: FellEvent
 }
