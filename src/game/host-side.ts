@@ -22,8 +22,11 @@ export interface HostSideOptions {
   events: EventBus
   clock: NetClock
   audio: Audio
-  /** Read at call time — the session object is replaced on every map change. */
-  session: () => MapSession
+  /**
+   * Read at call time — the session object is replaced on every map change, and is null for
+   * the length of one: nothing here may touch a map that is being torn down.
+   */
+  session: () => MapSession | null
   /** Listener pose for positional bot gunfire. */
   listener: () => AudioListenerPose
 }
@@ -32,6 +35,12 @@ export interface HostSide {
   /** Null while somebody else hosts. */
   readonly authority: HostAuthority | null
   readonly bots: BotRunner | null
+  /**
+   * Stop and free the bot runner. Must be called *before* the session it was built from is
+   * disposed: the runner holds that map's recast navmesh, and a path query against a freed
+   * one hangs the main thread.
+   */
+  suspend(): void
   /** Rebuild the bot runner against the current session (after a map change). */
   reload(): void
   dispose(): void
@@ -62,16 +71,20 @@ export function createHostSide(opts: HostSideOptions): HostSide {
   // --- spawns --------------------------------------------------------------
 
   const spawnProvider = (team: TeamId): SpawnPoint | null => {
+    const session = opts.session()
+    if (!session) return null
     _spawnScratch.length = 0
     for (const entity of registry.list()) if (entity.alive) _spawnScratch.push(entity.position)
-    return opts.session().leastCrowdedSpawn(team, _spawnScratch)
+    return session.leastCrowdedSpawn(team, _spawnScratch)
   }
 
   // --- bots ----------------------------------------------------------------
 
   async function startBots(): Promise<void> {
     const session = opts.session()
+    if (!session) return
     // Bots path with recast, so they wait for it rather than walking into walls meanwhile.
+    // A map change while we wait replaces (or clears) the session — then this build is stale.
     const nav = await session.navReady
     if (disposed || opts.session() !== session || !authority || bots) return
     let create: typeof import('../bots/bot').createBotRunner
@@ -151,10 +164,9 @@ export function createHostSide(opts: HostSideOptions): HostSide {
   // sash swinging into a room it is walking past looks like a bug.
 
   const doorCooldown = new Map<string, number>()
-
   const doorTimer = window.setInterval(() => {
-    if (!authority) return
     const session = opts.session()
+    if (!authority || !session) return
     const doors = session.map.doors
     if (doors.length === 0) return
     const now = Date.now()
@@ -177,8 +189,9 @@ export function createHostSide(opts: HostSideOptions): HostSide {
 
   // A bot that slips through a gap in the map would otherwise fall forever.
   const fallTimer = window.setInterval(() => {
-    if (!authority) return
-    const floor = opts.session().map.bounds.min.y - 8
+    const session = opts.session()
+    if (!authority || !session) return
+    const floor = session.map.bounds.min.y - 8
     for (const entity of registry.list()) {
       if (entity.isBot && entity.alive && entity.position.y < floor) {
         authority.respawnPlayer(entity.id)
@@ -192,6 +205,9 @@ export function createHostSide(opts: HostSideOptions): HostSide {
     },
     get bots() {
       return bots
+    },
+    suspend() {
+      stopBots()
     },
     reload() {
       stopBots()

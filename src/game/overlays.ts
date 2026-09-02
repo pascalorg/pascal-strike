@@ -235,7 +235,8 @@ export interface GameStatus {
   clockOffset: number
   now: number
   registry: EntityRegistry
-  session: MapSession
+  /** Null for the length of a map change: the old world is gone, the next one is loading. */
+  session: MapSession | null
   match: MatchState | null
   local: LocalPlayer
   bots: boolean
@@ -248,24 +249,27 @@ export interface GameStatus {
 /** JSON-friendly view of the whole game — the playtest harness asserts against this. */
 export function statusSnapshot(s: GameStatus) {
   const me = s.registry.local
+  const session = s.session
   return {
     backend: s.backend,
     fps: Math.round(s.fps),
     room: s.room.roomCode,
     invite: s.room.inviteUrl,
     isHost: s.room.isHost(),
-    map: s.session.selection.name,
-    navReady: !!s.session.nav?.ready,
-    spawns: {
-      a: s.session.spawns.a.length,
-      b: s.session.spawns.b.length,
-      source: s.session.spawns.source,
+    /** Null while a map change is in flight — the playtests read it as "still loading". */
+    map: session?.selection.name ?? null,
+    mapUrl: session?.selection.url ?? null,
+    navReady: !!session?.nav?.ready,
+    spawns: session && {
+      a: session.spawns.a.length,
+      b: session.spawns.b.length,
+      source: session.spawns.source,
     },
-    doorsOpen: s.session.map.doors
-      .filter((d) => s.session.doors.isOpen(d.id))
-      .map((d) => d.label),
-    decals: s.session.decals.count,
-    balls: s.session.projectiles.liveCount,
+    doorsOpen: session
+      ? session.map.doors.filter((d) => session.doors.isOpen(d.id)).map((d) => d.label)
+      : [],
+    decals: session?.decals.count ?? 0,
+    balls: session?.projectiles.liveCount ?? 0,
     bots: s.bots,
     botsFill: s.botsFill,
     menuOpen: s.menuOpen,
@@ -325,12 +329,15 @@ export function createDebugPanel(
     update() {
       const s = read()
       const p = s.local.position
+      const session = s.session
       node.textContent = [
         `${s.backend} · ${Math.round(s.fps)} fps`,
         `room ${s.room.roomCode}${s.room.isHost() ? ' (host)' : ''} · clock ${s.clockOffset} ms`,
-        `entities ${s.registry.size} · bots ${s.bots ? 'on' : 'off'} · fill ${s.botsFill ? 'on' : 'off'} · nav ${s.session.nav?.ready ? 'ready' : '…'}`,
-        `spawns ${s.session.spawns.source} a=${s.session.spawns.a.length} b=${s.session.spawns.b.length}`,
-        `decals ${s.session.decals.count} · balls ${s.session.projectiles.liveCount}`,
+        `entities ${s.registry.size} · bots ${s.bots ? 'on' : 'off'} · fill ${s.botsFill ? 'on' : 'off'} · nav ${session?.nav?.ready ? 'ready' : '…'}`,
+        session
+          ? `spawns ${session.spawns.source} a=${session.spawns.a.length} b=${session.spawns.b.length}`
+          : 'loading the next map…',
+        `decals ${session?.decals.count ?? 0} · balls ${session?.projectiles.liveCount ?? 0}`,
         `pos ${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)} · yaw ${s.local.yaw.toFixed(2)}`,
         s.match
           ? `${s.match.phase} r${s.match.round} ${s.match.scores.a}:${s.match.scores.b} ${Math.round(msLeft(s.match, s.now) / 1000)}s`

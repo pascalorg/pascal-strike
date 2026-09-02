@@ -117,8 +117,14 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   let deathAt = 0
   let lastTeam: TeamId | null = null
 
-  let session = await buildSession(selection)
-  let localPlayer = makeLocalPlayer(session)
+  /**
+   * Null only while a map change is in flight. The frame loop keeps running between
+   * `dispose()` and the next `buildSession()`, and every consumer of the session (bots,
+   * projectiles, doors, environment) must stop touching it in that window: a bot asking a
+   * freed recast navmesh for a path hangs the main thread for good.
+   */
+  let session: MapSession | null = await buildSession(selection)
+  const localPlayer = makeLocalPlayer(session)
 
   // --- map session lifecycle ----------------------------------------------
 
@@ -152,6 +158,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     return built
   }
 
+  /** Built once and kept across map changes — `setSession` swaps the world under it. */
   function makeLocalPlayer(current: MapSession): LocalPlayer {
     const me = registry.upsert({ id: room.me.id, isLocal: true })
     const player = createLocalPlayer({
@@ -162,7 +169,9 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       entity: me,
       now: () => clock.now(),
       onShot: (shot) => {
-        current.projectiles.spawn(shot, { detectPlayers: true })
+        // Always the *live* session: a shot fired on the frame a map change starts must not
+        // land in the house we just disposed.
+        session?.projectiles.spawn(shot, { detectPlayers: true })
         void room.rpc.call(RPCS.shot, shot, 'others')
       },
       onFell: () => {
@@ -172,27 +181,55 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     })
     // Until the host's first `respawn` lands, stand somewhere sane rather than at the origin.
     if (me.position.lengthSq() > 1e-6) player.place(me.position, me.yaw)
-    else {
-      const spawn = current.leastCrowdedSpawn(me.team, EMPTY_POSITIONS)
-      if (spawn) player.place(spawn.position, spawn.yaw)
-    }
+    else placeAtSpawn(player, current)
     lastTeam = me.team
     player.setTeam(me.team)
     return player
   }
 
+  /** Put the local player on a spawn point of `current` (boot, and after a map change). */
+  function placeAtSpawn(player: LocalPlayer, current: MapSession): void {
+    const spawn = current.leastCrowdedSpawn(registry.local?.team ?? 'a', EMPTY_POSITIONS)
+    if (spawn) player.place(spawn.position, spawn.yaw)
+  }
+
+  /** The map we are actually standing in — `session` is null for the length of a change. */
+  let loadedUrl = selection.url
   let changing: Promise<void> | null = null
   async function changeMap(next: MapSelection): Promise<void> {
-    if (disposed || next.url === session.selection.url) return
+    if (disposed || !session || next.url === loadedUrl) return
+    const previous = session
     loading.show()
     loading.set(0, `Loading ${next.name}`)
     // Door ids are per map: the previous house's state must not leak into the new one.
     if (room.isHost()) room.setGlobal(GS.doors, {}, true)
+    // From here until the new session exists, nothing may touch the old one. Clearing
+    // `session` freezes the update/render hooks, and the bot runner — which holds the recast
+    // navmesh `dispose()` is about to free — is stopped *before* that free, not after.
+    session = null
+    hostSide.suspend()
     remotePlayers.clear()
-    localPlayer.dispose()
-    session.dispose()
-    session = await buildSession(next)
-    localPlayer = makeLocalPlayer(session)
+    if (navHelper) {
+      engine.scene.remove(navHelper)
+      navHelper = null
+    }
+    previous.dispose()
+
+    // A failed load leaves `session` null (nothing to fall back to — the old house is gone),
+    // but `loadedUrl` still points at it, so the map poll retries on the next tick.
+    const built = await buildSession(next)
+    if (disposed) {
+      built.dispose()
+      return
+    }
+    session = built
+    loadedUrl = next.url
+    localPlayer.setSession(built)
+    placeAtSpawn(localPlayer, built)
+    // Old-map coordinates mean nothing in the new house: the host puts everyone (bots
+    // included) back on a spawn point of the map that just loaded, and only then does the
+    // rebuilt runner pick the bots up — at their new spawns, on the new navmesh.
+    hostSide.authority?.respawnAll()
     hostSide.reload()
     loading.hide()
   }
@@ -216,7 +253,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   const sender = createSnapshotSender(room, () => (localPlayer.dead ? null : localPlayer.snapshot()))
 
   events.on('shot', (shot) => {
-    if (shot.by === room.me.id) return
+    if (shot.by === room.me.id || !session) return
     session.projectiles.spawn(shot, { detectPlayers: false })
     _shotOrigin.set(shot.origin[0], shot.origin[1], shot.origin[2])
     audio.play('shot', _shotOrigin, localPlayer.listener)
@@ -284,19 +321,19 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   let interactTarget: DoorInfo | null = null
 
   function publishDoorStates(): void {
-    if (!room.isHost()) return
+    if (!room.isHost() || !session) return
     room.setGlobal(GS.doors, session.doors.openStates(), true)
   }
 
   const offDoorRpc = room.rpc.register<DoorEvent>(RPCS.door, (ev) => {
-    if (!ev?.id) return
+    if (!ev?.id || !session) return
     session.doors.setOpen(ev.id, ev.open === true)
     publishDoorStates()
   })
 
   /** Runs after `frameUpdate`, so the ray uses this frame's camera pose. */
   function updateInteract(pressed: boolean): void {
-    if (localPlayer.dead) {
+    if (!session || localPlayer.dead) {
       interactTarget = null
       prompt.set(null)
       return
@@ -327,6 +364,9 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   let fps = 60
 
   const offUpdate = engine.onUpdate((dt) => {
+    // No session means a map change is in flight: the old world is disposed and the next one
+    // is still loading. Simulating anything against it (bots above all) is what used to hang.
+    if (!session) return
     localPlayer.fixedUpdate(dt)
     hostSide.bots?.update(dt)
   })
@@ -334,6 +374,25 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   const offRender = engine.onRender((_alpha, dt) => {
     const now = clock.now()
     fps += ((dt > 0 ? 1 / dt : 60) - fps) * 0.08
+
+    // Before the session guard: this is also how a change that failed to load gets retried.
+    if (now - lastMapPoll > MAP_POLL_MS) {
+      lastMapPoll = now
+      const wanted = room.getGlobal<MapSelection>(GS.map)
+      if (wanted?.url && wanted.url !== loadedUrl && !changing) {
+        changing = changeMap(wanted).finally(() => {
+          changing = null
+        })
+      }
+    }
+
+    if (!session) {
+      // Frozen for the duration of the map change (the loading overlay covers the screen).
+      // Input still has to be drained, or the whole transition arrives as one look jump.
+      input.consumeLook()
+      input.update()
+      return
+    }
 
     // `frameUpdate` ends with `input.update()`, which clears the edge — read E before it.
     if (input.locked && input.interact) interactPressed = true
@@ -355,15 +414,6 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     if (now - lastHudPoll > HUD_POLL_MS) {
       lastHudPoll = now
       updateHud(now)
-    }
-    if (now - lastMapPoll > MAP_POLL_MS) {
-      lastMapPoll = now
-      const wanted = room.getGlobal<MapSelection>(GS.map)
-      if (wanted?.url && wanted.url !== session.selection.url && !changing) {
-        changing = changeMap(wanted).finally(() => {
-          changing = null
-        })
-      }
     }
 
     if (input.scoreboard !== boardOpen) {
@@ -482,7 +532,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   let navHelper: ReturnType<typeof createNavMeshHelper> = null
   function toggleNav(): void {
     if (!navHelper) {
-      if (!session.nav) return
+      if (!session?.nav) return
       navHelper = createNavMeshHelper(session.nav)
       if (navHelper) engine.scene.add(navHelper)
       return
@@ -490,6 +540,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     navHelper.visible = !navHelper.visible
   }
   function toggleCollider(): void {
+    if (!session) return
     const mesh = session.map.collider.mesh
     if (!mesh.parent) engine.scene.add(mesh)
     mesh.visible = !mesh.visible
@@ -532,7 +583,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       clock.stop()
       remotePlayers.dispose()
       localPlayer.dispose()
-      session.dispose()
+      session?.dispose()
       loaders.dispose()
       engine.dispose()
       input.dispose()
@@ -587,7 +638,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
         interactPressed = true
       },
       doors: () => ({
-        states: session.doors.openStates(),
+        states: session?.doors.openStates() ?? null,
         target: interactTarget && { id: interactTarget.id, kind: interactTarget.kind ?? 'door' },
         prompt: prompt.action,
         global: room.getGlobal<DoorStates>(GS.doors) ?? null,
