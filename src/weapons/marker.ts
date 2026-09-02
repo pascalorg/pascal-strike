@@ -45,7 +45,7 @@ export interface Marker {
 }
 
 /** Sustained fire converges here instead of growing without bound. */
-const MAX_BLOOM_DEG = WEAPON.spreadPerShotDeg * 4
+const MAX_BLOOM_DEG = WEAPON.spreadBloomMaxDeg
 /** Crouching multiplier — crouched and still is `spreadStandingDeg * 0.7`. */
 const CROUCH_FACTOR = 0.7
 

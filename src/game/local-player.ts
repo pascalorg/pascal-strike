@@ -84,7 +84,7 @@ const SPRING_MAX_DT = 1 / 30
 /** How fast the crosshair follows `marker.currentSpreadDeg` (it is already damped there). */
 const SPREAD_FOLLOW = 12
 /** `currentSpreadDeg` that maps to a fully open crosshair (running + saturated bloom). */
-const SPREAD_MAX_DEG = WEAPON.spreadRunningDeg + WEAPON.spreadPerShotDeg * 4
+const SPREAD_MAX_DEG = WEAPON.spreadRunningDeg + WEAPON.spreadBloomMaxDeg
 /** Shift walk: steadier camera and quieter steps than the default run. */
 const WALK_BOB_SCALE = 0.55
 const WALK_FOOTSTEP_GAIN = 0.45

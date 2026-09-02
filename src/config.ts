@@ -67,9 +67,14 @@ export const WEAPON = {
   spreadWalkingDeg: 0.3,
   spreadRunningDeg: 1.6,
   spreadAirDeg: 2.8,
-  /** Extra sigma added right after a shot, decays with `spreadRecoveryPerSec`. */
-  spreadPerShotDeg: 0.35,
-  spreadRecoveryPerSec: 3.0,
+  /**
+   * Extra sigma added right after a shot, decays with `spreadRecoveryPerSec`. Recovery
+   * outpaces the fire rate (9/s × 0.25° < 4°/s) so sustained fire while standing stays
+   * precise; the cap only matters while moving.
+   */
+  spreadPerShotDeg: 0.25,
+  spreadRecoveryPerSec: 4.0,
+  spreadBloomMaxDeg: 1.0,
   projectileSpeed: 95,
   projectileGravity: 9.8,
   projectileRadius: 0.025,
