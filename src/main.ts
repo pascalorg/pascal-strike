@@ -8,12 +8,13 @@
  * Default: platform check → lobby → room → game.
  */
 import './ui/styles.css'
-import { RendererInitError } from './engine/renderer'
-import { joinRoom, roomCodeFromHash, RoomError } from './net/room'
-import { isConfigured, uploadMap } from './storage/maps-upload'
 import { appRoot, el } from './ui/dom'
 import { showLobby } from './ui/lobby'
 import { isTouchOnly, showUnsupported } from './ui/unsupported'
+
+// `net/room` pulls in playroomkit (which bundles React and phones home) and `storage/maps-upload`
+// pulls in supabase-js. Both are imported lazily, inside the play route only, so the package dev
+// entries (?dev=map, ?sandbox=1, ?dev=ui) stay free of them.
 
 const params = new URLSearchParams(location.search)
 
@@ -36,6 +37,12 @@ async function boot(): Promise<void> {
 
 async function play(): Promise<void> {
   const mount = appRoot()
+  const [{ joinRoom, roomCodeFromHash, RoomError }, { isConfigured, uploadMap }, { RendererInitError }] =
+    await Promise.all([
+      import('./net/room'),
+      import('./storage/maps-upload'),
+      import('./engine/renderer'),
+    ])
   const joinCode = roomCodeFromHash() ?? null
   const banner = createBanner(mount)
 
