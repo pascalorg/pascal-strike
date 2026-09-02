@@ -10,6 +10,7 @@ export type SoundName =
   | 'door'
   | 'footstep'
   | 'death'
+  | 'dryFire'
 
 export interface AudioListenerPose {
   position: Vector3
@@ -18,7 +19,8 @@ export interface AudioListenerPose {
 
 export interface Audio {
   resume(): Promise<void>
-  play(name: SoundName, at?: Vector3, listener?: AudioListenerPose): void
+  /** `gain` scales this one-shot (1 = normal); walking footsteps pass < 1. */
+  play(name: SoundName, at?: Vector3, listener?: AudioListenerPose, gain?: number): void
   dispose(): void
 }
 
@@ -46,7 +48,7 @@ export function createAudio(): Audio {
     return context
   }
 
-  function destination(at?: Vector3, listener?: AudioListenerPose): AudioNode {
+  function destination(at?: Vector3, listener?: AudioListenerPose, volume = 1): AudioNode {
     const ctx = context!
     const gain = ctx.createGain()
     let attenuation = 1
@@ -63,7 +65,7 @@ export function createAudio(): Audio {
         pan = Math.max(-1, Math.min(1, (dx * rightX + dz * rightZ) / distance))
       }
     }
-    gain.gain.value = attenuation
+    gain.gain.value = attenuation * Math.max(0, volume)
     const panner = ctx.createStereoPanner()
     panner.pan.value = pan
     gain.connect(panner).connect(master!)
@@ -120,15 +122,23 @@ export function createAudio(): Audio {
       const ctx = initialise()
       if (ctx.state !== 'running') await ctx.resume()
     },
-    play(name, at, listener) {
+    play(name, at, listener, gain = 1) {
       const ctx = initialise()
       if (ctx.state !== 'running') return
-      const output = destination(at, listener)
+      const output = destination(at, listener, gain)
       const time = ctx.currentTime
       switch (name) {
         case 'shot':
+          // Thwip (air) + pitch drop (bolt) + a 60 ms low thump so the shot has weight.
           noiseBurst(output, time, 0.07, 0.42, 'highpass', 1800)
           oscillator(output, time, 0.09, 420, 115, 0.22)
+          oscillator(output, time, 0.06, 130, 52, 0.5)
+          noiseBurst(output, time, 0.05, 0.3, 'lowpass', 220)
+          break
+        case 'dryFire':
+          // Dry, tiny and metallic: nothing but the sear and the empty hopper.
+          noiseBurst(output, time, 0.018, 0.24, 'highpass', 2600)
+          oscillator(output, time, 0.028, 240, 95, 0.07, 'square')
           break
         case 'splat':
           noiseBurst(output, time, 0.12, 0.35, 'lowpass', 900)

@@ -2,6 +2,13 @@ import { MathUtils, PerspectiveCamera, Vector3 } from 'three'
 
 /** Largest stable integration step for the k=75..95 springs below. */
 const SPRING_MAX_STEP = 1 / 120
+/**
+ * Screen shake amplitude for one shot: ~2 px at 1080p with a 75° vertical FOV
+ * (75 / 1080 ≈ 0.069°/px). Small on purpose — it should read as punch, not as a hit.
+ */
+const SHAKE_RAD = 2 * (Math.PI / 180) * (75 / 1080)
+/** Exponential time constant so the shake is gone (~2 %) after 80 ms. */
+const SHAKE_TAU = 0.02
 
 export interface FpsCamera {
   update(
@@ -12,8 +19,12 @@ export interface FpsCamera {
     pitch: number,
     speed: number,
     grounded: boolean,
+    /** Scales the view bob — walking (Shift) passes < 1 so the precise walk feels steady. */
+    bobScale?: number,
   ): void
   kick(pitchRad: number, yawRad: number): void
+  /** Extra screen shake, in radians of angular jitter (see SHAKE_RAD). */
+  shake(radians: number): void
   landing(vy: number): void
   getLookDirection(out: Vector3): Vector3
   getEyePosition(out: Vector3): Vector3
@@ -27,9 +38,18 @@ export function createFpsCamera(camera: PerspectiveCamera): FpsCamera {
   let bobTime = 0
   let landingDip = 0
   let landingVelocity = 0
+  let shakeAmplitude = 0
+  let shakeSeed = 0x9e3779b9
+  // xorshift: cosmetic jitter that must not touch Math.random (shots are seeded elsewhere).
+  const noise = (): number => {
+    shakeSeed ^= shakeSeed << 13
+    shakeSeed ^= shakeSeed >>> 17
+    shakeSeed ^= shakeSeed << 5
+    return ((shakeSeed >>> 0) / 2147483648) - 1
+  }
 
   return {
-    update(dt, feet, eyeHeight, yaw, pitch, speed, grounded) {
+    update(dt, feet, eyeHeight, yaw, pitch, speed, grounded, bobScale = 1) {
       const spring = 75
       const damping = 15
       // Semi-implicit Euler springs diverge past dt ~0.1 s; a frame hitch (navmesh build,
@@ -45,23 +65,33 @@ export function createFpsCamera(camera: PerspectiveCamera): FpsCamera {
         landingVelocity += (-95 * landingDip - 18 * landingVelocity) * h
         landingDip += landingVelocity * h
       }
+      shakeAmplitude *= Math.exp(-dt / SHAKE_TAU)
+      if (shakeAmplitude < SHAKE_RAD * 0.02) shakeAmplitude = 0
       if (grounded && speed > 0.15) bobTime += dt * (7 + speed * 1.1)
 
-      const bobWeight = grounded ? MathUtils.clamp(speed / 5.5, 0, 1) : 0
+      const bobWeight = grounded ? MathUtils.clamp(speed / 5.5, 0, 1) * bobScale : 0
       const bobY = Math.sin(bobTime * 2) * 0.012 * bobWeight
       const bobX = Math.cos(bobTime) * 0.009 * bobWeight
       camera.position.set(feet.x + bobX, feet.y + eyeHeight + bobY + landingDip, feet.z)
       camera.rotation.order = 'YXZ'
       camera.rotation.set(
-        MathUtils.clamp(pitch + recoilPitch, -Math.PI / 2 + 0.05, Math.PI / 2 - 0.05),
-        yaw + recoilYaw,
-        0,
+        MathUtils.clamp(
+          pitch + recoilPitch + noise() * shakeAmplitude,
+          -Math.PI / 2 + 0.05,
+          Math.PI / 2 - 0.05,
+        ),
+        yaw + recoilYaw + noise() * shakeAmplitude,
+        noise() * shakeAmplitude * 0.6,
       )
       camera.updateMatrixWorld()
     },
     kick(pitchRad, yawRad) {
       recoilPitchVelocity += pitchRad * 48
       recoilYawVelocity += yawRad * 48
+      shakeAmplitude = Math.min(SHAKE_RAD * 2, shakeAmplitude + SHAKE_RAD)
+    },
+    shake(radians) {
+      shakeAmplitude = Math.min(SHAKE_RAD * 4, shakeAmplitude + radians)
     },
     landing(vy) {
       landingVelocity -= MathUtils.clamp(Math.abs(vy) * 0.018, 0.025, 0.13)

@@ -1,5 +1,19 @@
+/**
+ * Fire logic for the paintball marker: rate, accuracy, hopper, reload.
+ *
+ * Accuracy model (W3-A). Players asked to be "precise where we aim, ok to be less precise
+ * when running", so the spread has two independent terms:
+ *
+ * - a *base* sigma decided by the motion state (`setMotion`): standing ~0.12°, crouched
+ *   standing 0.7x that, blending up through walking to running and worst of all airborne;
+ * - a *bloom* that grows `WEAPON.spreadPerShotDeg` per shot and bleeds off at
+ *   `WEAPON.spreadRecoveryPerSec`, capped at `MAX_BLOOM_DEG`.
+ *
+ * The first shot of a burst therefore lands exactly on the crosshair while held fire walks
+ * out, so tapping is rewarded without making the marker useless in a fight.
+ */
 import { Vector3 } from 'three'
-import { WEAPON } from '../config'
+import { PLAYER, WEAPON } from '../config'
 import type { ShotEvent, TeamId } from '../types'
 
 export interface MarkerOptions {
@@ -13,6 +27,10 @@ export interface Marker {
   readonly reserve: number
   readonly reloading: boolean
   readonly reloadProgress: number
+  /** Gaussian sigma in degrees the next shot would use (base motion tier + bloom). */
+  readonly currentSpreadDeg: number
+  /** True for the update in which the trigger was pulled on an empty hopper. */
+  readonly dryFire: boolean
   update(
     dt: number,
     firing: boolean,
@@ -20,9 +38,16 @@ export interface Marker {
     origin: Vector3,
     direction: Vector3,
   ): ShotEvent[]
+  /** Motion state of the shooter this frame; drives the base spread tier. */
+  setMotion(speedXZ: number, grounded: boolean, crouching: boolean, walking?: boolean): void
   setTeam(team: TeamId): void
   reset(): void
 }
+
+/** Sustained fire converges here instead of growing without bound. */
+const MAX_BLOOM_DEG = WEAPON.spreadPerShotDeg * 4
+/** Crouching multiplier — crouched and still is `spreadStandingDeg * 0.7`. */
+const CROUCH_FACTOR = 0.7
 
 const EMPTY_SHOTS: ShotEvent[] = []
 const spreadDirection = new Vector3()
@@ -39,7 +64,28 @@ export function createMarker(options: MarkerOptions): Marker {
   let fireAccumulator = shotPeriod
   let wasFiring = false
   let counter = 0
+  let bloomDeg = 0
+  let dryFire = false
+  let motionSpeed = 0
+  let motionGrounded = true
+  let motionCrouching = false
+  let motionWalking = false
   const output: ShotEvent[] = []
+
+  const baseSpreadDeg = (): number => {
+    if (!motionGrounded) return WEAPON.spreadAirDeg
+    let sigma: number
+    if (motionSpeed <= PLAYER.walkSpeed) {
+      sigma = lerp(WEAPON.spreadStandingDeg, WEAPON.spreadWalkingDeg, motionSpeed / PLAYER.walkSpeed)
+    } else {
+      const t = (motionSpeed - PLAYER.walkSpeed) / Math.max(1e-6, PLAYER.runSpeed - PLAYER.walkSpeed)
+      sigma = lerp(WEAPON.spreadWalkingDeg, WEAPON.spreadRunningDeg, t)
+    }
+    // Shift is a deliberate, precise walk: it caps the tier even on a downhill sprint.
+    if (motionWalking) sigma = Math.min(sigma, WEAPON.spreadWalkingDeg)
+    if (motionCrouching) sigma *= CROUCH_FACTOR
+    return sigma
+  }
 
   const beginReload = () => {
     if (!reloading && hopper < WEAPON.hopperSize) {
@@ -55,11 +101,22 @@ export function createMarker(options: MarkerOptions): Marker {
     get reloadProgress() {
       return reloading ? Math.min(reloadElapsed * 1000 / WEAPON.reloadMs, 1) : 0
     },
+    get currentSpreadDeg() { return baseSpreadDeg() + bloomDeg },
+    get dryFire() { return dryFire },
+    setMotion(speedXZ, grounded, crouching, walking = false) {
+      motionSpeed = Math.max(0, speedXZ)
+      motionGrounded = grounded
+      motionCrouching = crouching
+      motionWalking = walking
+    },
     update(dt, firing, reloadPressed, origin, direction) {
       output.length = 0
+      dryFire = false
+      bloomDeg = Math.max(0, bloomDeg - WEAPON.spreadRecoveryPerSec * dt)
       if (reloadPressed) beginReload()
 
       if (reloading) {
+        if (firing && !wasFiring) dryFire = true
         reloadElapsed += dt
         if (reloadElapsed * 1000 >= WEAPON.reloadMs) {
           hopper = WEAPON.hopperSize
@@ -72,6 +129,7 @@ export function createMarker(options: MarkerOptions): Marker {
       }
 
       if (hopper === 0) {
+        if (firing && !wasFiring) dryFire = true
         beginReload()
         wasFiring = firing
         return EMPTY_SHOTS
@@ -92,7 +150,8 @@ export function createMarker(options: MarkerOptions): Marker {
       counter++
       hopper--
       const seed = hashSeed(options.ownerId, counter)
-      applySpread(direction, seed, spreadDirection)
+      applySpread(direction, seed, baseSpreadDeg() + bloomDeg, spreadDirection)
+      bloomDeg = Math.min(MAX_BLOOM_DEG, bloomDeg + WEAPON.spreadPerShotDeg)
       output.push({
         id: `${options.ownerId}:${counter}`,
         by: options.ownerId,
@@ -114,17 +173,25 @@ export function createMarker(options: MarkerOptions): Marker {
       fireAccumulator = shotPeriod
       wasFiring = false
       counter = 0
+      bloomDeg = 0
+      dryFire = false
     },
   }
 }
 
-function applySpread(direction: Vector3, seed: number, out: Vector3): Vector3 {
+function lerp(a: number, b: number, t: number): number {
+  const clamped = t <= 0 ? 0 : t >= 1 ? 1 : t
+  return a + (b - a) * clamped
+}
+
+function applySpread(direction: Vector3, seed: number, sigmaDeg: number, out: Vector3): Vector3 {
   out.copy(direction).normalize()
+  if (sigmaDeg <= 0) return out
   const random = seededRandom(seed)
   const u1 = Math.max(random(), 1e-7)
   const u2 = random()
   const gaussianRadius = Math.sqrt(-2 * Math.log(u1))
-  const sigma = WEAPON.spreadWalkingDeg /* W3-A replaces with the motion-state model */ * Math.PI / 180
+  const sigma = sigmaDeg * Math.PI / 180
   const x = gaussianRadius * Math.cos(2 * Math.PI * u2) * sigma
   const y = gaussianRadius * Math.sin(2 * Math.PI * u2) * sigma
   tangent.set(0, 1, 0).cross(out)
