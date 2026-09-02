@@ -1,0 +1,168 @@
+import {
+  CanvasTexture,
+  Euler,
+  LinearFilter,
+  Matrix4,
+  Mesh,
+  MeshStandardMaterial,
+  Object3D,
+  Quaternion,
+  Scene,
+  Vector3,
+} from 'three'
+import { DecalGeometry } from 'three/examples/jsm/geometries/DecalGeometry.js'
+import { DECALS, TEAMS } from '../config'
+import type { TeamId } from '../types'
+
+export interface Decals {
+  add(
+    target: Object3D & { geometry: Mesh['geometry'] },
+    point: Vector3,
+    normal: Vector3,
+    team: TeamId,
+    seed: number,
+  ): void
+  clear(): void
+  readonly count: number
+  dispose(): void
+}
+
+interface DecalSlot {
+  mesh: Mesh
+  used: boolean
+}
+
+const forward = new Vector3(0, 0, 1)
+const projectorPoint = new Vector3()
+const size = new Vector3()
+const orientation = new Euler()
+const rotation = new Quaternion()
+const inverse = new Matrix4()
+
+export function createDecals(scene: Scene): Decals {
+  const alphaMaps = Array.from({ length: 4 }, (_, index) => makeSplatTexture(index))
+  const materials: Record<TeamId, MeshStandardMaterial[]> = {
+    a: makeMaterials('a'),
+    b: makeMaterials('b'),
+  }
+  const slots: DecalSlot[] = Array.from({ length: DECALS.maxCount }, () => {
+    const mesh = new Mesh(undefined, materials.a[0])
+    mesh.visible = false
+    mesh.renderOrder = 20
+    return { mesh, used: false }
+  })
+  let cursor = 0
+  let count = 0
+
+  function makeMaterials(team: TeamId): MeshStandardMaterial[] {
+    return alphaMaps.map((alphaMap) => new MeshStandardMaterial({
+      color: TEAMS[team].colorHex,
+      alphaMap,
+      transparent: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      roughness: 0.72,
+    }))
+  }
+
+  function clearSlot(slot: DecalSlot): void {
+    if (!slot.used) return
+    slot.mesh.removeFromParent()
+    slot.mesh.geometry.dispose()
+    slot.mesh.visible = false
+    slot.used = false
+  }
+
+  return {
+    add(target, point, normal, team, seed) {
+      const slot = slots[cursor]
+      cursor = (cursor + 1) % slots.length
+      if (slot.used) clearSlot(slot)
+      else count++
+
+      const random = seededRandom(seed)
+      const diameter = DECALS.minSize + (DECALS.maxSize - DECALS.minSize) * random()
+      projectorPoint.copy(point).addScaledVector(normal, DECALS.offset)
+      rotation.setFromUnitVectors(forward, normal)
+      orientation.setFromQuaternion(rotation)
+      orientation.z += random() * Math.PI * 2
+      size.set(diameter, diameter * (0.8 + random() * 0.35), diameter * 0.35)
+      target.updateWorldMatrix(true, false)
+      const geometry = new DecalGeometry(target as Mesh, projectorPoint, orientation, size)
+
+      const followsTarget = target.parent !== null && target.parent !== scene
+      if (followsTarget) {
+        inverse.copy(target.matrixWorld).invert()
+        geometry.applyMatrix4(inverse)
+        target.add(slot.mesh)
+      } else {
+        scene.add(slot.mesh)
+      }
+      slot.mesh.geometry = geometry
+      slot.mesh.material = materials[team][seed & 3]
+      slot.mesh.visible = true
+      slot.mesh.position.set(0, 0, 0)
+      slot.mesh.rotation.set(0, 0, 0)
+      slot.mesh.scale.set(1, 1, 1)
+      slot.used = true
+    },
+    clear() {
+      for (const slot of slots) clearSlot(slot)
+      count = 0
+      cursor = 0
+    },
+    get count() { return count },
+    dispose() {
+      for (const slot of slots) clearSlot(slot)
+      for (const teamMaterials of Object.values(materials)) {
+        for (const material of teamMaterials) material.dispose()
+      }
+      for (const texture of alphaMaps) texture.dispose()
+      count = 0
+    },
+  }
+}
+
+function seededRandom(seed: number): () => number {
+  let value = seed >>> 0
+  return () => {
+    value = Math.imul(value ^ value >>> 15, value | 1)
+    return ((value ^ value >>> 13) >>> 0) / 4294967296
+  }
+}
+
+function makeSplatTexture(variant: number): CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = 512
+  const context = canvas.getContext('2d')!
+  const random = seededRandom(0x51f15e + variant * 997)
+  context.fillStyle = '#fff'
+  context.beginPath()
+  const points = 22
+  for (let index = 0; index < points; index++) {
+    const angle = index / points * Math.PI * 2
+    const radius = 138 + random() * 54
+    const x = 256 + Math.cos(angle) * radius
+    const y = 240 + Math.sin(angle) * radius
+    if (index === 0) context.moveTo(x, y)
+    else context.lineTo(x, y)
+  }
+  context.closePath()
+  context.fill()
+  const drips = 2 + (variant % 3)
+  for (let index = 0; index < drips; index++) {
+    const x = 175 + random() * 170
+    const length = 45 + random() * 95
+    context.beginPath()
+    context.ellipse(x, 365 + length / 2, 10 + random() * 12, length / 2, 0, 0, Math.PI * 2)
+    context.fill()
+    context.beginPath()
+    context.arc(x, 365 + length, 13 + random() * 8, 0, Math.PI * 2)
+    context.fill()
+  }
+  const texture = new CanvasTexture(canvas)
+  texture.minFilter = LinearFilter
+  texture.magFilter = LinearFilter
+  return texture
+}
