@@ -138,9 +138,9 @@ Every registry node has `name = pascalId` and `userData` (glTF `extras`):
   frames/jambs are static siblings.
 - Windows: fixed glass is a `BLEND` material mesh; treat as solid for bullets (paint on glass!).
 - The two ground meshes at the site root (scale 15) are the terrain plane.
-- Test map `public/maps/pascal-house.glb`: 3 levels, 3 doors, no stairs yet (Wassim will add
-  stairs; until then only Level 0 is reachable on foot), no zones, no spawns → spawns are
-  auto-derived.
+- Test map `public/maps/pascal-house.glb` (v5 export): 3 levels with a staircase, 7 doors and
+  2 openable windows with baked clips, zones "Spawn A" (on the lawn north of the house) and
+  "Spawn B" (east room). Pascal's `spawn` node is a single walkthrough marker, not a team spawn.
 
 Use `bun run inspect-glb <file>` to see any file's tree.
 

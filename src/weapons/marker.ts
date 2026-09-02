@@ -172,7 +172,9 @@ export function createMarker(options: MarkerOptions): Marker {
       reloadElapsed = 0
       fireAccumulator = shotPeriod
       wasFiring = false
-      counter = 0
+      // Keep `counter` monotonic across lives: shot ids must never repeat, or the host's
+      // duplicate-shot filter silently drops hits after a respawn.
+
       bloomDeg = 0
       dryFire = false
     },

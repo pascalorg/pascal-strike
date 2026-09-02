@@ -1,7 +1,9 @@
 /**
  * Body-part hit shapes for a standing/crouching mannequin, in world space.
  * Shared by avatars (remotes, bots) and the local player so the host and every client
- * agree on what "head" means. Sizes match player/avatar.ts (total height 1.75 m).
+ * agree on what "head" means. The head sphere matches the avatar's visible head (centre
+ * 1.53 m, radius 0.22 m); the torso capsule stops below it so the nearest-shape narrow
+ * phase never steals the lower half of the head.
  */
 import { Vector3 } from 'three'
 import type { BodyPart, HitShape } from '../types'
@@ -23,8 +25,8 @@ const right = new Vector3()
  */
 export function computeHitShapes(out: HitShape[], feet: Vector3, yaw: number, crouching: boolean): HitShape[] {
   const scale = crouching ? PLAYER.crouchHeight / PLAYER.height : 1
-  const headY = 1.6 * scale
-  const shoulderY = 1.38 * scale
+  const headY = 1.53 * scale
+  const shoulderY = 1.27 * scale
   const hipY = 0.92 * scale
   // Right-hand direction for yaw (yaw 0 looks toward -Z).
   right.set(Math.cos(yaw), 0, -Math.sin(yaw))
@@ -32,7 +34,7 @@ export function computeHitShapes(out: HitShape[], feet: Vector3, yaw: number, cr
   const [head, torso, armL, armR, legL, legR] = out
   head.start.set(feet.x, feet.y + headY, feet.z)
   head.end.copy(head.start)
-  head.radius = 0.16
+  head.radius = 0.21
 
   torso.start.set(feet.x, feet.y + hipY, feet.z)
   torso.end.set(feet.x, feet.y + shoulderY, feet.z)
