@@ -57,6 +57,11 @@ export const GS = {
   match: 'match',
   /** number — host Date.now(), refreshed every CLOCK_SYNC_MS so clients can estimate an offset */
   hostNow: 'hostNow',
+  /**
+   * DoorStates — every openable's state in the current map. The host rewrites it on every
+   * `door` RPC so a late joiner can adopt the house as it is instead of a house of shut doors.
+   */
+  doors: 'doors',
 } as const
 
 /** RPC names. */
@@ -76,6 +81,12 @@ export const RPCS = {
    * the victim asks the host to put it back on a spawn point (W2 addition).
    */
   fell: 'fell',
+  /**
+   * ALL — DoorEvent. Openables are not host-authoritative: whoever pressed E decides and
+   * everyone (the caller included, hence ALL) applies the same state. The host additionally
+   * mirrors the result into the `doors` room state for late joiners.
+   */
+  door: 'door',
 } as const
 
 export type RpcName = (typeof RPCS)[keyof typeof RPCS]
@@ -111,6 +122,18 @@ export interface FellEvent {
   player: string
 }
 
+/** Somebody opened or closed a door or a window. */
+export interface DoorEvent {
+  /** `DoorInfo.id` (the Pascal id of the door/window node). */
+  id: string
+  open: boolean
+  /** Player or bot that triggered it, for the SFX/feedback side. */
+  by: string
+}
+
+/** Value of the `doors` room state: `{ [DoorInfo.id]: open }` for the current map. */
+export type DoorStates = Record<string, boolean>
+
 /** Payload of every RPC, keyed by name — lets `rpc.register` stay type safe. */
 export interface RpcPayloads {
   shot: ShotEvent
@@ -119,4 +142,5 @@ export interface RpcPayloads {
   kill: KillEvent
   respawn: RespawnEvent
   fell: FellEvent
+  door: DoorEvent
 }

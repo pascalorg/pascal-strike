@@ -2,7 +2,8 @@
  * `?dev=map` — W1-A dev entry: load a Pascal GLB, fly around it, inspect everything the map
  * pipeline produced (zones, spawns, doors, collider, navmesh, raycasts).
  *
- * Controls: click to capture the mouse (or drag), WASD + Q/E, Shift to sprint, Esc to release.
+ * Controls: click to capture the mouse (or drag), WASD + Space/Q up-down, Shift to sprint,
+ * E toggles the door or window the camera is looking at, Esc to release.
  * Overlays: Z zones · S spawns · D doors · C collider · N navmesh · R raycast probe.
  * S and D only toggle while the cursor is free, because they double as movement keys.
  */
@@ -25,13 +26,13 @@ import {
   SpriteMaterial,
   Vector3,
 } from 'three'
-import { TEAMS } from '../config'
+import { DOORS, TEAMS } from '../config'
 import { createRenderer } from '../engine/renderer'
 import { createLoaders } from '../engine/loaders'
 import { createEnvironment } from '../engine/environment'
 import { loadMap } from '../map/map-loader'
 import { colliderTriangleCount, createWorldQuery } from '../map/collider'
-import { createDoorSystem } from '../map/doors'
+import { createDoorSystem, type DoorSystem } from '../map/doors'
 import { resolveSpawns } from '../map/spawns'
 import { buildNavigation, createNavMeshHelper } from '../map/navmesh'
 import type { HitResult, MapData, SpawnLayout } from '../types'
@@ -49,6 +50,8 @@ const OVERLAY_LABELS: Record<OverlayKey, string> = {
 
 const FLY_SPEED = 6
 const FLY_SPRINT = 18
+/** The viewer interacts from the air, so it reaches farther than the in-game `interactRange`. */
+const VIEWER_INTERACT_RANGE = Math.max(DOORS.interactRange, 8)
 const LOOK_SENSITIVITY = 0.0022
 const PROBE_RANGE = 60
 const MAX_PITCH = Math.PI / 2 - 0.02
@@ -58,7 +61,7 @@ const _right = new Vector3()
 const _move = new Vector3()
 const _probeDir = new Vector3()
 const _probeEnd = new Vector3()
-const _actors: Vector3[] = [new Vector3()]
+const _interactDir = new Vector3()
 
 export async function start(): Promise<void> {
   const container = document.getElementById('app')!
@@ -82,8 +85,21 @@ export async function start(): Promise<void> {
   const spawns = resolveSpawns(map, world, nav)
 
   doors.onToggle((door, open) => {
-    console.info(`[doors] ${door.label} (${door.id}) → ${open ? 'open' : 'closed'}`)
+    console.info(
+      `[doors] ${door.kind ?? 'door'} ${door.label} (${door.id}) → ${open ? 'open' : 'closed'}`,
+    )
   })
+
+  /** E: toggle whatever openable the fly camera is pointing at. */
+  function interact(): void {
+    camera.getWorldDirection(_interactDir)
+    const target = doors.findInteractable(camera.position, _interactDir, VIEWER_INTERACT_RANGE)
+    if (!target) {
+      console.info('[doors] nothing to open here')
+      return
+    }
+    doors.toggle(target.id)
+  }
 
   // ---- overlays -----------------------------------------------------------
   const overlays = new Group()
@@ -154,6 +170,7 @@ export async function start(): Promise<void> {
   window.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase()
     keys.add(key)
+    if (key === 'e' && !e.repeat) interact()
     if (!(key in OVERLAY_LABELS)) return
     // S and D are also movement keys — only treat them as toggles with the cursor free.
     if ((key === 's' || key === 'd') && moveActive()) return
@@ -194,7 +211,11 @@ export async function start(): Promise<void> {
     if (now < panelDue) return
     panelDue = now + 200
     const doorStates = map.doors
-      .map((d) => `${d.label} ${doors.isOpen(d.id) ? 'OPEN' : 'shut'} ${doors.openness(d.id).toFixed(2)}`)
+      .map(
+        (d) =>
+          `${(d.kind ?? 'door').padEnd(6)} ${d.id.slice(-6)} ` +
+          `${doors.isOpen(d.id) ? 'OPEN' : 'shut'} ${doors.openness(d.id).toFixed(2)}`,
+      )
       .join('\n  ')
     panel.textContent = [
       `PASCAL STRIKE · map viewer`,
@@ -202,14 +223,15 @@ export async function start(): Promise<void> {
       `backend    ${engine.backend}   ${fps.toFixed(0)} fps`,
       `load       ${loadMs.toFixed(0)} ms`,
       `tris       ${sceneTris.toLocaleString()} scene / ${colliderTris.toLocaleString()} collider`,
-      `levels     ${map.levels.length}   zones ${map.zones.length}   doors ${map.doors.length}   spawnNodes ${map.spawnNodes.length}`,
+      `levels     ${map.levels.length}   zones ${map.zones.length}   openables ${map.doors.length}` +
+        ` (${map.doors.filter((d) => d.kind === 'window').length} windows)   spawnNodes ${map.spawnNodes.length}`,
       `bounds     ${fmt(map.bounds.min)} → ${fmt(map.bounds.max)}`,
       `spawns     source=${spawns.source}  a=${spawns.a.length} b=${spawns.b.length}`,
       `  first A  ${firstA ? fmt(firstA) : '—'}`,
       `  first B  ${firstB ? fmt(firstB) : '—'}`,
       `navmesh    ${nav.ready ? 'ready' : 'FAILED (straight-line fallback)'}`,
       `camera     ${fmt(camera.position)}`,
-      map.doors.length ? `doors\n  ${doorStates}` : 'doors      none',
+      map.doors.length ? `openables (E toggles)\n  ${doorStates}` : 'openables  none',
       visible.r
         ? `probe      ${probeHit ? `${probeHit.kind} @ ${probeHit.distance.toFixed(2)} m  n=${fmt(probeHit.normal, 2)}` : 'no hit'}`
         : 'probe      off (R)',
@@ -217,7 +239,7 @@ export async function start(): Promise<void> {
       `overlays   ${(Object.keys(OVERLAY_LABELS) as OverlayKey[])
         .map((k) => `${k.toUpperCase()}:${OVERLAY_LABELS[k]}${visible[k] ? '*' : ''}`)
         .join(' ')}`,
-      `click to fly · WASD QE · Shift fast · Esc frees cursor`,
+      `click to fly · WASD + Space/Q · Shift fast · E interact · Esc frees cursor`,
       `(S/D toggle only while the cursor is free)`,
     ].join('\n')
   }
@@ -232,7 +254,8 @@ export async function start(): Promise<void> {
       if (keys.has('s')) _move.sub(_forward)
       if (keys.has('d')) _move.add(_right)
       if (keys.has('a')) _move.sub(_right)
-      if (keys.has('e')) _move.y += 1
+      // E is the interact key now (like in game), so vertical fly moved to Space / Q.
+      if (keys.has(' ')) _move.y += 1
       if (keys.has('q')) _move.y -= 1
       if (_move.lengthSq() > 0) {
         _move.normalize().multiplyScalar((keys.has('shift') ? FLY_SPRINT : FLY_SPEED) * dt)
@@ -240,8 +263,7 @@ export async function start(): Promise<void> {
       }
     }
 
-    _actors[0].copy(camera.position)
-    doors.update(dt, _actors)
+    doors.update(dt)
   })
 
   engine.onRender((_alpha, dt) => {
@@ -271,7 +293,7 @@ export async function start(): Promise<void> {
 
   console.info(
     `[map-viewer] ${map.name} · backend=${engine.backend} · ${loadMs.toFixed(0)} ms · ` +
-      `${map.levels.length} levels, ${map.zones.length} zones, ${map.doors.length} doors, ` +
+      `${map.levels.length} levels, ${map.zones.length} zones, ${map.doors.length} openables, ` +
       `${colliderTris} collider tris · spawns=${spawns.source} · navmesh=${nav.ready}`,
   )
 
@@ -332,26 +354,30 @@ function buildSpawnOverlay(spawns: SpawnLayout): Group {
 
 function buildDoorOverlay(map: MapData): {
   group: Group
-  update(doors: { isOpen(id: string): boolean; openness(id: string): number }): void
+  update(doors: Pick<DoorSystem, 'openness'>): void
 } {
   const group = new Group()
   group.name = 'overlay-doors'
-  const geometry = new SphereGeometry(0.13, 12, 8)
+  const doorGeometry = new SphereGeometry(0.13, 12, 8)
+  // Windows get a smaller marker so the two kinds are told apart at a glance.
+  const windowGeometry = new SphereGeometry(0.08, 10, 6)
   const entries = map.doors.map((door) => {
+    const isWindow = door.kind === 'window'
     const material = new MeshBasicMaterial({ color: 0xef4444, depthTest: false })
-    const mesh = new Mesh(geometry, material)
+    const mesh = new Mesh(isWindow ? windowGeometry : doorGeometry, material)
     mesh.position.copy(door.center)
     group.add(mesh)
-    return { id: door.id, material }
+    return { id: door.id, material, isWindow }
   })
-  const open = new Color(0x22c55e)
+  const openDoor = new Color(0x22c55e)
+  const openWindow = new Color(0x38bdf8)
   const shut = new Color(0xef4444)
   const mid = new Color()
   return {
     group,
     update(doors) {
       for (const entry of entries) {
-        mid.copy(shut).lerp(open, doors.openness(entry.id))
+        mid.copy(shut).lerp(entry.isWindow ? openWindow : openDoor, doors.openness(entry.id))
         entry.material.color.copy(mid)
       }
     },

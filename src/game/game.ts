@@ -9,7 +9,7 @@
  *   frame      : look/camera/marker → net interpolation → avatars → projectiles → doors → HUD
  */
 import { Vector3 } from 'three'
-import { BUILTIN_MAPS, PLAYER, TEAMS } from '../config'
+import { BUILTIN_MAPS, DOORS, PLAYER, TEAMS } from '../config'
 import { createAudio, type Audio } from '../engine/audio'
 import { createEventBus } from '../engine/events'
 import { createInput } from '../engine/input'
@@ -17,11 +17,12 @@ import { createLoaders } from '../engine/loaders'
 import { createRenderer, type Engine } from '../engine/renderer'
 import { createNavMeshHelper } from '../map/navmesh'
 import { bindNetToRegistry } from '../net/client'
-import { GS, RPCS, type FellEvent } from '../net/protocol'
+import { GS, RPCS, type DoorEvent, type DoorStates, type FellEvent } from '../net/protocol'
 import type { Room } from '../net/room'
 import { createClock, createSnapshotSender } from '../net/sync'
-import type { Hittable, MapSelection, MatchState, TeamId } from '../types'
+import type { DoorInfo, Hittable, MapSelection, MatchState, TeamId } from '../types'
 import { createHud } from '../ui/hud'
+import { createPrompt } from '../ui/prompt'
 import { createScoreboard } from '../ui/scoreboard'
 import { createEntityRegistry } from './entities'
 import { createHostSide } from './host-side'
@@ -53,7 +54,6 @@ export interface Game {
 const MAP_POLL_MS = 500
 const HUD_POLL_MS = 100
 
-const _actors: Vector3[] = []
 const _hittables: Hittable[] = []
 const _damageDir = new Vector3()
 const _shotOrigin = new Vector3()
@@ -84,6 +84,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   const binding = bindNetToRegistry(room, registry, events, clock)
 
   const hud = createHud(mount)
+  const prompt = createPrompt(mount)
   const board = createScoreboard({ mount, now: () => clock.now(), localId: room.me.id })
   hud.setRoom(room.roomCode, room.inviteUrl)
   hud.setFps(debugMode ? 0 : null)
@@ -114,6 +115,14 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       onProgress: (progress, label) => loading.set(progress, label),
     })
     built.doors.onToggle((door) => audio.play('door', door.center, localPlayer.listener))
+    // Late join / map change: adopt the house as it is. `instant` jumps each clip to its end
+    // pose, so nothing swings (or whooshes) on the first frame.
+    const states = room.getGlobal<DoorStates>(GS.doors)
+    if (states) {
+      for (const door of built.map.doors) {
+        if (states[door.id] === true) built.doors.setOpen(door.id, true, true)
+      }
+    }
     built.projectiles.onPlayerHit((hit) => {
       // My shots and (on the host) my bots' shots both land here; the host validates either way.
       const authority = hostSide.authority
@@ -157,6 +166,8 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     if (disposed || next.url === session.selection.url) return
     loading.show()
     loading.set(0, `Loading ${next.name}`)
+    // Door ids are per map: the previous house's state must not leak into the new one.
+    if (room.isHost()) room.setGlobal(GS.doors, {}, true)
     remotePlayers.clear()
     localPlayer.dispose()
     session.dispose()
@@ -244,6 +255,45 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     remotePlayers.spawn(ev.player)
   })
 
+  // --- doors and windows (W3-D) --------------------------------------------
+  // Openables are peer-decided: whoever presses E broadcasts the new state to everyone (ALL,
+  // so we apply our own call too) and the host mirrors the result into the room state for
+  // late joiners. No prediction, no host round trip — a 1 s clip hides the latency.
+
+  let interactPressed = false
+  let interactTarget: DoorInfo | null = null
+
+  function publishDoorStates(): void {
+    if (!room.isHost()) return
+    room.setGlobal(GS.doors, session.doors.openStates(), true)
+  }
+
+  const offDoorRpc = room.rpc.register<DoorEvent>(RPCS.door, (ev) => {
+    if (!ev?.id) return
+    session.doors.setOpen(ev.id, ev.open === true)
+    publishDoorStates()
+  })
+
+  /** Runs after `frameUpdate`, so the ray uses this frame's camera pose. */
+  function updateInteract(pressed: boolean): void {
+    if (localPlayer.dead) {
+      interactTarget = null
+      prompt.set(null)
+      return
+    }
+    const eye = localPlayer.listener
+    interactTarget = session.doors.findInteractable(eye.position, eye.forward, DOORS.interactRange)
+    if (!interactTarget) {
+      prompt.set(null)
+      return
+    }
+    const open = session.doors.isOpen(interactTarget.id)
+    prompt.set(`${open ? 'Close' : 'Open'} ${interactTarget.kind ?? 'door'}`)
+    if (!pressed) return
+    const payload: DoorEvent = { id: interactTarget.id, open: !open, by: room.me.id }
+    void room.rpc.call(RPCS.door, payload, 'all')
+  }
+
   // --- frame ---------------------------------------------------------------
 
   let lastMapPoll = 0
@@ -265,14 +315,15 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     const now = clock.now()
     fps += ((dt > 0 ? 1 / dt : 60) - fps) * 0.08
 
+    // `frameUpdate` ends with `input.update()`, which clears the edge — read E before it.
+    if (input.locked && input.interact) interactPressed = true
     localPlayer.frameUpdate(dt)
     binding.update(now)
     remotePlayers.update(now, localPlayer.listener.position)
 
-    _actors.length = 0
-    _actors.push(localPlayer.position)
-    for (const p of remotePlayers.positions()) _actors.push(p)
-    session.doors.update(dt, _actors)
+    session.doors.update(dt)
+    updateInteract(interactPressed)
+    interactPressed = false
 
     _hittables.length = 0
     for (const h of remotePlayers.hittables()) _hittables.push(h)
@@ -449,6 +500,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       document.removeEventListener('pointerdown', onFirstClick)
       sender.stop()
       binding.stop()
+      offDoorRpc()
       hostSide.dispose()
       clock.stop()
       remotePlayers.dispose()
@@ -459,6 +511,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       input.dispose()
       rawAudio.dispose()
       hud.dispose()
+      prompt.dispose()
       board.dispose()
       menu.dispose()
       debugPanel.dispose()
@@ -495,6 +548,15 @@ export async function startGame(opts: GameOptions): Promise<Game> {
         window.setTimeout(() => localPlayer.debug.setFire(false), ms)
       },
       reload: () => localPlayer.debug.reload(),
+      interact: () => {
+        interactPressed = true
+      },
+      doors: () => ({
+        states: session.doors.openStates(),
+        target: interactTarget && { id: interactTarget.id, kind: interactTarget.kind ?? 'door' },
+        prompt: prompt.action,
+        global: room.getGlobal<DoorStates>(GS.doors) ?? null,
+      }),
       stop: () => localPlayer.debug.clear(),
       teleport: (x: number, y: number, z: number) =>
         localPlayer.place(new Vector3(x, y, z), localPlayer.yaw),

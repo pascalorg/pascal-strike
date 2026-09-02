@@ -25,12 +25,10 @@ export interface ParsedScene {
   spawnNodes: SpawnNodeInfo[]
   doors: DoorInfo[]
   /**
-   * Subtrees driven by a baked animation clip (door leaves). They must be kept out of the merged
-   * static collider because their world matrix changes at runtime.
-   *
-   * Openable *windows* are deliberately NOT in here: nothing animates them at runtime (there is
-   * no window system), so their sashes are baked into the static collider in their closed pose.
-   * Excluding them would punch bullet-sized holes through the walls they sit in.
+   * Subtrees driven by a baked animation clip: door leaves AND window sashes (W3-D made
+   * windows openable too). They must be kept out of the merged static collider because their
+   * world matrix changes at runtime; bullets still stop on them, through the per-leaf BVHs
+   * `collider.ts` builds for every `DoorInfo.leafMeshes`.
    */
   animatedNodes: Set<Object3D>
   /** Zone and spawn marker nodes — excluded from the collider so markers never block anything. */
@@ -90,11 +88,13 @@ export function parsePascalScene(gltf: GLTF): ParsedScene {
         spawnNodes.push(parseSpawnNode(node, extras, levelOf(node, levelByNode), spawnNodes.length))
         break
       }
-      case 'door': {
-        const door = parseDoor(gltf, node, extras)
-        if (door) {
-          doors.push(door.info)
-          for (const animated of door.animatedNodes) animatedNodes.add(animated)
+      // Doors and windows are the same thing to the game: a node with a baked "open" clip.
+      case 'door':
+      case 'window': {
+        const openable = parseOpenable(gltf, node, extras)
+        if (openable) {
+          doors.push(openable.info)
+          for (const animated of openable.animatedNodes) animatedNodes.add(animated)
         }
         break
       }
@@ -186,7 +186,11 @@ function parseSpawnNode(
   }
 }
 
-function parseDoor(
+/**
+ * A door or an openable window → `DoorInfo`. Both carry `openable: true` plus a 1 s "open"
+ * clip whose tracks target the moving leaves (door panels, `casement-window-sash`).
+ */
+function parseOpenable(
   gltf: GLTF,
   node: Object3D,
   extras: PascalExtras,
@@ -238,6 +242,7 @@ function parseDoor(
     info: {
       id: extras.pascalId ?? node.name,
       label: extras.label ?? extras.pascalId ?? node.name,
+      kind: extras.kind === 'window' ? 'window' : 'door',
       node,
       clip,
       center,

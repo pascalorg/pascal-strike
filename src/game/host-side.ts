@@ -6,6 +6,7 @@
  * when we lose it, rebuild when the map changes.
  */
 import { Vector3 } from 'three'
+import { DOORS } from '../config'
 import type { Audio, AudioListenerPose } from '../engine/audio'
 import { startHostAuthority, type HostAuthority } from '../net/host'
 import { PS, RPCS, type FellEvent } from '../net/protocol'
@@ -38,6 +39,17 @@ export interface HostSide {
 
 /** How often the host checks whether a bot has fallen out of the world. */
 const FALL_CHECK_MS = 1000
+/**
+ * How often the host looks for a shut door in front of a bot. Bots run at 5.5 m/s, so this is
+ * a check every ~0.5 m — a per-frame test would cost the same decision at 8x the price, and
+ * the door tick has to survive `bots.update` being driven from `game.ts`, not from here.
+ */
+const BOT_DOOR_CHECK_MS = 90
+/** One toggle per door per this long, so two bots in a doorway cannot flap it. */
+const BOT_DOOR_COOLDOWN_MS = 1_500
+/** A bot only opens doors on its own floor (door centres sit ~1 m above the slab). */
+const BOT_DOOR_MAX_VERTICAL = 2
+const BOT_DOOR_RADIUS_SQ = DOORS.botOpenRadius * DOORS.botOpenRadius
 const _spawnScratch: Vector3[] = []
 const _respawnPoint = new Vector3()
 
@@ -133,6 +145,36 @@ export function createHostSide(opts: HostSideOptions): HostSide {
     bots.respawn(ev.player, _respawnPoint, ev.yaw)
   })
 
+  // --- bots and doors ------------------------------------------------------
+  // Players open doors with E; bots cannot press keys, so the host nudges the door in front of
+  // them through the very same RPC. Windows are never touched: a bot has no reason to, and the
+  // sash swinging into a room it is walking past looks like a bug.
+
+  const doorCooldown = new Map<string, number>()
+
+  const doorTimer = window.setInterval(() => {
+    if (!authority) return
+    const session = opts.session()
+    const doors = session.map.doors
+    if (doors.length === 0) return
+    const now = Date.now()
+    for (const entity of registry.list()) {
+      if (!entity.isBot || !entity.alive) continue
+      const feet = entity.position
+      for (const door of doors) {
+        if ((door.kind ?? 'door') !== 'door') continue
+        if (session.doors.isOpen(door.id)) continue
+        if ((doorCooldown.get(door.id) ?? 0) > now) continue
+        if (Math.abs(feet.y - (door.center.y - 1)) >= BOT_DOOR_MAX_VERTICAL) continue
+        const dx = feet.x - door.center.x
+        const dz = feet.z - door.center.z
+        if (dx * dx + dz * dz > BOT_DOOR_RADIUS_SQ) continue
+        doorCooldown.set(door.id, now + BOT_DOOR_COOLDOWN_MS)
+        void room.rpc.call(RPCS.door, { id: door.id, open: true, by: entity.id }, 'all')
+      }
+    }
+  }, BOT_DOOR_CHECK_MS)
+
   // A bot that slips through a gap in the map would otherwise fall forever.
   const fallTimer = window.setInterval(() => {
     if (!authority) return
@@ -153,11 +195,14 @@ export function createHostSide(opts: HostSideOptions): HostSide {
     },
     reload() {
       stopBots()
+      doorCooldown.clear()
       if (authority) void startBots()
     },
     dispose() {
       disposed = true
       window.clearInterval(fallTimer)
+      window.clearInterval(doorTimer)
+      doorCooldown.clear()
       offHostChange()
       offFell()
       offChange()

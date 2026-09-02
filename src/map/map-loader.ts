@@ -31,7 +31,9 @@ export async function loadMap(
 
   const parsed = parsePascalScene(gltf)
 
-  // Markers must never collide; animated door leaves are queried separately (they move).
+  // Markers must never collide. The animated leaves of doors and openable windows are queried
+  // separately (they move), so they are cut out of the merged static collider: players walk
+  // through the opening whatever the state, bullets still stop on the leaf's own BVH.
   const excluded = new Set<Object3D>()
   for (const node of parsed.markerNodes) excluded.add(node)
   for (const node of parsed.animatedNodes) excluded.add(node)

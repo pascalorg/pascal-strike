@@ -2,8 +2,9 @@
  * Merged static collider + BVH + WorldQuery (W1-A).
  *
  * Everything static is baked into ONE world-space geometry with a bounds tree: one BVH walk
- * answers a bullet raycast. Door leaves stay separate because they move; they get their own
- * (local-space) bounds tree and the ray is transformed into their space at query time.
+ * answers a bullet raycast. The leaves of an openable (door panels and, since W3-D, window
+ * sashes) stay separate because they move; they get their own (local-space) bounds tree and
+ * the ray is transformed into their space at query time.
  */
 import './bvh-setup'
 import {
@@ -38,7 +39,8 @@ const _normalMatrix = new Matrix3()
 
 /**
  * Bake every visible static mesh under `root` into one world-space geometry with a BVH.
- * `excluded` holds subtree roots to skip (zone/spawn markers, animated door leaves).
+ * `excluded` holds subtree roots to skip (zone/spawn markers, the animated leaves of doors
+ * and openable windows).
  */
 export function buildStaticCollider(root: Object3D, excluded: Set<Object3D>): StaticCollider {
   root.updateMatrixWorld(true)
@@ -185,7 +187,9 @@ interface DoorEntry {
 }
 
 /**
- * Raycasts against the static BVH plus every door leaf, nearest hit wins.
+ * Raycasts against the static BVH plus the leaves of every openable, nearest hit wins.
+ * A closed window sash stops a paintball exactly like a closed door leaf does; an open one
+ * has swung out of the way, so the ray goes through the hole it left in the static collider.
  *
  * A miss allocates nothing. A hit allocates one `HitResult` (two `Vector3`s) — deliberately not
  * a shared scratch object, so callers in other packages can hold on to it safely.
@@ -213,6 +217,7 @@ export function createWorldQuery(collider: StaticCollider, doors: DoorInfo[]): W
     if (leaves.length === 0) continue
 
     // Closed-pose bbox + swing margin: leaves rotate about hinges offset by ~halfWidth.
+    // (`door` here is any openable — DoorInfo covers windows too.)
     _box.makeEmpty()
     _box.setFromObject(door.node)
     const closedRadius = _box.isEmpty() ? 1.5 : _box.getSize(_v).length() * 0.5
