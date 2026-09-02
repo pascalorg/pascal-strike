@@ -96,6 +96,8 @@ export async function start(): Promise<void> {
   const viewModel = createViewModel(camera)
   viewModel.setTeam('a')
   const marker = createMarker({ ownerId: 'sandbox-local', team: 'a' })
+  const muzzlePoint = new Vector3()
+  let controls: MoveInput = input.move
   const audio = createAudio()
   const overlay = makeOverlay(app)
   const effects = createEffects(scene, {
@@ -207,7 +209,7 @@ export async function start(): Promise<void> {
         }
       }
 
-      const controls = autopilot.enabled ? moveInput : input.move
+      controls = autopilot.enabled ? moveInput : input.move
       const fallingVelocity = controller.state.velocity.y
       controller.update(FIXED_DT, controls, yaw)
       if (!previousGrounded && controller.state.grounded) fpsCamera.landing(fallingVelocity)
@@ -219,18 +221,20 @@ export async function start(): Promise<void> {
     fpsCamera.update(frameDt, controller.state.position, controller.eyeHeight, yaw, pitch, speed, controller.state.grounded)
     fpsCamera.getEyePosition(eye)
     fpsCamera.getLookDirection(look)
+    marker.setMotion(speed, controller.state.grounded, controller.state.crouching, Boolean(controls.walk))
     const shots = marker.update(frameDt, input.fire || scriptedFire, input.reload, eye, look)
     for (const shot of shots) {
       projectiles.spawn(shot, { detectPlayers: true })
       viewModel.fire()
       fpsCamera.kick(WEAPON.recoilPitch, (shot.seed & 1 ? 1 : -1) * WEAPON.recoilPitch * 0.25)
-      effects.muzzle(eye, look, shot.team)
+      effects.muzzle(viewModel.muzzleWorld(muzzlePoint), look, shot.team)
       audio.play('shot')
       if (autopilot.stage === route.length) autopilot.wallShots++
     }
     if (!previousReloading && marker.reloading) audio.play('reload')
     previousReloading = marker.reloading
     if (marker.reloading) viewModel.reload(marker.reloadProgress)
+    viewModel.setHopper(marker.hopper, WEAPON.hopperSize)
     viewModel.update(frameDt, speed, controller.state.grounded)
     projectiles.update(frameDt, hittables)
     effects.update(frameDt)
