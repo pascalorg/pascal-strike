@@ -9,7 +9,7 @@ import { MATCH, NET } from '../config'
 import { createEntityRegistry, type EntityRegistry } from '../game/entities'
 import { msLeft } from '../game/match'
 import { createEventBus } from '../engine/events'
-import { bindNetToRegistry, type NetBinding } from '../net/client'
+import { bindNetToRegistry, requestTeamSwap, type NetBinding } from '../net/client'
 import { startHostAuthority, type HostAuthority } from '../net/host'
 import {
   BOTS_FILL_DEFAULT,
@@ -19,6 +19,8 @@ import {
   GS,
   PS,
   RPCS,
+  teamFrom,
+  type TeamChoice,
 } from '../net/protocol'
 import { joinRoom, roomCodeFromHash, type Room } from '../net/room'
 import { createClock, createSnapshotSender, type NetClock } from '../net/sync'
@@ -128,9 +130,15 @@ function run(root: HTMLElement, room: Room, name: string, botsFill?: boolean): v
     t: clock.now(),
   })
 
+  /** Our side, or null while we are still choosing one (W5-A). */
+  const myTeam = (): TeamId | null => teamFrom(room.me.getState(PS.team))
+
   const sender = createSnapshotSender(room, () => {
+    // A spectator has no body: nothing on the wire until the host puts us on a team.
+    const team = myTeam()
+    if (!team) return null
     const me = registry.get(room.me.id)
-    const w = step(walker(room.me.id, me?.team ?? 'a'))
+    const w = step(walker(room.me.id, team))
     if (me) me.position.set(w.x, 0, w.z)
     return snapshotOf(w)
   })
@@ -176,6 +184,11 @@ function run(root: HTMLElement, room: Room, name: string, botsFill?: boolean): v
   const hitBtn = el('button', { class: 'ps-btn' }, ['Send hit on random enemy'])
   const targetSelect = el('select', { class: 'ps-input', style: 'max-width:220px;height:32px' })
   const hitSelBtn = el('button', { class: 'ps-btn' }, ['Send hit on selected'])
+  const pickButtons: { choice: TeamChoice; node: HTMLButtonElement }[] = [
+    { choice: 'a', node: el('button', { class: 'ps-btn' }, ['Join Orange']) },
+    { choice: 'b', node: el('button', { class: 'ps-btn' }, ['Join Teal']) },
+    { choice: 'auto', node: el('button', { class: 'ps-btn' }, ['Join Auto']) },
+  ]
   const fillToggle = el('input', { type: 'checkbox', id: 'ps-fill-live' })
   const fillToggleLabel = el('label', { class: 'ps-dim', for: 'ps-fill-live' }, [
     fillToggle,
@@ -192,6 +205,12 @@ function run(root: HTMLElement, room: Room, name: string, botsFill?: boolean): v
     ]),
   )
   root.appendChild(el('section', {}, [el('h2', { text: 'participants' }), tableBox]))
+  root.appendChild(
+    el('section', {}, [
+      el('h2', { text: 'team' }),
+      el('div', { class: 'ps-row' }, pickButtons.map((b) => b.node)),
+    ]),
+  )
   root.appendChild(
     el('section', {}, [
       el('h2', { text: 'actions' }),
@@ -244,13 +263,14 @@ function run(root: HTMLElement, room: Room, name: string, botsFill?: boolean): v
 
   shotBtn.addEventListener('click', () => {
     const me = registry.get(room.me.id)
-    if (!me) return
+    const team = myTeam()
+    if (!me || !team) return log('pick a team first — a spectator cannot shoot')
     void room.rpc.call(
       RPCS.shot,
       {
         id: nextShotId(),
         by: room.me.id,
-        team: me.team,
+        team,
         origin: [me.position.x, me.position.y + 1.5, me.position.z],
         dir: [Math.sin(me.yaw), 0, Math.cos(me.yaw)],
         speed: 70,
@@ -263,9 +283,9 @@ function run(root: HTMLElement, room: Room, name: string, botsFill?: boolean): v
   })
 
   const sendHit = (targetId?: string) => {
-    const me = registry.get(room.me.id)
-    if (!me) return
-    const enemies = registry.enemiesOf(me.team).filter((e) => e.alive)
+    const team = myTeam()
+    if (!team) return log('pick a team first — a spectator cannot shoot')
+    const enemies = registry.enemiesOf(team).filter((e) => e.alive)
     const target = targetId ? registry.get(targetId) : enemies[Math.floor(Math.random() * enemies.length)]
     if (!target) return log('no living enemy to hit')
     const hit = {
@@ -286,6 +306,26 @@ function run(root: HTMLElement, room: Room, name: string, botsFill?: boolean): v
   }
   hitBtn.addEventListener('click', () => sendHit())
   hitSelBtn.addEventListener('click', () => sendHit(targetSelect.value || undefined))
+
+  // The team screen, minus the screen: same RPC, same host rules, same 'auto'.
+  const pickTeam = (choice: TeamChoice) => {
+    const answer = (result: { ok: boolean; assigned?: TeamId; reason?: string }) =>
+      log(
+        result.ok
+          ? `team ${choice} → accepted, on ${result.assigned ?? '?'}`
+          : `team ${choice} → REFUSED (${result.reason ?? 'no reason'})`,
+      )
+    if (host && room.isHost()) {
+      const result = host.requestTeam(room.me.id, choice)
+      void room.rpc.call(RPCS.teamResult, result, 'others')
+      answer(result)
+      return
+    }
+    void requestTeamSwap(room, choice).then(answer)
+  }
+  for (const { choice, node } of pickButtons) {
+    node.addEventListener('click', () => pickTeam(choice))
+  }
 
   fillToggle.addEventListener('change', () => {
     const on = fillToggle.checked
@@ -317,9 +357,14 @@ function run(root: HTMLElement, room: Room, name: string, botsFill?: boolean): v
     const fill = botsFillFrom(room.getGlobal<unknown>(GS.botsFill))
     if (fillToggle.checked !== fill) fillToggle.checked = fill
     fillToggle.toggleAttribute('disabled', !room.isHost())
+    const mine = myTeam()
+    const waiting = binding.spectators()
+    for (const { choice, node } of pickButtons) {
+      node.toggleAttribute('disabled', choice !== 'auto' && choice === mine)
+    }
     info.replaceChildren(
       row('room', room.roomCode),
-      row('me', `${name} · ${room.me.id.slice(0, 6)} · team ${me?.team ?? '?'}`),
+      row('me', `${name} · ${room.me.id.slice(0, 6)} · team ${mine ?? 'choosing…'}`),
       row('host', String(room.isHost())),
       row('clock offset', `${clock.offset} ms (now ${now})`),
       row(
@@ -332,11 +377,19 @@ function run(root: HTMLElement, room: Room, name: string, botsFill?: boolean): v
       ),
       row('bots fill', fill ? 'on' : 'off'),
       row('teams', teamSummary(registry)),
+      // Nobody choosing has an entity (no avatar, no capsule, no bot can see them), so the
+      // participants table below cannot show them: this row is where they are.
+      row(
+        'choosing',
+        waiting.length
+          ? waiting.map((s) => `${s.name}${s.isLocal ? ' (you)' : ''}`).join(', ')
+          : '—',
+      ),
     )
 
     tableBox.replaceChildren(renderTable(registry, binding, room.me.id, room.isHost()))
 
-    const enemies = me ? registry.enemiesOf(me.team) : []
+    const enemies = mine ? registry.enemiesOf(mine) : []
     const key = enemies.map((e) => e.id).join(',')
     if (key !== optionKey) {
       optionKey = key
