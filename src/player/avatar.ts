@@ -106,6 +106,14 @@ export const NAME_TAG_MAX_DISTANCE = 25
 
 const clamp = (value: number, min: number, max: number) => (value < min ? min : value > max ? max : value)
 
+const HEAD_RADIUS = 0.22
+/** How far the visor band stands off the head sphere, in metres — a strap, not paint. */
+const VISOR_LIFT = 0.008
+/** Width of the band around the head (radians about Y) and its vertical span (polar angle). */
+const VISOR_ARC = 2.0
+const VISOR_THETA_START = 1.22
+const VISOR_THETA_LENGTH = 0.5
+
 const _forward = new Vector3(0, 0, 1)
 const _localNormal = new Vector3()
 const _surface = new Vector3()
@@ -179,9 +187,23 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
   headPivot.name = 'avatar-anchor-head'
   headPivot.position.set(0, 1.53, 0)
   body.add(headPivot)
-  const head = part(headPivot, new SphereGeometry(0.22, 10, 7), teamMaterial, [0, 0, 0])
-  const visor = part(headPivot, new BoxGeometry(0.36, 0.105, 0.08), visorMaterial, [0, 0.02, -0.18])
-  visor.rotation.x = -0.04
+  const head = part(headPivot, new SphereGeometry(HEAD_RADIUS, 10, 7), teamMaterial, [0, 0, 0])
+  // The visor is a band of the same sphere, a hair proud of the surface, across the front
+  // (-Z) at eye height: a box floating in front of the head read as a separate object up close.
+  const visor = part(
+    headPivot,
+    new SphereGeometry(
+      HEAD_RADIUS + VISOR_LIFT,
+      12,
+      3,
+      Math.PI * 1.5 - VISOR_ARC / 2,
+      VISOR_ARC,
+      VISOR_THETA_START,
+      VISOR_THETA_LENGTH,
+    ),
+    visorMaterial,
+    [0, 0, 0],
+  )
   const headMesh = mergeRigidParts(headPivot, [head, visor], 'avatar-body-head')
 
   const leftLeg = limb(body, -0.13, 'leg-left')
