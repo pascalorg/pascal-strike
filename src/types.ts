@@ -250,8 +250,11 @@ export interface CharacterController {
   readonly eyeHeight: number
   /** Current capsule height (feet to top). */
   readonly height: number
-  /** Step the simulation. `yaw` is the facing used to interpret forward/right. */
-  update(dt: number, input: MoveInput, yaw: number): void
+  /**
+   * Step the simulation. `yaw` is the facing used to interpret forward/right. `speedScale`
+   * multiplies the target ground speed (weapon `moveSpeedScale`); missing = 1.
+   */
+  update(dt: number, input: MoveInput, yaw: number, speedScale?: number): void
   /** Teleport (respawn). Clears velocity. */
   setPosition(position: Vector3): void
   /**
