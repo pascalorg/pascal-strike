@@ -19,7 +19,7 @@ import {
   Vector3,
 } from 'three'
 import { PLAYER, TEAMS } from '../config'
-import type { HitShape, Hittable, TeamId } from '../types'
+import type { HitShape, Hittable, TeamId, WeaponKind } from '../types'
 import { computeHitShapes, createHitShapes } from './hitshapes'
 import { getSplatTexture } from '../weapons/decals'
 import { createWeaponModel, type WeaponModel } from '../weapons/weapon-model'
@@ -33,6 +33,8 @@ export interface Avatar {
   spawn(): void
   setInvincible(value: boolean): void
   setTeam(team: TeamId): void
+  /** Mount the weapon the entity is carrying (`PlayerEntity.weapon`). No-op if unchanged. */
+  setWeapon(kind: WeaponKind): void
   setName(name: string): void
   setNameTagVisible(visible: boolean): void
   /**
@@ -47,6 +49,18 @@ export interface Avatar {
    * parented to it, so it follows the limb. Oldest one is recycled past `MAX_SPLATS`.
    */
   addSplat(worldPoint: Vector3, worldNormal: Vector3 | null, colorHex: number): void
+  /**
+   * World position of the mounted weapon's muzzle, written into `out`. This is where a remote
+   * shot must start: `ShotEvent.origin` is the shooter's eye, and paint leaving someone's head
+   * looks like exactly that from the outside.
+   */
+  muzzleWorld(out: Vector3): Vector3
+  /**
+   * Play the firing beat: a flash on the muzzle and a kick through the arms, or a swing when
+   * the shot came from a knife. `kind` overrides the mounted weapon for this one animation —
+   * a shot event carries its weapon even when the entity's `w` state has not arrived.
+   */
+  fire(kind?: WeaponKind): void
   hittable(): Hittable
   dispose(): void
 }
@@ -63,6 +77,12 @@ const SPLAT_LIFT = 0.012
 const SPLAT_RAY_LENGTH = 0.9
 /** Rest angle of both arms: reaching forward around the marker, not hanging at the sides. */
 const ARM_REST = 0.8
+/** How long a shot throws the arms back. Short: at 9 shots/s the kicks must not stack up. */
+const FIRE_KICK_MS = 130
+/** The flash on the model's own muzzle. Two or three frames, like a real one. */
+const MUZZLE_FLASH_MS = 40
+/** A knife swing is one arc of the whole arm — readable from across a room. */
+const SWING_MS = 260
 
 /** Height of the name tag above the avatar's feet. */
 const NAME_TAG_Y = 2
@@ -160,7 +180,8 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
   const rightArm = arm(body, 0.31)
   // The marker is the real weapon model at avatar detail, held in the right hand. Its origin is
   // the grip and it fires along -Z, so the hand anchor only has to sit where the fist is.
-  const weapon: WeaponModel = createWeaponModel({ team: initialTeam, quality: 'third' })
+  let weaponKind: WeaponKind = 'rifle'
+  let weapon: WeaponModel = createWeaponModel({ kind: weaponKind, team: initialTeam, quality: 'third' })
   const weaponHand = new Group()
   weaponHand.position.set(-0.1, -0.44, -0.05)
   rightArm.add(weaponHand)
@@ -216,6 +237,9 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
   let phase = 0
   let flashUntil = 0
   let deathStarted = 0
+  let firedAt = -Infinity
+  let swungAt = -Infinity
+  let swinging = false
   const capsuleStart = new Vector3()
   const capsuleEnd = new Vector3()
   const shapes = createHitShapes()
@@ -269,14 +293,38 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
       // way the avatar faces); the swing only breaks the symmetry while running.
       leftArm.rotation.x = ARM_REST - swing * 0.2
       rightArm.rotation.x = ARM_REST + swing * 0.2
+      // Firing: the arms rock back and ease home. Squared, so the kick is sharp and the
+      // recovery soft — a linear ramp reads as a twitch.
+      const sinceFire = now - firedAt
+      const kick = sinceFire < FIRE_KICK_MS ? (1 - sinceFire / FIRE_KICK_MS) ** 2 : 0
+      if (kick > 0) {
+        rightArm.rotation.x -= kick * 0.24
+        leftArm.rotation.x -= kick * 0.16
+      }
+      // Knife: one arc up and across, driven by the same fire event.
+      const swingPhase = (now - swungAt) / SWING_MS
+      if (swingPhase >= 0 && swingPhase < 1) {
+        const arc = Math.sin(swingPhase * Math.PI)
+        swinging = true
+        rightArm.rotation.x = ARM_REST - arc * 1.5
+        rightArm.rotation.z = -arc * 0.9
+        leftArm.rotation.x = ARM_REST - arc * 0.3
+      } else if (swinging) {
+        swinging = false
+        rightArm.rotation.z = 0
+      }
       headPivot.rotation.x = pitch * 0.45
       body.position.y = crouching ? -0.18 : 0
       body.scale.y = crouching ? 0.78 : 1
       torso.rotation.x = Math.min(speed / 5.5, 1) * 0.08
       // Cancel the arm's own rotation so the barrel ends up pointing where the avatar looks,
       // damped like the head so a steep look does not swing the marker through the chest.
-      weaponHand.rotation.x = clamp(pitch * 0.8, -0.6, 0.6) - rightArm.rotation.x
+      // The hand cancels the arm's own rotation, so the kick has to be re-applied here or the
+      // barrel would sit perfectly still while the elbow moves.
+      weaponHand.rotation.x = clamp(pitch * 0.8, -0.6, 0.6) - rightArm.rotation.x - kick * 0.2
       weaponHand.rotation.y = Math.sin(phase * 0.5) * 0.015
+      weapon.object.position.z = kick * 0.03
+      weapon.setFireFlash(sinceFire < MUZZLE_FLASH_MS ? 1 - sinceFire / MUZZLE_FLASH_MS : 0)
       teamMaterial.emissive.setHex(now < flashUntil ? 0xffffff : 0x000000)
       teamMaterial.emissiveIntensity = now < flashUntil ? 1.5 : 0
       if (!alive) {
@@ -333,6 +381,14 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
       shieldMaterial.color.setHex(TEAMS[value].colorHex)
       ;(deathSplat.material as SpriteMaterial).color.setHex(TEAMS[value].colorHex)
       replaceNameTag(currentName)
+    },
+    setWeapon(kind) {
+      if (kind === weaponKind) return
+      weaponKind = kind
+      weapon.dispose() // takes itself out of the hand and frees its geometries
+      weapon = createWeaponModel({ kind, team, quality: 'third' })
+      weapon.object.visible = alive
+      weaponHand.add(weapon.object)
     },
     setName(value) {
       currentName = value
@@ -415,6 +471,16 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
       splat.renderOrder = 12
       splat.visible = true
       fadedOut = false
+    },
+    muzzleWorld(out) {
+      // Only the chain down to the muzzle node, not the whole avatar: this runs on every
+      // remote shot, and the rest of the body was already updated for this frame.
+      weapon.muzzle.updateWorldMatrix(true, false)
+      return out.setFromMatrixPosition(weapon.muzzle.matrixWorld)
+    },
+    fire(kind) {
+      if ((kind ?? weaponKind) === 'knife') swungAt = performance.now()
+      else firedAt = performance.now()
     },
     hittable() {
       updateCapsule()

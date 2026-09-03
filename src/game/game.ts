@@ -79,6 +79,7 @@ const RESPAWN_RPC_GRACE_MS = 600
 const _hittables: Hittable[] = []
 const _damageDir = new Vector3()
 const _shotOrigin = new Vector3()
+const _shotDir = new Vector3()
 const _glassPoint = new Vector3()
 const _glassDir = new Vector3()
 
@@ -337,9 +338,25 @@ export async function startGame(opts: GameOptions): Promise<Game> {
 
   events.on('shot', (shot) => {
     if (shot.by === room.me.id || !session) return
-    session.projectiles.spawn(shot, { detectPlayers: false })
-    _shotOrigin.set(shot.origin[0], shot.origin[1], shot.origin[2])
-    audio.play('shot', _shotOrigin, localPlayer.listener)
+    // `ShotEvent.origin` is the shooter's eye, which is where *they* fired from but not where
+    // we can see a gun: paint leaving a head reads as exactly that. So a remote shot starts at
+    // the avatar's muzzle instead, keeping the direction and speed — the paint lands within a
+    // few cm of what the shooter saw, and it comes out of the barrel.
+    const fromMuzzle = remotePlayers.muzzleFor(shot.by, _shotOrigin)
+    if (!fromMuzzle) _shotOrigin.set(shot.origin[0], shot.origin[1], shot.origin[2])
+    remotePlayers.fire(shot.by, shot.weapon)
+    if (shot.weapon === 'knife') {
+      // A swing has no projectile: the animation and the sound are the whole event.
+      audio.play('knifeSwing', _shotOrigin, localPlayer.listener)
+      return
+    }
+    const spawned = fromMuzzle
+      ? { ...shot, origin: [_shotOrigin.x, _shotOrigin.y, _shotOrigin.z] as [number, number, number] }
+      : shot
+    session.projectiles.spawn(spawned, { detectPlayers: false })
+    _shotDir.set(shot.dir[0], shot.dir[1], shot.dir[2])
+    session.effects.remoteMuzzle(_shotOrigin, _shotDir, shot.team)
+    audio.play(shot.weapon === 'pistol' ? 'pistolShot' : 'shot', _shotOrigin, localPlayer.listener)
   })
 
   events.on('damage', (dmg) => {

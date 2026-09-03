@@ -28,6 +28,12 @@ export interface EffectsCallbacks {
 
 export interface Effects {
   muzzle(position: Vector3, direction: Vector3, team: TeamId): void
+  /**
+   * Someone else's shot, seen from outside: a bright team-coloured flash on their muzzle and a
+   * small puff of smoke drifting up off the bore. Bigger and shorter than the first-person
+   * `muzzle`, because this one is read across a room rather than at arm's length.
+   */
+  remoteMuzzle(position: Vector3, direction: Vector3, team: TeamId): void
   /** Thin additive streak from `origin` along `direction`; alive for ~2 frames. */
   tracer(origin: Vector3, direction: Vector3, team: TeamId): void
   splat(position: Vector3, normal: Vector3, team: TeamId): void
@@ -59,6 +65,13 @@ const TRACER_LIFE = 0.05
 const TRACER_START = 0.12
 /** Puff spawns this far down the bore: a sprite sitting on the eye fills the whole screen. */
 const MUZZLE_STANDOFF = 0.12
+/** A third-person flash sits right at the bore exit and can be as big as it really is. */
+const REMOTE_STANDOFF = 0.06
+const REMOTE_FLASH_LIFE = 0.04
+const REMOTE_FLASH_SIZE = 0.3
+/** Smoke, not paint: a dim grey that reads as a puff through the additive blend. */
+const SMOKE_COLOR = 0x6e727c
+const SMOKE_LIFE = 0.5
 const scratchPoint = new Vector3()
 const UP = new Vector3(0, 1, 0)
 const tangent = new Vector3()
@@ -123,10 +136,11 @@ export function createEffects(scene: Scene, _callbacks: EffectsCallbacks = {}): 
     size: number,
     gravity: number,
     flash = false,
+    colorHex?: number,
   ) => {
     particle.sprite.position.copy(position)
     particle.sprite.scale.setScalar(size)
-    ;(particle.sprite.material as SpriteMaterial).color.setHex(TEAMS[team].colorHex)
+    ;(particle.sprite.material as SpriteMaterial).color.setHex(colorHex ?? TEAMS[team].colorHex)
     ;(particle.sprite.material as SpriteMaterial).opacity = flash ? 1 : 0.85
     particle.sprite.visible = true
     particle.velocity.copy(velocity)
@@ -156,6 +170,28 @@ export function createEffects(scene: Scene, _callbacks: EffectsCallbacks = {}): 
           .addScaledVector(tangent, (random() - 0.5) * 0.5)
           .addScaledVector(bitangent, (random() - 0.5) * 0.5)
         launch(particle, scratchPoint, particle.velocity, team, 0.16, 0.07 + random() * 0.05, 0)
+      }
+      effects.tracer(position, scratchDirection, team)
+    },
+    remoteMuzzle(position, direction, team) {
+      scratchDirection.copy(direction).normalize()
+      tangent.set(0, 1, 0).cross(scratchDirection)
+      if (tangent.lengthSq() < 1e-5) tangent.set(1, 0, 0)
+      else tangent.normalize()
+      bitangent.crossVectors(scratchDirection, tangent).normalize()
+      scratchPoint.copy(position).addScaledVector(scratchDirection, REMOTE_STANDOFF)
+      const core = nextParticle()
+      core.velocity.copy(scratchDirection).multiplyScalar(0.5)
+      launch(core, scratchPoint, core.velocity, team, REMOTE_FLASH_LIFE, REMOTE_FLASH_SIZE, 0, true)
+      // Three puffs that rise off the bore (negative gravity) and swell as they thin out.
+      for (let index = 0; index < 3; index++) {
+        const particle = nextParticle()
+        particle.velocity.copy(scratchDirection).multiplyScalar(0.35 + random() * 0.4)
+          .addScaledVector(UP, 0.45 + random() * 0.35)
+          .addScaledVector(tangent, (random() - 0.5) * 0.35)
+          .addScaledVector(bitangent, (random() - 0.5) * 0.35)
+        launch(particle, scratchPoint, particle.velocity, team, SMOKE_LIFE,
+          0.05 + random() * 0.05, -0.25, false, SMOKE_COLOR)
       }
       effects.tracer(position, scratchDirection, team)
     },

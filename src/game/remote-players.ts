@@ -9,7 +9,7 @@ import { Vector3 } from 'three'
 import type { Scene } from 'three'
 import { createAvatar, NAME_TAG_MAX_DISTANCE, type Avatar } from '../player/avatar'
 import type { EntityRegistry } from './entities'
-import type { Hittable, PlayerEntity } from '../types'
+import type { Hittable, PlayerEntity, WeaponKind } from '../types'
 
 export interface RemotePlayers {
   /**
@@ -27,6 +27,17 @@ export interface RemotePlayers {
   flashHit(id: string): void
   /** Paint a hit on the victim's body, in the shooter's team colour. */
   splat(id: string, point: [number, number, number], colorHex: number): void
+  /**
+   * World position of a remote's weapon muzzle, written into `out`. False when we have no
+   * avatar for them (they left, or their first snapshot has not landed): the caller then
+   * falls back to the shot's own origin.
+   */
+  muzzleFor(id: string, out: Vector3): boolean
+  /**
+   * They fired: kick the arms and flash the model's muzzle (or swing, for a knife). `weapon`
+   * comes from the shot, which knows even when the entity's `w` state has not arrived yet.
+   */
+  fire(id: string, weapon?: WeaponKind): boolean
   has(id: string): boolean
   /** Drop every avatar (map change); they come back on the next `update()`. */
   clear(): void
@@ -38,6 +49,7 @@ interface Slot {
   entity: PlayerEntity
   team: string
   name: string
+  weapon: WeaponKind
   alive: boolean
   invincible: boolean
   tagVisible: boolean
@@ -61,6 +73,7 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
 
   const add = (entity: PlayerEntity): Slot => {
     const avatar = createAvatar(entity.team, entity.name, entity.id)
+    if (entity.weapon) avatar.setWeapon(entity.weapon)
     avatar.object.position.copy(entity.position)
     scene.add(avatar.object)
     const slot: Slot = {
@@ -68,6 +81,7 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
       entity,
       team: entity.team,
       name: entity.name,
+      weapon: entity.weapon ?? 'rifle',
       alive: true,
       invincible: false,
       tagVisible: true,
@@ -110,6 +124,13 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
         if (slot.name !== entity.name) {
           slot.name = entity.name
           slot.avatar.setName(entity.name)
+        }
+        // Weapon switches are rare, so rebuilding the mounted model on the edge is cheaper
+        // than keeping three of them alive per avatar.
+        const weapon = entity.weapon ?? 'rifle'
+        if (slot.weapon !== weapon) {
+          slot.weapon = weapon
+          slot.avatar.setWeapon(weapon)
         }
         // `kill`/`respawn` RPCs drive the FX, but reliable state can also flip `alive` on its
         // own (join mid-death, host migration) — reconcile so an avatar never lies.
@@ -197,6 +218,18 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
       // The avatar snaps the point onto the nearest body part, so a hit point computed on the
       // shooter's machine still lands on the body here.
       slot.avatar.addSplat(_splatPoint, null, colorHex)
+    },
+    muzzleFor(id, out) {
+      const slot = slots.get(id)
+      if (!slot) return false
+      slot.avatar.muzzleWorld(out)
+      return true
+    },
+    fire(id, weapon) {
+      const slot = slots.get(id)
+      if (!slot) return false
+      slot.avatar.fire(weapon)
+      return true
     },
     has(id) {
       return slots.has(id)
