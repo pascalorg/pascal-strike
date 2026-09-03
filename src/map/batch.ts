@@ -175,19 +175,21 @@ export function batchStaticMeshes(root: Object3D, excluded: Set<Object3D>[]): Ba
 function wantedAttributes(material: Material): string[] {
   const out = ['position', 'normal']
   const record = material as unknown as Record<string, unknown>
-  let uv = false
-  let uv1 = false
+  // glTF TEXCOORD_n maps to three's `uv`, `uv1`, `uv2`, `uv3`. Pascal bakes ambient occlusion
+  // into TEXCOORD_2, so dropping anything past uv1 loses the AO and makes every batched mesh
+  // warn "Vertex attribute uv2 not found".
+  const channels = new Set<number>()
   for (const key of MAP_KEYS) {
     const texture = record[key] as Texture | null | undefined
     if (!texture?.isTexture) continue
-    if ((texture.channel ?? 0) === 1) uv1 = true
-    else uv = true
+    channels.add(Math.min(3, Math.max(0, texture.channel ?? 0)))
   }
-  if (uv) out.push('uv')
-  if (uv1) out.push('uv1')
+  for (const channel of [0, 1, 2, 3]) if (channels.has(channel)) out.push(UV_NAMES[channel])
   if ((material as { vertexColors?: boolean }).vertexColors) out.push('color')
   return out
 }
+
+const UV_NAMES = ['uv', 'uv1', 'uv2', 'uv3'] as const
 
 /**
  * A plain-Float32, indexed copy of `mesh`'s geometry carrying exactly `wanted`, baked through
@@ -204,7 +206,16 @@ function bakeVisualGeometry(mesh: Mesh, wanted: string[], matrix: Matrix4): Buff
   if (!position) return null
   const count = position.count
   if (count === 0) return null
-  for (const name of wanted) if (!src.getAttribute(name)) return null
+  // A mesh missing a secondary UV set the material samples (a few Pascal primitives have no
+  // TEXCOORD_2) borrows channel 0 so it can still join the batch; it rendered without that
+  // attribute before batching anyway.
+  const sourceFor = (name: string) => {
+    const attribute = src.getAttribute(name)
+    if (attribute) return attribute
+    if (name.startsWith('uv')) return src.getAttribute('uv') ?? null
+    return null
+  }
+  for (const name of wanted) if (!sourceFor(name)) return null
 
   const out = new BufferGeometry()
 
@@ -232,7 +243,7 @@ function bakeVisualGeometry(mesh: Mesh, wanted: string[], matrix: Matrix4): Buff
 
   for (const name of wanted) {
     if (name === 'position' || name === 'normal') continue
-    const attribute = src.getAttribute(name)
+    const attribute = sourceFor(name)!
     const itemSize = attribute.itemSize
     const values = new Float32Array(count * itemSize)
     for (let i = 0; i < count; i++) {
