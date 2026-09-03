@@ -6,13 +6,13 @@
  * Everything here is plain DOM on the shared Pascal tokens from `ui/styles.css`; the in-match
  * HUD proper lives in `ui/hud.ts` and is not touched by this file.
  */
-import type { Box3, PerspectiveCamera } from 'three'
-import { Vector3 } from 'three'
+import type { PerspectiveCamera } from 'three'
+import { Box3, Vector3 } from 'three'
 import { BUILTIN_MAPS, MATCH, TEAMS } from '../config'
 import type { Room } from '../net/room'
 import type { TeamChoice, TeamResult } from '../net/protocol'
 import { isConfigured, uploadMap } from '../storage/maps-upload'
-import type { MapSelection, MatchState, TeamId } from '../types'
+import type { MapData, MapSelection, MatchState, TeamId } from '../types'
 import { el } from '../ui/dom'
 import type { EntityRegistry } from './entities'
 import type { LocalPlayer } from './local-player'
@@ -229,7 +229,7 @@ export function createTeamScreen(opts: TeamScreenOptions): TeamScreen {
         ? 'Join the smaller team'
         : `Join the smaller team · ${TEAMS[smaller].name}`
     rosters.auto.replaceChildren(
-      el('span', { class: 'ps-pick-member ps-dim', text: 'The host decides when you pick' }),
+      el('span', { class: 'ps-pick-member ps-dim', text: 'The host decides' }),
     )
     const waiting = roster.choosing
     choosing.replaceChildren(
@@ -323,27 +323,45 @@ export interface OverviewCamera {
 const ORBIT_PERIOD_S = 40
 const ORBIT_PITCH_DEG = 25
 const ORBIT_MIN_RADIUS = 12
+/** Clearance between the building's corner and the camera's circle. */
+const ORBIT_MARGIN = 6
 
 const _orbitCenter = new Vector3()
 const _orbitSize = new Vector3()
+const _levelBox = new Box3()
+
+/**
+ * The BUILDING's box, not the map's. `MapData.bounds` is the collider's, and the collider
+ * includes Pascal's 30 m terrain plane, which would push the circle out to 25 m and 15 m up —
+ * from there the roof is the whole picture. The level nodes are the house itself.
+ */
+function buildingBounds(map: MapData): Box3 {
+  const box = new Box3()
+  for (const level of map.levels) {
+    _levelBox.setFromObject(level.node)
+    if (!_levelBox.isEmpty()) box.union(_levelBox)
+  }
+  return box.isEmpty() ? box.copy(map.bounds) : box
+}
 
 /**
  * A slow circle around the house while the player picks a side: the match runs behind the
  * screen, so this is the only camera work the game does for a spectator.
  *
- * The radius is the spec's 12 m for a Pascal house, widened for anything bigger so the building
- * still fits in frame; the height comes from the same radius at 25° so the tilt is constant
- * whatever the map.
+ * The radius is the spec's ~12 m, plus whatever a bigger house needs to stay in frame; the
+ * height comes from that radius at 25°, so the tilt is the same on every map.
  */
-export function createOverviewCamera(camera: PerspectiveCamera, bounds: Box3): OverviewCamera {
+export function createOverviewCamera(camera: PerspectiveCamera, map: MapData): OverviewCamera {
+  const bounds = buildingBounds(map)
   bounds.getCenter(_orbitCenter)
   bounds.getSize(_orbitSize)
   const center = _orbitCenter.clone()
-  const radius = Math.max(ORBIT_MIN_RADIUS, Math.max(_orbitSize.x, _orbitSize.z) * 0.85)
+  const corner = Math.hypot(_orbitSize.x, _orbitSize.z) * 0.5
+  const radius = Math.max(ORBIT_MIN_RADIUS, corner + ORBIT_MARGIN)
   const height = center.y + radius * Math.tan((ORBIT_PITCH_DEG * Math.PI) / 180)
-  // Aim a little above the floor: the roof is what fills the frame from up here, and looking at
-  // the dead centre of the bounds puts the horizon through the middle of the house.
-  const lookAt = center.clone().setY(center.y + _orbitSize.y * 0.15)
+  // Aim below the middle of the house: from up here the eye wants the walls and the doorways,
+  // not the roof, and looking at the dead centre of the box puts the horizon through it.
+  const lookAt = center.clone().setY(bounds.min.y + _orbitSize.y * 0.35)
   let angle = 0
   return {
     update(dt) {

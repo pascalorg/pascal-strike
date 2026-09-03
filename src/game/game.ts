@@ -173,7 +173,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   let glass: GlassSystem | null = null
   let session: MapSession | null = await buildSession(selection)
   const localPlayer = makeLocalPlayer(session)
-  overview = createOverviewCamera(engine.camera, session.map.bounds)
+  overview = createOverviewCamera(engine.camera, session.map)
 
   // --- map session lifecycle ----------------------------------------------
 
@@ -342,7 +342,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     loadedUrl = next.url
     localPlayer.setSession(built)
     // The old house's bounds mean nothing to the orbit: rebuild it around the new one.
-    overview = createOverviewCamera(engine.camera, built.map.bounds)
+    overview = createOverviewCamera(engine.camera, built.map)
     placeAtSpawn(localPlayer, built)
     // Old-map coordinates mean nothing in the new house: the host puts everyone (bots
     // included) back on a spawn point of the map that just loaded, and only then does the

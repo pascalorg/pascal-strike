@@ -284,6 +284,14 @@ canvas {
  * Same glass as the Esc menu — the match runs behind it and the overview camera circles the
  * house — but wider, because the two rosters have to be readable side by side.
  */
+/*
+ * The card sits high rather than centred: the house is what the orbit is for, and a centred
+ * card lands exactly on top of it.
+ */
+.ps-screen--teams {
+  align-items: flex-start;
+  padding-top: clamp(28px, 9vh, 96px);
+}
 .ps-card--teams {
   width: min(720px, 100%);
   background: linear-gradient(180deg, rgba(28, 28, 32, 0.9), rgba(18, 18, 21, 0.94));
@@ -398,6 +406,10 @@ canvas {
 .ps-pick-member.is-me {
   color: var(--fg);
   font-weight: 600;
+}
+/* Auto has no roster, only a sentence, and a sentence is allowed to wrap. */
+.ps-pick--auto .ps-pick-member {
+  white-space: normal;
 }
 /* A refused card shakes rather than moving: the reason is one line below, on the note. */
 .ps-pick.is-refused {
