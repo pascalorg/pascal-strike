@@ -186,7 +186,10 @@ export function createPostFx(opts: PostFxOptions): PostFx {
     dispose()
     applyToneMapping()
 
-    const scenePass = pass(scene, camera, settings.samples > 0 ? { samples: settings.samples } : {})
+    // `samples` must be spelled out: PassNode inherits `renderer.samples` when the option is
+    // undefined, and the renderer asks for 4x MSAA — which silently breaks the AO, because WGSL
+    // cannot read a multisampled depth texture.
+    const scenePass = pass(scene, camera, { samples: settings.samples })
     const needsNormalMRT = settings.ao.enabled && settings.ao.normals === 'mrt'
     if (needsNormalMRT) scenePass.setMRT(mrt({ output, normal: normalView }))
 
