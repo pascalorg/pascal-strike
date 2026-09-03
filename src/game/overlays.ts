@@ -244,23 +244,32 @@ export function createTeamScreen(opts: TeamScreenOptions): TeamScreen {
 
   const onKeyDown = (event: KeyboardEvent) => {
     if (!open) return
+    // Every key this screen uses is swallowed here, not just defaulted away: 1/2/3 are also the
+    // weapon slots and Escape also opens the Esc menu, and both of those listen on `document`
+    // too. Picking Teal with the 2 key must not put a pistol in your hands on the way in.
+    const take = () => {
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+    }
     const digit = /^(?:Digit|Numpad)([1-3])$/.exec(event.code)
     if (digit) {
-      event.preventDefault()
+      take()
       pick(PICK_KEYS[Number(digit[1]) - 1])
       return
     }
     if (event.code === 'Enter' || event.code === 'NumpadEnter') {
-      event.preventDefault()
+      take()
+      // Enter on the side we are already on means "never mind": the same as Back.
       pick(selected)
       return
     }
     if (event.code === 'Escape' && mode === 'change') {
-      event.preventDefault()
+      take()
       opts.onBack()
     }
   }
-  // Capture: the game's own Escape handler and the input module both listen on `document`.
+  // Capture, so this runs before the input module and the game's own Escape handler.
   document.addEventListener('keydown', onKeyDown, true)
 
   const teamScreen: TeamScreen = {
