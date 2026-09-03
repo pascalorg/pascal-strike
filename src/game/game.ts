@@ -85,6 +85,12 @@ const HUD_POLL_MS = 100
 /** How long the `respawn` RPC outranks a stale `alive: false` still on the wire. */
 const RESPAWN_RPC_GRACE_MS = 600
 /**
+ * How long after our death the reliable `alive: true` may stand us up on its own. The host sends
+ * the `respawn` RPC (which carries the spawn point) in the same breath as the state, so anything
+ * shorter than the respawn delay plus a landing grace revives us at the corpse for a frame.
+ */
+const STATE_REVIVE_AFTER_MS = PLAYER.respawnDelayMs + 400
+/**
  * Pointer lock is a user gesture's to grant, and the click that picked a team is a round trip
  * old by the time the host answers. If the browser refuses, fall back to the Esc menu, whose
  * "Play" button is a fresh gesture.
@@ -607,8 +613,13 @@ export async function startGame(opts: GameOptions): Promise<Game> {
         // instead: it reads 0.0 for its last frames rather than sticking at 0.1.
         hud.setRespawn(Math.max(1, PLAYER.respawnDelayMs - (now - deathAt)))
         if (!localPlayer.dead) localPlayer.die()
-      } else if (me.alive && localPlayer.dead) {
-        // Reliable state beat the respawn RPC (or it was dropped) — unfreeze anyway.
+      } else if (me.alive && localPlayer.dead && now - deathAt > STATE_REVIVE_AFTER_MS) {
+        // The other side of the same race, and the one that was showing: the host writes
+        // `alive: true` and calls the `respawn` RPC in the same breath, but the reliable state
+        // arrives ~50 ms first. Reviving on it stood us up at the spot we died, and the next
+        // snapshot went out from there — a flicker at the corpse on every other screen before
+        // the RPC teleported us. So the RPC gets the whole respawn delay plus a grace to land,
+        // and this stays what it was written for: the last resort when it never comes at all.
         localPlayer.revive()
         hud.setRespawn(0)
       }
