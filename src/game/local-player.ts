@@ -159,9 +159,6 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
   let overrideFire: boolean | null = null
   let overrideReload = false
   let pendingSlot = 0
-  let publishedWeapon: WeaponKind | null = null
-  let publishedAmmo = -1
-  let publishedReloading = false
 
   /**
    * Switch slots. The marker owns the 0.35 s lockout and the per-weapon magazines; the view
@@ -177,32 +174,9 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
     input.setWeaponSlot(weaponSpec(kind).slot)
     entity.weapon = kind
     audio.play('weaponSwitch')
+    // The game orchestrator takes it from here: the room state `w` for everyone else, and the
+    // HUD's weapon widget (which it also drives from its own poll).
     opts.onWeapon?.(kind)
-    publishWeapon()
-  }
-
-  /**
-   * The ammo/weapon widget lives in `ui/hud.ts`, which the game orchestrator owns and drives.
-   * Until it calls `hud.setWeapon` itself, this event is how the widget learns which slot is
-   * in hand — both ends of the bridge are this work package's files.
-   */
-  function publishWeapon(): void {
-    const ammo = marker.hopper
-    if (publishedWeapon === marker.weapon && publishedAmmo === ammo
-      && publishedReloading === marker.reloading) return
-    publishedWeapon = marker.weapon
-    publishedAmmo = ammo
-    publishedReloading = marker.reloading
-    window.dispatchEvent(new CustomEvent('ps:weapon', {
-      detail: {
-        weapon: marker.weapon,
-        slot: marker.spec.slot,
-        label: marker.spec.label,
-        ammo,
-        magazine: marker.magazine,
-        reloading: marker.reloading,
-      },
-    }))
   }
 
   function makeController(next: MapSession): CharacterController {
@@ -378,7 +352,6 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
       if (!wasReloading && marker.reloading) audio.play('reloadStart')
       if (wasReloading && !marker.reloading) audio.play('reloadEnd')
       wasReloading = marker.reloading
-      publishWeapon()
       viewModel.update(springDt, speed, controller.state.grounded)
       viewModel.object.visible = !dead
 
@@ -450,7 +423,6 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
       marker.reset()
       melee.reset()
       spread = 0
-      publishWeapon()
     },
 
     debug: {
