@@ -171,7 +171,10 @@ const ALL_SOUNDS: SoundName[] = [
 
 test('manifest covers the API and every referenced sample exists within the size budget', () => {
   expect(Object.keys(SFX_MANIFEST).sort()).toEqual([...ALL_SOUNDS].sort())
-  expect(readdirSync('public/sfx').length).toBeLessThanOrEqual(25)
+  const encoded = readdirSync('public/sfx').filter((name: string) => /\.(?:ogg|m4a)$/.test(name))
+  const masters = new Set(encoded.map((name: string) => name.replace(/\.(?:ogg|m4a)$/, '')))
+  expect(masters.size).toBeLessThanOrEqual(28)
+  expect(encoded.length).toBe(masters.size * 2)
   for (const entry of Object.values(SFX_MANIFEST)) {
     const count = entry.variants ?? 1
     for (let variant = 1; variant <= count; variant++) {

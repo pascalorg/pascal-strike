@@ -1,31 +1,39 @@
 # Pascal Strike sound credits
 
-All audio in this directory is original, deterministic FFmpeg synthesis created for Pascal
-Strike by the project authors and dedicated to the public domain under
-[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). No third-party recording is
-included.
+The recordings used here are by [Kenney](https://kenney.nl/) and licensed
+[Creative Commons Zero (CC0 1.0)](https://creativecommons.org/publicdomain/zero/1.0/):
 
-Kenney's CC0 packs were the preferred source, but `curl` could not resolve `kenney.nl` in the
-build environment on 2026-09-03. The W5-B fallback therefore generated every sound from
-FFmpeg's `anoisesrc` and `sine` sources. Exact, reproducible commands and seeds are in
-`scripts/sfx/build-sfx.sh`.
+- [Impact Sounds](https://kenney.nl/assets/impact-sounds), version 1.0, 2019-12-19
+- [Interface Sounds](https://kenney.nl/assets/interface-sounds), version 1.0, 2020-02-11
+- [Sci-Fi Sounds](https://kenney.nl/assets/sci-fi-sounds), version 1.0, 2020-10-11
 
-All masters are synthesized at 44.1 kHz mono, normalized with `loudnorm` and a -3 dBFS limiter,
-then exported as AAC (96 kb/s, mono) and OGG Vorbis q4. This FFmpeg build's native Vorbis
-encoder only accepts stereo, so each OGG contains the same mono signal in both channels. Peaks
-below are measured after decoding with FFmpeg `volumedetect`; sizes are encoded file sizes.
+Pascal Strike's added generated layers are also dedicated to the public domain under CC0 1.0.
+Exact processing and deterministic synthesis seeds are in `scripts/sfx/build-sfx.sh`.
 
-| Files | Source and processing | Duration (OGG / M4A) | Peak (OGG / M4A) | Size (OGG / M4A) |
-| --- | --- | ---: | ---: | ---: |
-| `shot-1.ogg`, `shot-1.m4a` | CC0 original synthesis: seeded 8 ms band-passed noise pop, cross-layered 120/60 Hz 40 ms thump, 610 Hz pink-noise impact body, delayed 15 ms high-passed hiss; loudness normalized | 0.075 / 0.075 s | -3.6 / -3.2 dBFS | 5,745 / 2,149 B |
-| `shot-2.ogg`, `shot-2.m4a` | CC0 original synthesis: alternate seeds, 3.05 kHz pop and 700 Hz impact body using the marker recipe; loudness normalized | 0.075 / 0.075 s | -3.6 / -3.8 dBFS | 5,756 / 2,182 B |
-| `pistol-shot.ogg`, `pistol-shot.m4a` | CC0 original synthesis: brighter 8 ms 3.9 kHz air snap, shorter 150/75 Hz body, 1.15 kHz transient and 15 ms hiss; loudness normalized | 0.054 / 0.053 s | -3.1 / -3.4 dBFS | 5,758 / 1,855 B |
-| `splat-1.ogg`, `splat-1.m4a` | CC0 original synthesis: seeded brown/pink noise, 920 Hz low-pass wet body and 118 Hz tone; shaped fades and loudness normalization | 0.190 / 0.190 s | -3.0 / -3.1 dBFS | 5,004 / 3,480 B |
-| `splat-2.ogg`, `splat-2.m4a` | CC0 original synthesis: alternate seeds, 1.08 kHz wet body and 132 Hz tone; shaped fades and loudness normalization | 0.190 / 0.190 s | -3.2 / -3.0 dBFS | 5,023 / 3,751 B |
-| `footstep-1.ogg`, `footstep-1.m4a` | CC0 original synthesis: seeded low-passed pink sole noise, short brown-noise contact and 82 Hz body; soft fades and loudness normalization | 0.126 / 0.125 s | -2.8 / -3.0 dBFS | 4,471 / 2,833 B |
-| `footstep-2.ogg`, `footstep-2.m4a` | CC0 original synthesis: alternate seeds, brighter 830 Hz sole cutoff and 91 Hz body; soft fades and loudness normalization | 0.126 / 0.125 s | -2.7 / -3.1 dBFS | 4,532 / 2,664 B |
-| `glass-1.ogg`, `glass-1.m4a` | CC0 original synthesis: seeded high-passed noise crash plus four staggered 2.48–4.87 kHz sine shard resonances; decay shaping and loudness normalization | 0.521 / 0.520 s | -4.7 / -2.8 dBFS | 19,698 / 7,535 B |
-| `glass-2.ogg`, `glass-2.m4a` | CC0 original synthesis: alternate seed and 2.69–5.08 kHz shard resonances; decay shaping and loudness normalization | 0.521 / 0.520 s | -4.6 / -3.2 dBFS | 19,673 / 7,542 B |
-| `mechanical-click.ogg`, `mechanical-click.m4a` | CC0 original synthesis: two seeded band-passed noise clicks with 920/620 Hz mechanical tones 62 ms apart; loudness normalized | 0.093 / 0.092 s | -3.3 / -3.4 dBFS | 5,769 / 2,431 B |
-| `respawn-chime.ogg`, `respawn-chime.m4a` | CC0 original synthesis: staggered 440/660/880 Hz sine chime with short attack/decay envelopes; loudness normalized, AAC attenuated 6.5 dB to control transform overshoot | 0.441 / 0.440 s | -2.9 / -2.4 dBFS | 4,589 / 3,550 B |
-| `door-handle.ogg`, `door-handle.m4a` | CC0 original synthesis: seeded 430 Hz brown-noise hinge, delayed 1.9 kHz latch click and 115 Hz close thud; loudness normalized | 0.361 / 0.360 s | -3.1 / -3.0 dBFS | 6,888 / 5,659 B |
+All sources are mixed to 44.1 kHz mono, filtered/faded as described below, normalized with
+FFmpeg `loudnorm`, peak-limited near -3 dBFS, then encoded as AAC mono and OGG Vorbis q4. The
+installed native Vorbis encoder requires two channels, so OGG files contain identical copies of
+the mono master. Metrics are decoded duration, decoded peak, and file size, ordered OGG / M4A.
+
+| Output pair | Exact Kenney source file(s) | Processing | Duration | Peak | Size |
+| --- | --- | --- | ---: | ---: | ---: |
+| `shot-1` | Impact Sounds `impactPunch_heavy_000.ogg` | 180 ms transient plus generated 8 ms CO2 pop, 120/60 Hz thump and 15 ms hiss | .181 / .180 s | -2.8 / -3.1 dBFS | 5,225 / 3,425 B |
+| `shot-2` | Impact Sounds `impactPunch_heavy_002.ogg` | Alternate transient/pop seed using the same CO2 marker recipe | .181 / .180 s | -3.1 / -3.0 dBFS | 5,163 / 3,560 B |
+| `pistol-shot` | Impact Sounds `impactPlate_light_001.ogg` | Brighter 125 ms plate transient plus short generated CO2 pop, 145/72 Hz body and hiss | .126 / .125 s | -2.9 / -3.4 dBFS | 6,279 / 2,973 B |
+| `splat-1` | Impact Sounds `impactSoft_heavy_000.ogg`, `impactPunch_medium_000.ogg` | Low-pass mix with a quiet generated brown-noise wet layer | .280 / .280 s | -3.0 / -3.0 dBFS | 4,802 / 4,578 B |
+| `splat-2` | Impact Sounds `impactSoft_heavy_001.ogg`, `impactPunch_medium_002.ogg` | Alternate low-pass wet mix and timing | .280 / .280 s | -3.0 / -2.8 dBFS | 4,756 / 4,696 B |
+| `splat-3` | Impact Sounds `impactSoft_heavy_003.ogg`, `impactPunch_medium_004.ogg` | Darker low-pass wet mix used for heavy/knife impacts | .280 / .280 s | -3.1 / -3.4 dBFS | 4,638 / 4,612 B |
+| `soft-hit` | Impact Sounds `impactSoft_medium_001.ogg` | 150 ms high/low-pass impact with short fade | .151 / .150 s | -3.0 / -3.2 dBFS | 4,217 / 3,080 B |
+| `reload-start` | Impact Sounds `impactMetal_light_002.ogg` | 160 ms band-limited magazine-release click | .161 / .160 s | -3.0 / -3.0 dBFS | 5,115 / 3,322 B |
+| `reload-end` | Impact Sounds `impactMetal_medium_001.ogg`; Interface Sounds `click_003.ogg` | Magazine-seat impact with delayed interface click | .141 / .140 s | -2.8 / -3.1 dBFS | 5,294 / 3,027 B |
+| `door-handle` | Impact Sounds `impactWood_light_002.ogg` | Wood latch layered over a generated filtered brown-noise hinge | .361 / .360 s | -2.9 / -3.1 dBFS | 6,330 / 5,761 B |
+| `footstep-1` | Impact Sounds `footstep_concrete_000.ogg` | Quiet band-limited concrete step with short fade | .103 / .103 s | -3.0 / -3.1 dBFS | 4,314 / 2,351 B |
+| `footstep-2` | Impact Sounds `footstep_concrete_001.ogg` | Alternate quiet concrete step | .106 / .104 s | -3.0 / -3.0 dBFS | 4,400 / 2,366 B |
+| `footstep-3` | Impact Sounds `footstep_wood_000.ogg` | Quiet low-passed wood step with 210 ms decay | .210 / .210 s | -3.0 / -2.8 dBFS | 4,598 / 2,951 B |
+| `footstep-4` | Impact Sounds `footstep_wood_001.ogg` | Alternate quiet wood step | .210 / .210 s | -3.0 / -2.7 dBFS | 4,611 / 2,909 B |
+| `knife-swing` | Sci-Fi Sounds `laserSmall_004.ogg` | Reversed, band-limited and faded into a 220 ms whoosh | .221 / .220 s | -2.9 / -3.0 dBFS | 4,606 / 4,021 B |
+| `mechanical-click` | Interface Sounds `click_002.ogg`, `switch_004.ogg` | Short high-passed click layered with the first 105 ms of a switch | .106 / .105 s | -3.1 / -3.1 dBFS | 4,512 / 1,842 B |
+| `glass-1` | Impact Sounds `impactGlass_heavy_000.ogg` | Heavy glass transient with three generated staggered sine shard resonances | .466 / .465 s | -3.1 / -3.0 dBFS | 7,066 / 5,046 B |
+| `glass-2` | Impact Sounds `impactGlass_heavy_003.ogg` | Alternate heavy transient and shard-resonance pitches | .466 / .465 s | -3.0 / -3.1 dBFS | 7,251 / 4,899 B |
+| `shard-tinkle` | Impact Sounds `impactGlass_light_001.ogg` | High-passed light glass impact with 208 ms decay | .208 / .206 s | -3.0 / -3.0 dBFS | 6,133 / 3,660 B |
+| `respawn-chime` | Sci-Fi Sounds `forceField_002.ogg` | 550 ms band-limited excerpt with shaped attack and decay | .550 / .550 s | -3.2 / -3.0 dBFS | 8,014 / 7,212 B |
