@@ -10,6 +10,8 @@
  * transform is lost. What stays out:
  *
  * - the animated leaves of doors and windows (they move) and zone/spawn markers (never drawn);
+ * - glass panes, which `glass.ts` hides one at a time when they shatter, so each has to stay
+ *   its own mesh — in the static merge and inside an openable leaf alike;
  * - meshes with children — hiding those would hide the children too, and Pascal only puts
  *   meshes on leaf nodes anyway;
  * - skinned / instanced / morph-target meshes, which cannot be baked into a static merge.
@@ -301,7 +303,11 @@ const _relative = /*@__PURE__*/ new Matrix4()
  * clip drives it exactly as it drove the originals. `DoorInfo.leafMeshes` is rewritten to the
  * merged meshes, so bullet BVHs and paint decals follow them without any other module noticing.
  */
-export function batchOpenableLeaves(doors: DoorInfo[], animatedNodes: Set<Object3D>[]): number {
+export function batchOpenableLeaves(
+  doors: DoorInfo[],
+  animatedNodes: Set<Object3D>[],
+  keepSeparate: Set<Object3D> = new Set(),
+): number {
   const animated = new Set<Object3D>()
   for (const set of animatedNodes) for (const node of set) animated.add(node)
 
@@ -314,6 +320,7 @@ export function batchOpenableLeaves(doors: DoorInfo[], animatedNodes: Set<Object
       const owner = animatedAncestor(leaf, animated)
       const material = leaf.material
       if (
+        keepSeparate.has(leaf) ||
         !owner ||
         owner === leaf ||
         leaf.children.length > 0 ||

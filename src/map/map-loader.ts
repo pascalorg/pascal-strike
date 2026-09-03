@@ -7,7 +7,13 @@
 import { Box3, FrontSide, Group, Material, Mesh, Object3D, Vector3 } from 'three'
 import { loadGltf, type Loaders } from '../engine/loaders'
 import { batchOpenableLeaves, batchStaticMeshes } from './batch'
-import { buildStaticColliders, createWorldQuery, DOWN } from './collider'
+import {
+  attachBreakables,
+  buildStaticColliders,
+  createWorldQuery,
+  DOWN,
+  ensureBoundsTrees,
+} from './collider'
 import { parsePascalScene } from './map-parse'
 import type { MapData, ZoneInfo } from '../types'
 
@@ -40,10 +46,12 @@ export async function loadMap(
 
   // Two colliders, one traversal (see collider.ts): players never pass a window, open or shut,
   // while paintballs go through an open sash and meet a closed one on its own moving BVH.
+  const glassMeshes = new Set(parsed.glassPanes.map((pane) => pane.mesh))
   const colliders = buildStaticColliders(root, {
     markers: parsed.markerNodes,
     doorLeaves: parsed.doorLeafNodes,
     windowLeaves: parsed.windowLeafNodes,
+    glass: glassMeshes,
     roofs: parsed.roofNodes,
   })
   const collider = colliders.movement
@@ -55,15 +63,28 @@ export async function loadMap(
   // Batch after the materials are final (the batches reuse the very same instances) and after
   // the colliders are baked (they read the original meshes' world matrices).
   if (opts?.batchStatic !== false) {
-    batchStaticMeshes(root, [parsed.markerNodes, parsed.doorLeafNodes, parsed.windowLeafNodes])
+    batchStaticMeshes(root, [
+      parsed.markerNodes,
+      parsed.doorLeafNodes,
+      parsed.windowLeafNodes,
+      glassMeshes,
+    ])
     // Then the openables, each merge staying inside one animated node so it still swings.
     // This rewrites `leafMeshes`, so it has to run before anything builds their BVHs.
-    batchOpenableLeaves(parsed.doors, [parsed.doorLeafNodes, parsed.windowLeafNodes])
+    batchOpenableLeaves(parsed.doors, [parsed.doorLeafNodes, parsed.windowLeafNodes], glassMeshes)
   }
+
+  // Every mesh queried at runtime rather than baked gets its bounds tree now: door leaves and
+  // sashes (bullets, and the controller's dynamic colliders) and the panes (the shatter ray).
+  const dynamic = new Set<Mesh>(parsed.glassPanes.map((pane) => pane.mesh))
+  for (const door of parsed.doors) for (const leaf of door.leafMeshes) dynamic.add(leaf)
+  ensureBoundsTrees(dynamic)
+  // So a caller holding only the collider (the map session builds its own query) still gets glass.
+  attachBreakables(colliders.bullet, parsed.glassPanes)
 
   // Zone floor heights need the collider, so they are resolved here rather than in the parser.
   if (parsed.zones.length > 0) {
-    const world = createWorldQuery(colliders.bullet, parsed.doors)
+    const world = createWorldQuery(colliders.bullet, parsed.doors, parsed.glassPanes)
     for (const zone of parsed.zones) resolveZoneFloor(zone, world)
   }
 
@@ -76,6 +97,7 @@ export async function loadMap(
     doors: parsed.doors,
     collider,
     bulletCollider: colliders.bullet,
+    breakables: parsed.glassPanes,
     bounds,
     // Movement geometry minus roofs: recast cannot cut a path through a window, and cannot
     // hand the bots a roof pitch to roam on either.

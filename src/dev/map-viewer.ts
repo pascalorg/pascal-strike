@@ -7,11 +7,12 @@
  * Controls: click to capture the mouse (or drag), WASD + Space/Q up-down, Shift to sprint,
  * E toggles the door or window the camera is looking at, Esc to release.
  * Overlays: Z zones · S spawns · D doors · C collider (movement → bullet → off) ·
- * N navmesh · R raycast probe.
+ * N navmesh · R raycast probe · G glass panes. With the R probe on, clicking a pane breaks it.
  * S and D only toggle while the cursor is free, because they double as movement keys.
  */
 import {
   DoubleSide,
+  Box3,
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
@@ -21,6 +22,7 @@ import {
   Group,
   Line,
   LineBasicMaterial,
+  LineSegments,
   Mesh,
   MeshBasicMaterial,
   Object3D,
@@ -36,11 +38,12 @@ import { createEnvironment } from '../engine/environment'
 import { loadMap } from '../map/map-loader'
 import { colliderTriangleCount, createWorldQuery } from '../map/collider'
 import { createDoorSystem, type DoorSystem } from '../map/doors'
+import { createGlassSystem } from '../map/glass'
 import { resolveSpawns } from '../map/spawns'
 import { buildNavigation, createNavMeshHelper } from '../map/navmesh'
-import type { HitResult, MapData, SpawnLayout } from '../types'
+import type { GlassPane, HitResult, MapData, SpawnLayout } from '../types'
 
-type OverlayKey = 'z' | 's' | 'd' | 'c' | 'n' | 'r'
+type OverlayKey = 'z' | 's' | 'd' | 'c' | 'n' | 'r' | 'g'
 
 const OVERLAY_LABELS: Record<OverlayKey, string> = {
   z: 'zones',
@@ -49,6 +52,7 @@ const OVERLAY_LABELS: Record<OverlayKey, string> = {
   c: 'collider',
   n: 'navmesh',
   r: 'raycast',
+  g: 'glass',
 }
 
 const FLY_SPEED = 6
@@ -84,8 +88,9 @@ export async function start(): Promise<void> {
 
   const environment = createEnvironment(engine, map.bounds)
   // Bullet collider + moving leaves: what a paintball actually sees.
-  const world = createWorldQuery(map.bulletCollider ?? map.collider, map.doors)
+  const world = createWorldQuery(map.bulletCollider ?? map.collider, map.doors, map.breakables)
   const doors = createDoorSystem(map)
+  const glass = createGlassSystem(map, engine.scene)
   const nav = await buildNavigation(map)
   const spawns = resolveSpawns(map, world, nav)
 
@@ -120,9 +125,20 @@ export async function start(): Promise<void> {
   let colliderView = 0
   const navOverlay = createNavMeshHelper(nav) ?? new Group()
   const probeOverlay = buildProbeOverlay()
-  overlays.add(zoneOverlay.group, spawnOverlay, doorOverlay.group, colliderOverlay.group, navOverlay, probeOverlay.group)
+  const glassOverlay = buildGlassOverlay(map)
+  overlays.add(
+    zoneOverlay.group,
+    spawnOverlay,
+    doorOverlay.group,
+    colliderOverlay.group,
+    navOverlay,
+    probeOverlay.group,
+    glassOverlay.group,
+  )
 
-  const visible: Record<OverlayKey, boolean> = { z: false, s: true, d: true, c: false, n: false, r: false }
+  const visible: Record<OverlayKey, boolean> = {
+    z: false, s: true, d: true, c: false, n: false, r: false, g: false,
+  }
   const objects: Record<OverlayKey, Object3D> = {
     z: zoneOverlay.group,
     s: spawnOverlay,
@@ -130,6 +146,7 @@ export async function start(): Promise<void> {
     c: colliderOverlay.group,
     n: navOverlay,
     r: probeOverlay.group,
+    g: glassOverlay.group,
   }
   const applyVisibility = () => {
     for (const key of Object.keys(objects) as OverlayKey[]) objects[key].visible = visible[key]
@@ -147,6 +164,7 @@ export async function start(): Promise<void> {
   let pitch = -0.12
 
   const keys = new Set<string>()
+  let probeHit: HitResult | null = null
   let pointerLocked = false
   let dragging = false
   const canvas = engine.renderer.domElement
@@ -154,6 +172,14 @@ export async function start(): Promise<void> {
   const moveActive = () => pointerLocked || dragging
 
   canvas.addEventListener('mousedown', (e) => {
+    // With the R probe on, a click on a pane shatters it — the quickest way to eyeball shards.
+    if (e.button === 0 && visible.r && probeHit?.kind === 'glass') {
+      const pane = map.breakables?.find((p) => p.mesh === probeHit?.object)
+      if (pane && glass.break(pane.id, probeHit.point, _probeDir)) {
+        console.info(`[glass] ${pane.id} shattered (${glass.states().length} broken)`)
+      }
+      return
+    }
     if (e.button === 0 && !pointerLocked) {
       // Chrome rejects the promise when the lock was released moments ago — ignore it so the
       // console stays clean.
@@ -225,7 +251,6 @@ export async function start(): Promise<void> {
   const firstA = spawns.a[0]?.position
   const firstB = spawns.b[0]?.position
 
-  let probeHit: HitResult | null = null
   let fps = 0
   let fpsAccum = 0
   let fpsFrames = 0
@@ -258,6 +283,8 @@ export async function start(): Promise<void> {
       `navmesh    ${nav.ready ? 'ready' : 'FAILED (straight-line fallback)'}`,
       `camera     ${fmt(camera.position)}`,
       map.doors.length ? `openables (E toggles)\n  ${doorStates}` : 'openables  none',
+      `glass      ${map.breakables?.length ?? 0} panes, ${glass.states().length} broken` +
+        `${visible.r ? ' · click a pane to break it' : ''}`,
       visible.r
         ? `probe      ${probeHit ? `${probeHit.kind} @ ${probeHit.distance.toFixed(2)} m  n=${fmt(probeHit.normal, 2)}` : 'no hit'}`
         : 'probe      off (R)',
@@ -294,6 +321,7 @@ export async function start(): Promise<void> {
     }
 
     doors.update(dt)
+    glass.update(dt)
   })
 
   engine.onRender((_alpha, dt) => {
@@ -301,6 +329,7 @@ export async function start(): Promise<void> {
     environment.update(camera.position)
     doorOverlay.update(doors)
 
+    if (visible.g) glassOverlay.update()
     probeHit = null
     if (visible.r) {
       camera.getWorldDirection(_probeDir)
@@ -328,7 +357,9 @@ export async function start(): Promise<void> {
   )
 
   // Optional debugging handle (allowed by ARCHITECTURE.md).
-  ;(window as unknown as { __ps: unknown }).__ps = { engine, map, world, doors, spawns, nav, environment }
+  ;(window as unknown as { __ps: unknown }).__ps = {
+    engine, map, world, doors, glass, spawns, nav, environment,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -450,6 +481,57 @@ function colliderWireframe(geometry: MapData['collider']['geometry'], color: num
   mesh.matrixWorldAutoUpdate = false
   mesh.frustumCulled = false
   return mesh
+}
+
+/**
+ * Wireframe box per glass pane, refreshed from the pane's live matrix so a pane inside a swinging
+ * sash keeps its highlight, and hidden once the pane is broken.
+ */
+function buildGlassOverlay(map: MapData): { group: Group; update(): void } {
+  const group = new Group()
+  group.name = 'overlay-glass'
+  const material = new LineBasicMaterial({ color: 0x38bdf8, depthTest: false })
+  const entries: { pane: GlassPane; box: LineSegments }[] = []
+  for (const pane of map.breakables ?? []) {
+    const geometry = pane.mesh.geometry
+    if (!geometry.boundingBox) geometry.computeBoundingBox()
+    const bounds = geometry.boundingBox
+    if (!bounds) continue
+    const box = new LineSegments(boxEdges(bounds), material)
+    box.matrixAutoUpdate = false
+    box.frustumCulled = false
+    group.add(box)
+    entries.push({ pane, box })
+  }
+  return {
+    group,
+    update() {
+      for (const entry of entries) {
+        entry.box.visible = !entry.pane.broken
+        entry.box.matrix.copy(entry.pane.mesh.matrixWorld)
+        entry.box.matrixWorld.copy(entry.pane.mesh.matrixWorld)
+      }
+    },
+  }
+}
+
+/** The 12 edges of a local-space box, as a line-segment geometry. */
+function boxEdges(box: Box3): BufferGeometry {
+  const { min, max } = box
+  const c: [number, number, number][] = [
+    [min.x, min.y, min.z], [max.x, min.y, min.z], [max.x, min.y, max.z], [min.x, min.y, max.z],
+    [min.x, max.y, min.z], [max.x, max.y, min.z], [max.x, max.y, max.z], [min.x, max.y, max.z],
+  ]
+  const pairs = [0,1, 1,2, 2,3, 3,0, 4,5, 5,6, 6,7, 7,4, 0,4, 1,5, 2,6, 3,7]
+  const positions = new Float32Array(pairs.length * 3)
+  pairs.forEach((index, i) => {
+    positions[i * 3] = c[index][0]
+    positions[i * 3 + 1] = c[index][1]
+    positions[i * 3 + 2] = c[index][2]
+  })
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(positions, 3))
+  return geometry
 }
 
 function buildProbeOverlay(): {

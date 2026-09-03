@@ -4,18 +4,19 @@
  * Everything static is baked into world-space geometry with a bounds tree: one BVH walk answers
  * a query. There are TWO of them because players and paintballs disagree about windows:
  *
- * - the MOVEMENT collider keeps window sashes in their closed rest pose (a window is never a
- *   way through a wall) and drops door panels (a doorway always is);
- * - the BULLET collider drops both, so a paintball goes through an open sash and meets a closed
- *   one on the sash's own moving BVH;
- * - the NAVMESH source is the movement collider minus roofs, which recast would otherwise hand
- *   the bots as a walkable 45° pitch. It is a bare mesh: recast voxelises it, nothing raycasts
+ * - the MOVEMENT collider drops every openable leaf — door panels and window sashes alike. Both
+ *   block the player *where they actually are*, which is a moving surface, so the controller
+ *   collides with them dynamically (`setDynamicColliders`) instead of against baked geometry;
+ * - the BULLET collider drops those and the glass panes, which shatter and therefore have to be
+ *   tested one by one while they are intact;
+ * - the NAVMESH source keeps window sashes at their closed pose — bots never climb through a
+ *   window — and drops door leaves (bots open doors) and roofs, which recast would otherwise
+ *   hand them as a walkable 45° pitch. It is a bare mesh: recast voxelises it, nothing raycasts
  *   it, so it gets no bounds tree.
  *
  * All three come out of ONE traversal: the expensive part is baking each mesh into world space,
- * and that result is shared, so the extra outputs only cost a merge each. A map with no openable
- * window gets literally one collider, returned as both; one with no roof reuses the movement
- * mesh as its navmesh source.
+ * and that result is shared, so the extra outputs only cost a merge each. Outputs that end up
+ * with the same triangles are returned as the same object.
  *
  * Leaves of an openable stay out of the merge because they move; each gets its own (local-space)
  * bounds tree and the ray is transformed into its space at query time.
@@ -39,7 +40,13 @@ import {
 } from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import type { MeshBVH } from 'three-mesh-bvh'
-import type { DoorInfo, HitResult, StaticCollider, WorldQuery } from '../types'
+import type { DoorInfo, GlassPane, HitResult, StaticCollider, WorldQuery } from '../types'
+
+/**
+ * Where `map-loader` parks the map's panes so a `createWorldQuery` caller that only has the
+ * collider still gets breakable glass. Passing `glass` explicitly always wins.
+ */
+const BREAKABLES_KEY = 'breakables'
 
 /** Triangles per BVH leaf. (`targetLeafSize` is the non-deprecated name of `maxLeafSize`.) */
 const LEAF_SIZE = 12
@@ -51,14 +58,16 @@ const LEAF_SIZE = 12
 const _v = new Vector3()
 const _normalMatrix = new Matrix3()
 
-/** Subtree roots to leave out of one or both colliders. */
+/** Subtree roots to leave out of one or more of the three outputs. */
 export interface ColliderExclusions {
-  /** Zone and spawn markers: never collide with anything. */
+  /** Zone and spawn markers: never collide with anything, anywhere. */
   markers: Set<Object3D>
-  /** Door panels: out of both colliders — a doorway is always walk-through and shoot-through. */
+  /** Door panels: out of all three — bots path through doorways and bullets meet the leaf's BVH. */
   doorLeaves: Set<Object3D>
-  /** Window sashes: out of the bullet collider only; solid (closed pose) for movement. */
+  /** Window sashes: out of movement and bullets (both handle them live), kept for the navmesh. */
   windowLeaves: Set<Object3D>
+  /** Glass panes: out of the bullet collider only; solid for players and for recast. */
+  glass: Set<Object3D>
   /** Roofs: out of the navmesh source only; players and bullets still collide with them. */
   roofs: Set<Object3D>
 }
@@ -83,13 +92,19 @@ export function buildStaticColliders(
   root.updateMatrixWorld(true)
 
   // Flatten the excluded subtrees once so the per-mesh tests are single Set lookups.
+  // Markers and door leaves are in nothing, so they are never even baked.
   const skip = flatten(exclusions.markers, exclusions.doorLeaves)
   const sashes = flatten(exclusions.windowLeaves)
+  const glass = flatten(exclusions.glass)
   const roofs = flatten(exclusions.roofs)
 
+  /** Every bake, so they can all be freed once the merges have read them. */
+  const baked: BufferGeometry[] = []
   const movementGeometries: BufferGeometry[] = []
   const bulletGeometries: BufferGeometry[] = []
   const navGeometries: BufferGeometry[] = []
+  let bulletDiffers = false
+  let navDiffers = false
   root.traverse((obj) => {
     if (skip.has(obj)) return
     if (!(obj as Mesh).isMesh) return
@@ -99,23 +114,26 @@ export function buildStaticColliders(
     if (!isVisibleInHierarchy(mesh, root)) return
     const geo = toWorldGeometry(mesh)
     if (!geo) return
+    baked.push(geo)
     // The same baked geometry feeds every merge — `mergeGeometries` only reads its inputs.
-    movementGeometries.push(geo)
-    if (!sashes.has(obj)) bulletGeometries.push(geo)
-    if (!roofs.has(obj)) navGeometries.push(geo)
+    const isSash = sashes.has(obj)
+    const inMovement = !isSash
+    const inBullet = !isSash && !glass.has(obj)
+    const inNav = !roofs.has(obj)
+    if (inMovement) movementGeometries.push(geo)
+    if (inBullet) bulletGeometries.push(geo)
+    if (inNav) navGeometries.push(geo)
+    if (inMovement !== inBullet) bulletDiffers = true
+    if (inMovement !== inNav) navDiffers = true
   })
 
   const movement = finishCollider(merge(movementGeometries), 'static-collider')
-  const bullet =
-    bulletGeometries.length === movementGeometries.length
-      ? movement
-      : finishCollider(merge(bulletGeometries), 'bullet-collider')
-  const navSource =
-    navGeometries.length === movementGeometries.length
-      ? movement.mesh
-      : colliderMesh(merge(navGeometries), 'navmesh-source')
+  const bullet = bulletDiffers
+    ? finishCollider(merge(bulletGeometries), 'bullet-collider')
+    : movement
+  const navSource = navDiffers ? colliderMesh(merge(navGeometries), 'navmesh-source') : movement.mesh
 
-  for (const g of movementGeometries) g.dispose()
+  for (const g of baked) g.dispose()
 
   return { movement, bullet, navSource }
 }
@@ -220,6 +238,28 @@ function toWorldGeometry(mesh: Mesh): BufferGeometry | null {
   return out
 }
 
+/**
+ * Give every mesh its own bounds tree, once, at load time — door leaves and window sashes need
+ * one for the dynamic bullet tests and for the controller's `setDynamicColliders`, glass panes
+ * for the shatter raycast. Returns how many trees it had to build.
+ */
+export function ensureBoundsTrees(meshes: Iterable<Mesh>): number {
+  let built = 0
+  for (const mesh of meshes) {
+    const geometry = mesh.geometry
+    if (!geometry?.getAttribute('position') || geometry.boundsTree) continue
+    geometry.computeBoundsTree({ targetLeafSize: LEAF_SIZE })
+    if (!geometry.boundingSphere) geometry.computeBoundingSphere()
+    built++
+  }
+  return built
+}
+
+/** Attach the map's panes to a collider, for callers that cannot pass them to the query. */
+export function attachBreakables(collider: StaticCollider, glass: GlassPane[]): void {
+  ;(collider.mesh.userData as Record<string, unknown>)[BREAKABLES_KEY] = glass
+}
+
 /** Triangle count of a built collider (debug HUD). */
 export function colliderTriangleCount(collider: StaticCollider): number {
   const pos = collider.geometry.getAttribute('position')
@@ -240,6 +280,9 @@ const _sphere = new Sphere()
 const _box = new Box3()
 const _dir = new Vector3()
 const _leafNormalMatrix = new Matrix3()
+const _leafPoint = new Vector3()
+const _leafNormal = new Vector3()
+let _leafDistance = 0
 
 interface LeafEntry {
   mesh: Mesh
@@ -257,6 +300,11 @@ interface DoorEntry {
   radius: number
 }
 
+interface GlassEntry {
+  pane: GlassPane
+  leaf: LeafEntry
+}
+
 /**
  * Raycasts against a static BVH plus the leaves of every openable, nearest hit wins. Feed it
  * `MapData.bulletCollider`: a closed window sash stops a paintball exactly like a closed door
@@ -267,25 +315,37 @@ interface DoorEntry {
  * A miss allocates nothing. A hit allocates one `HitResult` (two `Vector3`s) — deliberately not
  * a shared scratch object, so callers in other packages can hold on to it safely.
  */
-export function createWorldQuery(collider: StaticCollider, doors: DoorInfo[]): WorldQuery {
+export function createWorldQuery(
+  collider: StaticCollider,
+  doors: DoorInfo[],
+  glass?: GlassPane[],
+): WorldQuery {
   const staticBvh = collider.geometry.boundsTree as MeshBVH | undefined
+
+  // Panes are not in the bullet collider (they shatter), so they are tested one by one — but
+  // only while intact, and always through their live matrix, since a sash carries its pane with
+  // it. `map-loader` parks them on the collider for callers that only hand us the collider.
+  const panes =
+    glass ?? ((collider.mesh.userData as Record<string, unknown>)[BREAKABLES_KEY] as GlassPane[]) ?? []
+  const glassEntries: GlassEntry[] = []
+  const paneMeshes = new Set<Mesh>()
+  for (const pane of panes) {
+    const leaf = toLeafEntry(pane.mesh)
+    if (!leaf) continue
+    glassEntries.push({ pane, leaf })
+    paneMeshes.add(pane.mesh)
+  }
 
   const doorEntries: DoorEntry[] = []
   for (const door of doors) {
     const leaves: LeafEntry[] = []
     for (const leaf of door.leafMeshes) {
-      const geo = leaf.geometry
-      if (!geo.getAttribute('position')) continue
-      if (!geo.boundsTree) geo.computeBoundsTree({ targetLeafSize: LEAF_SIZE })
-      if (!geo.boundingSphere) geo.computeBoundingSphere()
-      const bs = geo.boundingSphere
-      if (!bs) continue
-      leaves.push({
-        mesh: leaf,
-        bvh: geo.boundsTree as MeshBVH,
-        localCenter: bs.center.clone(),
-        localRadius: bs.radius,
-      })
+      // A sash's pane is in `leafMeshes` too (the controller collides with it, decals hang off
+      // it), but for bullets it belongs to the glass pass — which is the one that knows it can
+      // be broken. Testing it here as well would make a shattered pane keep stopping paint.
+      if (paneMeshes.has(leaf)) continue
+      const entry = toLeafEntry(leaf)
+      if (entry) leaves.push(entry)
     }
     if (leaves.length === 0) continue
 
@@ -308,7 +368,7 @@ export function createWorldQuery(collider: StaticCollider, doors: DoorInfo[]): W
 
     let bestDistance = maxDistance
     let bestObject: Object3D | null = null
-    let bestKind: 'static' | 'door' = 'static'
+    let bestKind: HitResult['kind'] = 'static'
 
     if (staticBvh) {
       const hit = staticBvh.raycastFirst(_ray, DoubleSide, 0, maxDistance)
@@ -330,32 +390,24 @@ export function createWorldQuery(collider: StaticCollider, doors: DoorInfo[]): W
       if (!rayHitsSphereWithin(_ray, _sphere, bestDistance)) continue
 
       for (let l = 0; l < entry.leaves.length; l++) {
-        const leaf = entry.leaves[l]
-        const mw = leaf.mesh.matrixWorld
-        _sphere.center.copy(leaf.localCenter).applyMatrix4(mw)
-        _sphere.radius = leaf.localRadius * maxScale(mw)
-        if (!rayHitsSphereWithin(_ray, _sphere, bestDistance)) continue
-
-        _inverse.copy(mw).invert()
-        _localRay.copy(_ray).applyMatrix4(_inverse)
-        const hit = leaf.bvh.raycastFirst(_localRay, DoubleSide, 0, Infinity)
-        if (!hit) continue
-
-        _point.copy(hit.point).applyMatrix4(mw)
-        const worldDistance = origin.distanceTo(_point)
-        if (worldDistance > bestDistance) continue
-
-        bestDistance = worldDistance
-        bestObject = leaf.mesh
+        if (!raycastLeaf(entry.leaves[l], origin, bestDistance)) continue
+        bestDistance = _leafDistance
+        bestObject = entry.leaves[l].mesh
         bestKind = 'door'
-        _bestPoint.copy(_point)
-        if (hit.face) {
-          _leafNormalMatrix.getNormalMatrix(mw)
-          _bestNormal.copy(hit.face.normal).applyMatrix3(_leafNormalMatrix).normalize()
-        } else {
-          _bestNormal.set(0, 1, 0)
-        }
+        _bestPoint.copy(_leafPoint)
+        _bestNormal.copy(_leafNormal)
       }
+    }
+
+    for (let g = 0; g < glassEntries.length; g++) {
+      const entry = glassEntries[g]
+      if (entry.pane.broken) continue
+      if (!raycastLeaf(entry.leaf, origin, bestDistance)) continue
+      bestDistance = _leafDistance
+      bestObject = entry.leaf.mesh
+      bestKind = 'glass'
+      _bestPoint.copy(_leafPoint)
+      _bestNormal.copy(_leafNormal)
     }
 
     if (!bestObject) return null
@@ -377,6 +429,53 @@ export function createWorldQuery(collider: StaticCollider, doors: DoorInfo[]): W
   }
 
   return { raycast, lineOfSight }
+}
+
+/** A mesh that moves at runtime, prepared for per-query raycasts (its own BVH + bounding sphere). */
+function toLeafEntry(mesh: Mesh): LeafEntry | null {
+  const geo = mesh.geometry
+  if (!geo?.getAttribute('position')) return null
+  if (!geo.boundsTree) geo.computeBoundsTree({ targetLeafSize: LEAF_SIZE })
+  if (!geo.boundingSphere) geo.computeBoundingSphere()
+  const bs = geo.boundingSphere
+  if (!bs) return null
+  return {
+    mesh,
+    bvh: geo.boundsTree as MeshBVH,
+    localCenter: bs.center.clone(),
+    localRadius: bs.radius,
+  }
+}
+
+/**
+ * Ray (already in `_ray`) against one moving mesh: bounding sphere in world space first, then the
+ * BVH in the mesh's own space. Writes `_leafDistance` / `_leafPoint` / `_leafNormal` and returns
+ * true when it beats `maxDistance`.
+ */
+function raycastLeaf(leaf: LeafEntry, origin: Vector3, maxDistance: number): boolean {
+  const mw = leaf.mesh.matrixWorld
+  _sphere.center.copy(leaf.localCenter).applyMatrix4(mw)
+  _sphere.radius = leaf.localRadius * maxScale(mw)
+  if (!rayHitsSphereWithin(_ray, _sphere, maxDistance)) return false
+
+  _inverse.copy(mw).invert()
+  _localRay.copy(_ray).applyMatrix4(_inverse)
+  const hit = leaf.bvh.raycastFirst(_localRay, DoubleSide, 0, Infinity)
+  if (!hit) return false
+
+  _point.copy(hit.point).applyMatrix4(mw)
+  const distance = origin.distanceTo(_point)
+  if (distance > maxDistance) return false
+
+  _leafDistance = distance
+  _leafPoint.copy(_point)
+  if (hit.face) {
+    _leafNormalMatrix.getNormalMatrix(mw)
+    _leafNormal.copy(hit.face.normal).applyMatrix3(_leafNormalMatrix).normalize()
+  } else {
+    _leafNormal.set(0, 1, 0)
+  }
+  return true
 }
 
 /** True if the ray's closest approach to the sphere is inside it, within `maxDistance`. */

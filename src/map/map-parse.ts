@@ -17,7 +17,14 @@ import {
   Vector3,
 } from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import type { DoorInfo, LevelInfo, PascalExtras, SpawnNodeInfo, ZoneInfo } from '../types'
+import type {
+  DoorInfo,
+  GlassPane,
+  LevelInfo,
+  PascalExtras,
+  SpawnNodeInfo,
+  ZoneInfo,
+} from '../types'
 
 export interface ParsedScene {
   levels: LevelInfo[]
@@ -35,6 +42,16 @@ export interface ParsedScene {
    */
   doorLeafNodes: Set<Object3D>
   windowLeafNodes: Set<Object3D>
+  /**
+   * Every transparent mesh in the map — fixed window glass, French-door panes, the pane inside
+   * an openable sash. Paintballs shatter them (W4-A), so they are tested dynamically rather than
+   * baked into the bullet collider, and they are never merged into a batch: each one has to stay
+   * its own mesh so `glass.ts` can hide it.
+   *
+   * Ids are `glass:<index in traversal order>`, which is stable for a given GLB, so every client
+   * names the same pane without any of them having to agree over the network.
+   */
+  glassPanes: GlassPane[]
   /**
    * `kind: 'roof'` subtrees. Solid for players and bullets, but kept out of the NAVMESH source:
    * recast accepts a house pitch as walkable at `NAVMESH.walkableSlopeAngle`, and bots then pick
@@ -66,6 +83,7 @@ export function parsePascalScene(gltf: GLTF): ParsedScene {
   const windowLeafNodes = new Set<Object3D>()
   const roofNodes = new Set<Object3D>()
   const markerNodes = new Set<Object3D>()
+  const glassPanes: GlassPane[] = []
 
   // Levels first: zones/spawns/doors resolve their owning level by walking up the tree.
   const levelByNode = new Map<Object3D, LevelInfo>()
@@ -83,6 +101,14 @@ export function parsePascalScene(gltf: GLTF): ParsedScene {
     levelByNode.set(node, level)
   })
   levels.sort((a, b) => a.y - b.y)
+
+  // Glass first, in its own pass, so the ids only depend on the scene graph — not on whether a
+  // node happens to carry Pascal extras.
+  root.traverse((node) => {
+    const mesh = node as Mesh
+    if (!mesh.isMesh || !isTransparent(mesh.material)) return
+    glassPanes.push({ id: `glass:${glassPanes.length}`, mesh, broken: false })
+  })
 
   root.traverse((node) => {
     const extras = extrasOf(node)
@@ -129,7 +155,15 @@ export function parsePascalScene(gltf: GLTF): ParsedScene {
     windowLeafNodes,
     roofNodes,
     markerNodes,
+    glassPanes,
   }
+}
+
+/** glTF `alphaMode: BLEND` reaches three as `transparent`; opacity covers a hand-authored GLB. */
+function isTransparent(material: Mesh['material']): boolean {
+  if (Array.isArray(material)) return material.some(isTransparent)
+  if (!material) return false
+  return material.transparent === true || material.opacity < 1
 }
 
 // ---------------------------------------------------------------------------

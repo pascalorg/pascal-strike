@@ -180,7 +180,11 @@ export interface HitResult {
   normal: Vector3
   distance: number
   object: Object3D
-  kind: 'static' | 'door'
+  /**
+   * What was hit: baked world geometry, an openable's moving leaf, or a breakable `GlassPane`
+   * (`object` is then the pane's mesh, and its id is in `MapData.breakables`).
+   */
+  kind: 'static' | 'door' | 'glass'
 }
 
 export interface WorldQuery {
