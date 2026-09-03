@@ -25,12 +25,13 @@ in a test room), `?dev=ui` (lobby/HUD showcase), `?dev=net` (text-only Playroom 
 | | |
 |---|---|
 | Move | WASD, Space jump, Ctrl/C crouch, **Shift walk** (slow and precise) |
-| Shoot | Left mouse (hold), R reload |
-| Doors / windows | **E** while looking at one within 2.5 m |
-| Scoreboard | Tab · Menu: Esc (invite link, change map as host, leave) |
+| Weapons | **1** marker (30 rounds, auto) · **2** pistol (12, semi-auto, precise) · **3** knife (2 hits, 1 from behind) · wheel cycles · R reload |
+| Doors / windows | **E** while looking at one within 2.5 m; open windows are a way out, glass breaks |
+| Teams | pick Orange / Teal / Auto when you join; Esc → Change team |
+| Scoreboard | Tab · Menu: Esc (invite link, bots on/off and map as host, sound, leave) |
 
 Team deathmatch: first to 30 kills or 5 minutes. 100 hp; a paintball does 50 to the head, 34 to
-the torso, 20 to arms and legs. Respawn 2.5 s after going down, 3 s of invincibility. Accuracy
+the torso, 20 to arms and legs; the knife does 60, doubled from behind. Respawn 2.5 s after going down, 3 s of invincibility. Accuracy
 is tight when standing or walking and opens up when running or airborne.
 
 ## Building a map in Pascal

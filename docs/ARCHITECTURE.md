@@ -21,6 +21,16 @@ Decisions already made (do not re-litigate):
 - Movement: running is the default, **Shift walks** (slow, precise). Accuracy depends on
   motion (standing 0.12° → running 1.6° → airborne 2.8°). Damage by body part: head 50,
   torso 34, arms/legs 20.
+- Three weapons on 1/2/3 and the wheel: marker (30 rounds, 12/s, auto), pistol (12 rounds,
+  semi-auto, tighter), knife (60, ×2 from behind). Transparent panes are breakable glass.
+- Joining makes you a **spectator** over an orbiting view of the house until you pick Orange,
+  Teal or Auto (host-refereed; with bots filling, friends may share a side). The Esc menu is a
+  glass overlay over the running match with "Change team".
+- Rendering: physical sky + sun with image-based lighting from it, 4k texel-snapped shadows,
+  half-res GTAO, thresholded bloom, SMAA, Khronos PBR Neutral tone mapping and a grade
+  (`engine/post.ts`, ~1.4 ms at 1080p on WebGPU; `?nopost=1`, `?webgl=1`).
+- Sound: CC0 recordings (Kenney) layered with synthesized CO2/wet/hinge/shard tails, served from
+  `public/sfx` through `engine/sfx-manifest.ts`; the procedural sounds remain the fallback.
 - Desktop only (pointer lock + WASD). Mobile gets a "play on desktop" screen.
 - Branding: Pascal's palette (zinc dark theme), fonts Barlow (display) / Inter (UI) / JetBrains
   Mono (numbers), logo in `public/brand/`. Team colours: Orange `#f97316` vs Teal `#14b8a6`.
