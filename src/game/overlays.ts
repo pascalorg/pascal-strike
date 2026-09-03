@@ -1,13 +1,16 @@
 /**
- * The DOM the game owns on top of the HUD (W2): the loading screen, the Esc menu and the
- * `?debug=1` panel — plus the status snapshot both the panel and `window.__ps.state()` read.
+ * The DOM the game owns on top of the HUD (W2): the loading screen, the team screen, the Esc
+ * menu and the `?debug=1` panel — plus the status snapshot both the panel and
+ * `window.__ps.state()` read.
  *
  * Everything here is plain DOM on the shared Pascal tokens from `ui/styles.css`; the in-match
  * HUD proper lives in `ui/hud.ts` and is not touched by this file.
  */
-import { BUILTIN_MAPS, TEAMS } from '../config'
+import type { Box3, PerspectiveCamera } from 'three'
+import { Vector3 } from 'three'
+import { BUILTIN_MAPS, MATCH, TEAMS } from '../config'
 import type { Room } from '../net/room'
-import type { TeamResult } from '../net/protocol'
+import type { TeamChoice, TeamResult } from '../net/protocol'
 import { isConfigured, uploadMap } from '../storage/maps-upload'
 import type { MapSelection, MatchState, TeamId } from '../types'
 import { el } from '../ui/dom'
@@ -62,6 +65,305 @@ export function createLoadingOverlay(mount: HTMLElement): LoadingOverlay {
 }
 
 // ---------------------------------------------------------------------------
+// Team screen (W5-A) — pick a side before you play
+// ---------------------------------------------------------------------------
+
+/** One line of a team card's roster. */
+export interface RosterMember {
+  id: string
+  name: string
+  isBot: boolean
+  isLocal: boolean
+}
+
+export interface TeamRoster {
+  a: RosterMember[]
+  b: RosterMember[]
+  /** Humans who have not picked yet — us included while the screen is up. */
+  choosing: RosterMember[]
+}
+
+export type TeamScreenMode = 'join' | 'change'
+
+export interface TeamScreenOptions {
+  mount: HTMLElement
+  /** Polled while the screen is open; bots and counts move under it. */
+  roster(): TeamRoster
+  /** Our team, or null while we are still choosing. */
+  myTeam(): TeamId | null
+  /** Ask the host. The screen shakes the card and shows the reason when it says no. */
+  onPick(choice: TeamChoice): Promise<TeamResult>
+  /** "Back" (and Esc) in `change` mode — the join mode has no way out but picking. */
+  onBack(): void
+}
+
+export interface TeamScreen {
+  readonly isOpen: boolean
+  readonly mode: TeamScreenMode | null
+  open(mode: TeamScreenMode): void
+  close(): void
+  dispose(): void
+}
+
+const REFUSE_SHAKE_MS = 500
+const ROSTER_POLL_MS = 400
+/** Card order = the 1/2/3 keys. */
+const PICK_KEYS: readonly TeamChoice[] = ['a', 'b', 'auto']
+
+export function createTeamScreen(opts: TeamScreenOptions): TeamScreen {
+  let open = false
+  let mode: TeamScreenMode | null = null
+  let busy = false
+  /** What Enter confirms: follows the keys, the pointer and (on open) our current side. */
+  let selected: TeamChoice = 'auto'
+  let refuseTimer = 0
+  let pollTimer = 0
+
+  const note = el('div', { class: 'ps-note ps-pick-note' })
+  const cards: Record<string, HTMLButtonElement> = {}
+  const counts: Record<string, HTMLElement> = {}
+  const rosters: Record<string, HTMLElement> = {}
+  const autoHint = el('span', { class: 'ps-pick-hint', text: 'Join the smaller team' })
+
+  const card = (choice: TeamChoice, index: number): HTMLButtonElement => {
+    const name = choice === 'auto' ? 'Auto' : TEAMS[choice].name
+    const count = el('span', { class: 'ps-pick-count ps-mono' })
+    const list = el('div', { class: 'ps-pick-roster' })
+    counts[choice] = count
+    rosters[choice] = list
+    const node = el(
+      'button',
+      { class: `ps-pick ps-pick--${choice}`, type: 'button', 'aria-pressed': 'false' },
+      [
+        el('span', { class: 'ps-pick-top' }, [
+          el('span', { class: 'ps-team-dot' }),
+          el('span', { class: 'ps-pick-name', text: name }),
+          el('span', { class: 'ps-pick-key ps-mono', text: String(index + 1) }),
+        ]),
+        choice === 'auto' ? autoHint : count,
+        list,
+      ],
+    )
+    node.addEventListener('click', () => pick(choice))
+    node.addEventListener('pointerenter', () => {
+      selected = choice
+      renderSelection()
+    })
+    cards[choice] = node
+    return node
+  }
+
+  const back = el('button', { class: 'ps-btn ps-btn--ghost', style: 'display:none' }, ['Back'])
+  const title = el('h1', { class: 'ps-title', text: 'Choose your team' })
+  const tagline = el('p', {
+    class: 'ps-tagline',
+    html: 'Pick a side to drop into the house. <b>1</b> / <b>2</b> / <b>3</b> or <b>ENTER</b>.',
+  })
+  const choosing = el('div', { class: 'ps-choosing' })
+  const screen = el('div', { class: 'ps-screen ps-screen--glass ps-screen--teams', style: 'z-index:18;display:none' }, [
+    el('div', { class: 'ps-card ps-card--teams' }, [
+      title,
+      tagline,
+      el('div', { class: 'ps-picks' }, PICK_KEYS.map(card)),
+      choosing,
+      note,
+      el('div', { class: 'ps-pick-foot' }, [back]),
+    ]),
+  ])
+  opts.mount.appendChild(screen)
+  back.addEventListener('click', () => opts.onBack())
+
+  /** The card the host refused: a 0.5 s shake, then it is a normal card again. */
+  const refuse = (choice: TeamChoice, reason: string) => {
+    note.textContent = reason
+    const node = cards[choice]
+    window.clearTimeout(refuseTimer)
+    for (const key of PICK_KEYS) cards[key].classList.remove('is-refused')
+    // Reflow between remove and add, or a second refusal on the same card plays no animation.
+    void node.offsetWidth
+    node.classList.add('is-refused')
+    refuseTimer = window.setTimeout(() => node.classList.remove('is-refused'), REFUSE_SHAKE_MS)
+  }
+
+  const pick = (choice: TeamChoice) => {
+    if (!open || busy) return
+    selected = choice
+    if (choice !== 'auto' && opts.myTeam() === choice) return void opts.onBack()
+    busy = true
+    note.textContent = 'Asking the host…'
+    renderSelection()
+    void opts
+      .onPick(choice)
+      .then((result) => {
+        if (result?.ok) note.textContent = ''
+        else refuse(choice, result?.reason || 'The host turned that down')
+      })
+      .catch((err: Error) => refuse(choice, err.message))
+      .finally(() => {
+        busy = false
+        renderSelection()
+      })
+  }
+
+  const renderSelection = () => {
+    const mine = opts.myTeam()
+    for (const choice of PICK_KEYS) {
+      const node = cards[choice]
+      node.classList.toggle('is-selected', choice === selected)
+      node.setAttribute('aria-pressed', String(choice !== 'auto' && choice === mine))
+      node.toggleAttribute('disabled', busy)
+    }
+  }
+
+  const renderRoster = () => {
+    const roster = opts.roster()
+    for (const team of TEAM_KEYS) {
+      const members = roster[team]
+      counts[team].textContent = `${members.length}/${MATCH.teamSize}`
+      rosters[team].replaceChildren(...members.map(memberRow))
+    }
+    // Auto's own preview of what the host would decide, by the same rule (smaller side first).
+    const smaller = roster.b.length < roster.a.length ? 'b' : 'a'
+    autoHint.textContent =
+      roster.a.length === roster.b.length
+        ? 'Join the smaller team'
+        : `Join the smaller team · ${TEAMS[smaller].name}`
+    rosters.auto.replaceChildren(
+      el('span', { class: 'ps-pick-member ps-dim', text: 'The host decides when you pick' }),
+    )
+    const waiting = roster.choosing
+    choosing.replaceChildren(
+      el('span', { class: 'ps-label', text: `Choosing… ${waiting.length}` }),
+      el('span', {
+        class: 'ps-choosing-names',
+        text: waiting.length ? waiting.map((m) => (m.isLocal ? `${m.name} (you)` : m.name)).join(' · ') : '—',
+      }),
+    )
+    renderSelection()
+  }
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (!open) return
+    const digit = /^(?:Digit|Numpad)([1-3])$/.exec(event.code)
+    if (digit) {
+      event.preventDefault()
+      pick(PICK_KEYS[Number(digit[1]) - 1])
+      return
+    }
+    if (event.code === 'Enter' || event.code === 'NumpadEnter') {
+      event.preventDefault()
+      pick(selected)
+      return
+    }
+    if (event.code === 'Escape' && mode === 'change') {
+      event.preventDefault()
+      opts.onBack()
+    }
+  }
+  // Capture: the game's own Escape handler and the input module both listen on `document`.
+  document.addEventListener('keydown', onKeyDown, true)
+
+  const teamScreen: TeamScreen = {
+    get isOpen() {
+      return open
+    },
+    get mode() {
+      return mode
+    },
+    open(next) {
+      mode = next
+      note.textContent = ''
+      busy = false
+      selected = opts.myTeam() ?? 'auto'
+      title.textContent = next === 'change' ? 'Change team' : 'Choose your team'
+      back.style.display = next === 'change' ? '' : 'none'
+      renderRoster()
+      if (open) return
+      open = true
+      screen.style.display = ''
+      window.clearInterval(pollTimer)
+      pollTimer = window.setInterval(renderRoster, ROSTER_POLL_MS)
+    },
+    close() {
+      if (!open) return
+      open = false
+      mode = null
+      screen.style.display = 'none'
+      window.clearInterval(pollTimer)
+    },
+    dispose() {
+      window.clearInterval(pollTimer)
+      window.clearTimeout(refuseTimer)
+      document.removeEventListener('keydown', onKeyDown, true)
+      screen.remove()
+    },
+  }
+  return teamScreen
+}
+
+function memberRow(member: RosterMember): HTMLElement {
+  return el('span', { class: `ps-pick-member${member.isLocal ? ' is-me' : ''}` }, [
+    member.name,
+    member.isBot ? el('span', { class: 'ps-tag', text: 'BOT' }) : null,
+  ])
+}
+
+// ---------------------------------------------------------------------------
+// Overview camera (W5-A) — what the team screen looks at
+// ---------------------------------------------------------------------------
+
+export interface OverviewCamera {
+  /** Fly one frame. Call it instead of the FPS camera while the team screen is up. */
+  update(dt: number): void
+  /** Start the turn from the north side again (a fresh screen). */
+  reset(): void
+}
+
+/** One turn per this long, and how far down the camera tilts. */
+const ORBIT_PERIOD_S = 40
+const ORBIT_PITCH_DEG = 25
+const ORBIT_MIN_RADIUS = 12
+
+const _orbitCenter = new Vector3()
+const _orbitSize = new Vector3()
+
+/**
+ * A slow circle around the house while the player picks a side: the match runs behind the
+ * screen, so this is the only camera work the game does for a spectator.
+ *
+ * The radius is the spec's 12 m for a Pascal house, widened for anything bigger so the building
+ * still fits in frame; the height comes from the same radius at 25° so the tilt is constant
+ * whatever the map.
+ */
+export function createOverviewCamera(camera: PerspectiveCamera, bounds: Box3): OverviewCamera {
+  bounds.getCenter(_orbitCenter)
+  bounds.getSize(_orbitSize)
+  const center = _orbitCenter.clone()
+  const radius = Math.max(ORBIT_MIN_RADIUS, Math.max(_orbitSize.x, _orbitSize.z) * 0.85)
+  const height = center.y + radius * Math.tan((ORBIT_PITCH_DEG * Math.PI) / 180)
+  // Aim a little above the floor: the roof is what fills the frame from up here, and looking at
+  // the dead centre of the bounds puts the horizon through the middle of the house.
+  const lookAt = center.clone().setY(center.y + _orbitSize.y * 0.15)
+  let angle = 0
+  return {
+    update(dt) {
+      angle += (dt / ORBIT_PERIOD_S) * Math.PI * 2
+      camera.position.set(
+        center.x + Math.sin(angle) * radius,
+        height,
+        center.z + Math.cos(angle) * radius,
+      )
+      camera.up.set(0, 1, 0)
+      camera.lookAt(lookAt)
+      camera.updateMatrixWorld()
+    },
+    reset() {
+      angle = 0
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Pause / Esc menu
 // ---------------------------------------------------------------------------
 
@@ -79,10 +381,14 @@ export interface PauseMenuOptions {
   setBotsFill(on: boolean): void
   /** Heads on each team, bots included — what the scoreboard shows. Polled while open. */
   teams(): { a: number; b: number }
-  /** Our team, or null before the host has assigned one. */
+  /** Our team, or null while we are still choosing. */
   myTeam(): TeamId | null
-  /** Ask the host to move us. Resolves with its answer; the menu toasts a refusal. */
-  onTeam(team: TeamId): Promise<TeamResult>
+  /**
+   * Open the team screen over the match (W5-A). The menu no longer swaps sides itself: one
+   * screen owns the decision, with the rosters and the same rules whether it is your first
+   * pick or your fourth.
+   */
+  onChangeTeam(): void
 }
 
 export interface PauseMenu {
@@ -109,14 +415,17 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
   const bots = el('button', { class: 'ps-btn ps-btn--block' }, ['Bots: on'])
   const leave = el('button', { class: 'ps-btn ps-btn--ghost ps-btn--block' }, ['Leave to lobby'])
   const toastNode = el('div', { class: 'ps-toast' })
-  const teamCounts: Record<TeamId, HTMLElement> = { a: teamCount(), b: teamCount() }
-  const teamButtons: Record<TeamId, HTMLButtonElement> = {
-    a: teamButton('a', teamCounts.a),
-    b: teamButton('b', teamCounts.b),
-  }
+  const teamDot = el('span', { class: 'ps-team-dot' })
+  const teamLabel = el('span', { class: 'ps-team-name', text: 'Choosing…' })
+  const teamAction = el('span', { class: 'ps-team-count', text: 'Change' })
+  const teamButton = el('button', { class: 'ps-team-pick ps-team-pick--a', type: 'button' }, [
+    teamDot,
+    teamLabel,
+    teamAction,
+  ])
   const teamField = el('div', { class: 'ps-field', style: 'margin-top:18px' }, [
     el('label', { class: 'ps-label', text: 'Team' }),
-    el('div', { class: 'ps-teams' }, [teamButtons.a, teamButtons.b]),
+    el('div', { class: 'ps-teams ps-teams--one' }, [teamButton]),
   ])
   /**
    * The menu is glass, not a wall: the match keeps rendering *and* running behind it (remotes,
@@ -197,45 +506,30 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
 
   let open = false
   let audioOn = true
-  /** True between asking the host for a team and its answer — both buttons are dead meanwhile. */
-  let swapping = false
   let toastTimer = 0
   /** The very first open is the "click to start" screen; every one after it is a pause. */
   let played = false
 
   /**
-   * Counts include bots on purpose: three heads a side is what the player sees, and the host
-   * moves a bot the other way when a human swaps, so "3 / 3" stays true through the swap.
-   * The current team is the pressed one; the other is only clickable while no swap is pending.
+   * One row now: which side we are on and the way back to the team screen (W5-A). Counts
+   * include bots on purpose — three heads a side is what the player sees, and the host moves a
+   * bot the other way when a human swaps, so "3/3" stays true through the swap.
    */
   const renderTeams = () => {
     const counts = opts.teams()
     const mine = opts.myTeam()
-    for (const team of TEAM_KEYS) {
-      const button = teamButtons[team]
-      teamCounts[team].textContent = String(counts[team] ?? 0)
-      button.setAttribute('aria-pressed', String(team === mine))
-      button.toggleAttribute('disabled', swapping || !mine)
-    }
+    teamButton.className = `ps-team-pick ps-team-pick--${mine ?? 'a'}`
+    teamDot.style.opacity = mine ? '1' : '0.35'
+    teamLabel.textContent = mine
+      ? `${TEAMS[mine].name} · ${counts[mine] ?? 0}/${MATCH.teamSize}`
+      : 'Choosing…'
+    teamAction.textContent = mine ? 'Change team' : 'Pick a team'
+    teamButton.setAttribute('aria-pressed', String(!!mine))
   }
-
-  const askTeam = (team: TeamId) => {
-    if (swapping || !opts.myTeam() || opts.myTeam() === team) return
-    swapping = true
-    renderTeams()
-    void opts
-      .onTeam(team)
-      .then((result) => {
-        if (!result?.ok) menu.toast(result?.reason || 'The host turned that swap down')
-      })
-      .catch((err: Error) => menu.toast(err.message))
-      .finally(() => {
-        swapping = false
-        renderTeams()
-      })
-  }
-  teamButtons.a.addEventListener('click', () => askTeam('a'))
-  teamButtons.b.addEventListener('click', () => askTeam('b'))
+  teamButton.addEventListener('click', () => {
+    menu.close()
+    opts.onChangeTeam()
+  })
 
   const menu: PauseMenu = {
     get isOpen() {
@@ -308,18 +602,6 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
 
 const TEAM_KEYS: readonly TeamId[] = ['a', 'b']
 
-function teamCount(): HTMLElement {
-  return el('span', { class: 'ps-team-count', text: '0' })
-}
-
-function teamButton(team: TeamId, count: HTMLElement): HTMLButtonElement {
-  return el('button', { class: `ps-team-pick ps-team-pick--${team}`, type: 'button' }, [
-    el('span', { class: 'ps-team-dot' }),
-    el('span', { class: 'ps-team-name', text: TEAMS[team].name }),
-    count,
-  ])
-}
-
 // ---------------------------------------------------------------------------
 // Debug panel + status snapshot
 // ---------------------------------------------------------------------------
@@ -341,6 +623,17 @@ export interface GameStatus {
   botsFill: boolean
   menuOpen: boolean
   locked: boolean
+  /** Our side, or null while the team screen is up (W5-A). */
+  myTeam: TeamId | null
+  /** Which team screen is showing, if any. */
+  teamScreen: TeamScreenMode | null
+  /** Names of everyone still choosing, us included. */
+  choosing: string[]
+  /**
+   * Is `room.isHost()` believed yet? The authority only starts once it has held for
+   * `HOST_STABLE_MS`, so this and `isHost` disagree for a few seconds around a migration.
+   */
+  hostConfirmed: boolean
 }
 
 /** JSON-friendly view of the whole game — the playtest harness asserts against this. */
@@ -353,6 +646,7 @@ export function statusSnapshot(s: GameStatus) {
     room: s.room.roomCode,
     invite: s.room.inviteUrl,
     isHost: s.room.isHost(),
+    hostConfirmed: s.hostConfirmed,
     /** Null while a map change is in flight — the playtests read it as "still loading". */
     map: session?.selection.name ?? null,
     mapUrl: session?.selection.url ?? null,
@@ -371,6 +665,10 @@ export function statusSnapshot(s: GameStatus) {
     botsFill: s.botsFill,
     menuOpen: s.menuOpen,
     locked: s.locked,
+    teamScreen: s.teamScreen,
+    spectating: s.local.spectating,
+    myTeam: s.myTeam,
+    choosing: s.choosing,
     match: s.match && {
       phase: s.match.phase,
       round: s.match.round,
@@ -380,7 +678,9 @@ export function statusSnapshot(s: GameStatus) {
     me: me && {
       id: me.id.slice(0, 6),
       name: me.name,
-      team: me.team,
+      // The entity always carries a side (it has nowhere to put "none"); `myTeam` above is the
+      // honest one while we are choosing.
+      team: s.myTeam,
       hp: me.hp,
       alive: me.alive,
       kills: me.kills,
@@ -433,7 +733,10 @@ export function createDebugPanel(
       const session = s.session
       node.textContent = [
         `${s.backend} · ${Math.round(s.fps)} fps`,
-        `room ${s.room.roomCode}${s.room.isHost() ? ' (host)' : ''} · clock ${s.clockOffset} ms`,
+        `room ${s.room.roomCode}${s.room.isHost() ? (s.hostConfirmed ? ' (host)' : ' (host?)') : ''} · clock ${s.clockOffset} ms`,
+        `team ${s.myTeam ?? '—'}${s.teamScreen ? ` · picking (${s.teamScreen})` : ''}${
+          s.choosing.length ? ` · choosing ${s.choosing.length}` : ''
+        }`,
         `entities ${s.registry.size} · bots ${s.bots ? 'on' : 'off'} · fill ${s.botsFill ? 'on' : 'off'} · nav ${session?.nav?.ready ? 'ready' : '…'}`,
         session
           ? `spawns ${session.spawns.source} a=${session.spawns.a.length} b=${session.spawns.b.length}`

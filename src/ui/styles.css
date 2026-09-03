@@ -271,6 +271,185 @@ canvas {
   font-size: 13px;
   color: var(--fg);
 }
+/* Since W5-A the Esc menu carries one wide row ("Orange · 3/3  Change team"), not two. */
+.ps-teams--one {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* --------------------------------------------------------------------- */
+/* Team screen (W5-A): the first thing you see, over the orbiting house    */
+/* --------------------------------------------------------------------- */
+
+/*
+ * Same glass as the Esc menu — the match runs behind it and the overview camera circles the
+ * house — but wider, because the two rosters have to be readable side by side.
+ */
+.ps-card--teams {
+  width: min(720px, 100%);
+  background: linear-gradient(180deg, rgba(28, 28, 32, 0.9), rgba(18, 18, 21, 0.94));
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+.ps-card--teams .ps-title {
+  font-size: clamp(28px, 4vw, 38px);
+}
+.ps-picks {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.ps-pick {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 168px;
+  padding: 14px 15px;
+  text-align: left;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-strong);
+  background: var(--card-2);
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast),
+    transform var(--t-fast);
+}
+.ps-pick--a {
+  --team: var(--team-a);
+}
+.ps-pick--b {
+  --team: var(--team-b);
+}
+/* Auto belongs to neither side, so it borrows the neutral accent for its dot and glow. */
+.ps-pick--auto {
+  --team: var(--accent);
+}
+.ps-pick:hover:not([disabled]),
+.ps-pick.is-selected {
+  color: var(--fg);
+  border-color: color-mix(in srgb, var(--team) 55%, var(--border-strong));
+  background: color-mix(in srgb, var(--team) 10%, var(--card-2));
+}
+.ps-pick.is-selected {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--team) 22%, transparent);
+}
+/* The side we are already on: pressed, and it stays that way under the hover. */
+.ps-pick[aria-pressed='true'] {
+  color: var(--fg);
+  border-color: color-mix(in srgb, var(--team) 70%, var(--border-strong));
+  background: color-mix(in srgb, var(--team) 16%, var(--card-2));
+}
+.ps-pick[disabled] {
+  opacity: 0.6;
+  cursor: progress;
+}
+.ps-pick-top {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.ps-pick-name {
+  flex: 1;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+.ps-pick-key {
+  font-size: 11px;
+  color: var(--muted-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+}
+.ps-pick-count {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--fg);
+  line-height: 1;
+}
+.ps-pick-hint {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+.ps-pick-roster {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.ps-pick-member {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ps-pick-member.is-me {
+  color: var(--fg);
+  font-weight: 600;
+}
+/* A refused card shakes rather than moving: the reason is one line below, on the note. */
+.ps-pick.is-refused {
+  animation: ps-shake var(--t-med) 2;
+  border-color: var(--danger);
+}
+@keyframes ps-shake {
+  25% {
+    transform: translateX(-5px);
+  }
+  75% {
+    transform: translateX(5px);
+  }
+}
+.ps-pick-note {
+  min-height: 18px;
+  margin-top: 14px;
+}
+.ps-pick-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+  min-height: 32px;
+}
+/* Everyone still on this screen, on every client — the counts above do not include them. */
+.ps-choosing {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.ps-choosing .ps-label {
+  margin: 0;
+  white-space: nowrap;
+}
+.ps-choosing-names {
+  font-size: 13px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .ps-picks {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ps-pick {
+    min-height: 0;
+  }
+}
 
 /* The host's answer to a swap, in the kill feed's clothes, under the card. */
 .ps-toast {

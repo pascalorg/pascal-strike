@@ -75,6 +75,8 @@ export interface LocalPlayer {
   readonly yaw: number
   readonly pitch: number
   readonly dead: boolean
+  /** True while we are on the team screen: no body, no weapon, no camera of our own. */
+  readonly spectating: boolean
   readonly marker: Marker
   /** The weapon in hand. */
   readonly weapon: WeaponKind
@@ -84,6 +86,12 @@ export interface LocalPlayer {
   readonly listener: AudioListenerPose
   setSession(session: MapSession): void
   setTeam(team: TeamId): void
+  /**
+   * Enter or leave spectate (W5-A): before you have picked a side you have no body in the house
+   * and no camera of your own — the team screen's overview camera flies the engine camera, so
+   * `frameUpdate` must not fight it for the transform.
+   */
+  setSpectating(on: boolean): void
   fixedUpdate(dt: number): void
   frameUpdate(dt: number): void
   snapshot(): PlayerSnapshot
@@ -149,6 +157,7 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
   let yaw = 0
   let pitch = 0
   let dead = false
+  let spectating = false
   let deathDrop = 0
   let deathTilt = 0
   let spread = 0
@@ -201,6 +210,9 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
     get dead() {
       return dead
     },
+    get spectating() {
+      return spectating
+    },
     marker,
     get weapon() {
       return marker.weapon
@@ -224,8 +236,25 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
       viewModel.setTeam(team)
     },
 
+    setSpectating(on) {
+      if (spectating === on) return
+      spectating = on
+      hittable.alive = !on && !dead
+      viewModel.object.visible = !on
+      if (on) {
+        // Drop a half-pressed trigger and a half-finished reload: the marker comes back with a
+        // full hopper when we spawn, exactly like a respawn.
+        marker.reset()
+        melee.reset()
+      } else {
+        spread = 0
+        wasGrounded = false
+        footstepDistance = 0
+      }
+    },
+
     fixedUpdate(dt) {
-      if (dead) return
+      if (dead || spectating) return
       const source = overrideMove ? override : input.locked ? input.move : ZERO_MOVE
       // A lighter weapon moves you faster (`WEAPONS[kind].moveSpeedScale`): the controller
       // takes it as a target-speed multiplier, because the wish vector it would otherwise
@@ -247,6 +276,20 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
       const dy = (input.locked ? mouse.dy : 0) + pendingLookY
       pendingLookX = 0
       pendingLookY = 0
+      if (spectating) {
+        // Nothing of ours drives the camera here — the overview orbit owns it — so all this
+        // does is keep the audio listener on the flying camera and drain the input edges that
+        // `input.update()` would otherwise hand to the next frame as a jump or a shot.
+        camera.getWorldPosition(_eye)
+        camera.getWorldDirection(_look)
+        listener.position.copy(_eye)
+        listener.forward.copy(_look)
+        viewModel.object.visible = false
+        pendingSlot = 0
+        overrideReload = false
+        input.update()
+        return
+      }
       if (!dead) {
         yaw -= dx * PLAYER.lookSensitivity
         pitch = MathUtils.clamp(pitch - dy * PLAYER.lookSensitivity, -MAX_PITCH, MAX_PITCH)
@@ -407,7 +450,7 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
 
     hittable() {
       const p = controller.state.position
-      hittable.alive = !dead
+      hittable.alive = !dead && !spectating
       hittable.team = entity.team
       hittable.capsuleStart.set(p.x, p.y + PLAYER.radius, p.z)
       hittable.capsuleEnd.set(p.x, p.y + controller.height - PLAYER.radius, p.z)
@@ -439,7 +482,9 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
       dead = false
       deathDrop = 0
       deathTilt = 0
-      hittable.alive = true
+      // The host spawns us the moment we pick a side, so the respawn RPC can land a frame before
+      // the game takes us out of spectate; staying unhittable until it does is the honest answer.
+      hittable.alive = !spectating
       marker.reset()
       melee.reset()
       spread = 0

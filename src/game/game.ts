@@ -18,6 +18,7 @@ import { createRenderer, type Engine } from '../engine/renderer'
 import { createGlassSystem, type GlassSystem } from '../map/glass'
 import { createNavMeshHelper } from '../map/navmesh'
 import { bindNetToRegistry, requestTeamSwap } from '../net/client'
+import type { HostAuthority } from '../net/host'
 import {
   BOTS_FILL_DEFAULT,
   botsFillFrom,
@@ -26,11 +27,13 @@ import {
   GS,
   PS,
   RPCS,
+  teamFrom,
   type DoorEvent,
   type DoorStates,
   type FellEvent,
   type GlassEvent,
   type GlassStates,
+  type TeamChoice,
   type TeamResult,
 } from '../net/protocol'
 import type { Room } from '../net/room'
@@ -47,9 +50,15 @@ import { msLeft } from './match'
 import {
   createDebugPanel,
   createLoadingOverlay,
+  createOverviewCamera,
   createPauseMenu,
+  createTeamScreen,
   statusSnapshot,
   type GameStatus,
+  type OverviewCamera,
+  type RosterMember,
+  type TeamRoster,
+  type TeamScreenMode,
 } from './overlays'
 import { createRemotePlayers } from './remote-players'
 
@@ -75,6 +84,12 @@ const MAP_POLL_MS = 500
 const HUD_POLL_MS = 100
 /** How long the `respawn` RPC outranks a stale `alive: false` still on the wire. */
 const RESPAWN_RPC_GRACE_MS = 600
+/**
+ * Pointer lock is a user gesture's to grant, and the click that picked a team is a round trip
+ * old by the time the host answers. If the browser refuses, fall back to the Esc menu, whose
+ * "Play" button is a fresh gesture.
+ */
+const LOCK_FALLBACK_MS = 350
 
 const _hittables: Hittable[] = []
 const _damageDir = new Vector3()
@@ -128,6 +143,14 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   /** Clock time of the last `respawn` RPC for us — see the alive/RPC race in `updateHud`. */
   let revivedAt = 0
   let lastTeam: TeamId | null = null
+  /**
+   * The side the host just accepted, held until its reliable `team` state reaches us (~50 ms).
+   * Without it the screen would flicker back to "Choosing…" between the answer and the state.
+   */
+  let pickedTeam: TeamId | null = null
+  /** Circles the house behind the team screen; rebuilt with the session. */
+  let overview: OverviewCamera | null = null
+  let lockFallbackTimer = 0
   /** Last weapon published to the room / pushed into the HUD. */
   let lastWeapon: WeaponKind | null = null
 
@@ -144,6 +167,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   let glass: GlassSystem | null = null
   let session: MapSession | null = await buildSession(selection)
   const localPlayer = makeLocalPlayer(session)
+  overview = createOverviewCamera(engine.camera, session.map.bounds)
 
   // --- map session lifecycle ----------------------------------------------
 
@@ -311,6 +335,8 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     session = built
     loadedUrl = next.url
     localPlayer.setSession(built)
+    // The old house's bounds mean nothing to the orbit: rebuild it around the new one.
+    overview = createOverviewCamera(engine.camera, built.map.bounds)
     placeAtSpawn(localPlayer, built)
     // Old-map coordinates mean nothing in the new house: the host puts everyone (bots
     // included) back on a spawn point of the map that just loaded, and only then does the
@@ -336,7 +362,11 @@ export async function startGame(opts: GameOptions): Promise<Game> {
 
   // --- net events ----------------------------------------------------------
 
-  const sender = createSnapshotSender(room, () => (localPlayer.dead ? null : localPlayer.snapshot()))
+  // Nothing goes on the wire while we are dead or still choosing a side: a spectator has no
+  // body in the house, and a snapshot is what would give them one on everybody else's screen.
+  const sender = createSnapshotSender(room, () =>
+    localPlayer.dead || localPlayer.spectating ? null : localPlayer.snapshot(),
+  )
 
   events.on('shot', (shot) => {
     if (shot.by === room.me.id || !session) return
@@ -447,7 +477,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
 
   /** Runs after `frameUpdate`, so the ray uses this frame's camera pose. */
   function updateInteract(pressed: boolean): void {
-    if (!session || localPlayer.dead) {
+    if (!session || localPlayer.dead || localPlayer.spectating) {
       interactTarget = null
       prompt.set(null)
       return
@@ -510,6 +540,9 @@ export async function startGame(opts: GameOptions): Promise<Game> {
 
     // `frameUpdate` ends with `input.update()`, which clears the edge — read E before it.
     if (input.locked && input.interact) interactPressed = true
+    // The overview owns the camera while the team screen is up; `frameUpdate` knows to keep its
+    // hands off it, and reads this frame's pose for the audio listener.
+    if (localPlayer.spectating) overview?.update(dt)
     localPlayer.frameUpdate(dt)
     binding.update()
     remotePlayers.update(now, localPlayer.listener.position)
@@ -546,7 +579,13 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     match = room.getGlobal<MatchState>(GS.match) ?? hostSide.authority?.match.state ?? match
     const me = registry.local
 
-    if (me) {
+    // The host has put us on a side (our own pick, or a migration adopting one): the screen's
+    // job is done and the respawn RPC is already on its way with a position.
+    if (localPlayer.spectating && myTeam()) closeTeamScreen()
+    // The reverse can only happen through a host that forgot us; the screen is the way back in.
+    else if (!localPlayer.spectating && !myTeam() && !teamScreen.isOpen) openTeamScreen('join')
+
+    if (me && !localPlayer.spectating) {
       if (me.hp !== lastHp) {
         lastHp = me.hp
         hud.setHp(me.hp)
@@ -617,26 +656,139 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     return [right / length, forward / length]
   }
 
-  // --- teams (W4-C) --------------------------------------------------------
-  // Sides are host-authoritative like the rest of the rules: the menu asks, the host answers.
+  // --- teams (W4-C, W5-A) --------------------------------------------------
+  // Sides are host-authoritative like the rest of the rules: the screen asks, the host answers.
   // On the host itself there is no round trip — we hold the authority, so we call it directly.
+
+  /**
+   * Our side, or null while we are still choosing. The reliable `team` player state is the
+   * truth (that is what every other client reads about us too); `pickedTeam` only covers the
+   * few milliseconds between the host's answer and its state landing.
+   */
+  function myTeam(): TeamId | null {
+    return teamFrom(room.me.getState(PS.team)) ?? pickedTeam
+  }
+
+  /**
+   * The local entity always carries a side — `PlayerEntity.team` has nowhere to put "none" —
+   * so while we are choosing it lies, and every count has to ask `myTeam()` about us instead.
+   * Remote spectators are simply not in the registry (`net/client.ts`).
+   */
+  function teamOf(entity: { isLocal: boolean; team: TeamId }): TeamId | null {
+    return entity.isLocal ? myTeam() : entity.team
+  }
 
   function teamCounts(): { a: number; b: number } {
     const counts = { a: 0, b: 0 }
-    for (const entity of registry.list()) counts[entity.team]++
+    for (const entity of registry.list()) {
+      const team = teamOf(entity)
+      if (team) counts[team]++
+    }
     return counts
   }
 
-  function requestTeam(team: TeamId): Promise<TeamResult> {
-    const authority = hostSide.authority
-    if (authority) {
-      const result = authority.requestTeam(room.me.id, team)
-      // Tell everyone else too: their menus read the counts from the same broadcast path.
-      void room.rpc.call(RPCS.teamResult, result, 'others')
-      return Promise.resolve(result)
+  function roster(): TeamRoster {
+    const out: TeamRoster = { a: [], b: [], choosing: [] }
+    for (const entity of registry.list()) {
+      const team = teamOf(entity)
+      if (!team) continue
+      out[team].push({
+        id: entity.id,
+        name: entity.name,
+        isBot: entity.isBot,
+        isLocal: entity.isLocal,
+      })
     }
-    return requestTeamSwap(room, team)
+    for (const waiting of binding.spectators()) {
+      out.choosing.push({ id: waiting.id, name: waiting.name, isBot: false, isLocal: waiting.isLocal })
+    }
+    return out
   }
+
+  /**
+   * A host that has just inherited the room does not have its authority up yet, and the very
+   * first pick can land inside that window. Waiting for our own authority beats sending
+   * ourselves an RPC that nobody is registered to answer.
+   */
+  async function waitForAuthority(): Promise<HostAuthority | null> {
+    if (hostSide.authority || !room.isHost()) return hostSide.authority
+    for (let i = 0; i < 40 && !hostSide.authority && room.isHost(); i++) await delay(100)
+    return hostSide.authority
+  }
+
+  async function requestTeam(choice: TeamChoice): Promise<TeamResult> {
+    const authority = await waitForAuthority()
+    const result = authority
+      ? authority.requestTeam(room.me.id, choice)
+      : await requestTeamSwap(room, choice)
+    // Tell everyone else too: their screens read the counts from the same broadcast path.
+    if (authority) void room.rpc.call(RPCS.teamResult, result, 'others')
+    if (result?.ok && result.player === room.me.id) {
+      if (result.assigned) pickedTeam = result.assigned
+      closeTeamScreen()
+    }
+    return result
+  }
+
+  // --- team screen ---------------------------------------------------------
+
+  function openTeamScreen(mode: TeamScreenMode): void {
+    if (mode === 'join') setSpectating(true)
+    menu.close()
+    teamScreen.open(mode)
+  }
+
+  function closeTeamScreen(): void {
+    const wasOpen = teamScreen.isOpen
+    teamScreen.close()
+    setSpectating(false)
+    if (wasOpen) requestLockSoon()
+  }
+
+  /**
+   * Spectating is the state of having no body: no controller, no weapon, no capsule, no
+   * snapshots, and the overview camera instead of the FPS one. The host says the same thing to
+   * everyone else by leaving us `alive: false` until we pick.
+   */
+  function setSpectating(on: boolean): void {
+    if (localPlayer.spectating === on) return
+    localPlayer.setSpectating(on)
+    hud.el.style.visibility = on ? 'hidden' : ''
+    if (on) {
+      overview?.reset()
+      hud.setRespawn(0)
+      return
+    }
+    // The `alive: false` the host wrote while we were choosing can still be in flight; the same
+    // grace the respawn race uses keeps it from starting a death countdown on a fresh spawn.
+    revivedAt = clock.now()
+    deathAt = 0
+    hud.setRespawn(0)
+    hud.setHp(PLAYER.maxHp)
+  }
+
+  function requestLockSoon(): void {
+    window.clearTimeout(lockFallbackTimer)
+    input.requestLock()
+    lockFallbackTimer = window.setTimeout(() => {
+      // The browser refused the lock (the gesture that picked a team is a round trip old): the
+      // menu's Play button is a fresh one.
+      if (!input.locked && !menu.isOpen && !teamScreen.isOpen) menu.open()
+    }, LOCK_FALLBACK_MS)
+  }
+
+  const teamScreen = createTeamScreen({
+    mount,
+    roster,
+    myTeam,
+    onPick: requestTeam,
+    onBack: () => {
+      // Only reachable from the Esc menu's "Change team": there is no way past the join screen
+      // but picking a side.
+      teamScreen.close()
+      menu.open()
+    },
+  })
 
   // --- menu, debug overlays ------------------------------------------------
 
@@ -650,8 +802,8 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       else room.setGlobal(GS.map, next, true)
     },
     teams: teamCounts,
-    myTeam: () => registry.local?.team ?? null,
-    onTeam: requestTeam,
+    myTeam,
+    onChangeTeam: () => openTeamScreen(myTeam() ? 'change' : 'join'),
     botsFill: () => botsFillFrom(room.getGlobal<unknown>(GS.botsFill)),
     setBotsFill: (on) => {
       // The menu only offers this to the host; the authority kicks or refills on its next tick.
@@ -668,10 +820,19 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       location.href = `${location.origin}${location.pathname}`
     },
   })
-  menu.open()
+  // First screen of the session: the team cards over the orbiting house if we have no side yet
+  // (the usual case — the host only assigns one when you pick), the Play menu if we already do.
+  if (myTeam()) menu.open()
+  else openTeamScreen('join')
 
-  const offLock = input.onLockChange((locked) => (locked ? menu.close() : menu.open()))
+  const offLock = input.onLockChange((locked) => {
+    if (locked) menu.close()
+    // Losing the lock while the team screen is up is what the team screen is for.
+    else if (!teamScreen.isOpen) menu.open()
+  })
   const onKeyDown = (e: KeyboardEvent) => {
+    // The team screen handles its own keys (capture phase) and swallows the ones it uses.
+    if (teamScreen.isOpen) return
     if (e.code === 'Escape' && !document.pointerLockElement) {
       e.preventDefault()
       if (menu.isOpen) menu.close()
@@ -716,6 +877,10 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     botsFill: botsFillFrom(room.getGlobal<unknown>(GS.botsFill)),
     menuOpen: menu.isOpen,
     locked: input.locked,
+    myTeam: myTeam(),
+    teamScreen: teamScreen.mode,
+    choosing: binding.spectators().map((s) => s.name),
+    hostConfirmed: !!hostSide.authority,
   })
   const debugPanel = createDebugPanel(mount, debugMode, status)
 
@@ -736,6 +901,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       binding.stop()
       offDoorRpc()
       offGlassRpc()
+      window.clearTimeout(lockFallbackTimer)
       hostSide.dispose()
       clock.stop()
       remotePlayers.dispose()
@@ -750,6 +916,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       prompt.dispose()
       board.dispose()
       menu.dispose()
+      teamScreen.dispose()
       debugPanel.dispose()
       loading.dispose()
     },
@@ -782,9 +949,22 @@ export async function startGame(opts: GameOptions): Promise<Game> {
         }
         return botsFillFrom(room.getGlobal<unknown>(GS.botsFill))
       },
-      /** No argument = read the Esc menu; a boolean opens or closes it (no pointer needed). */
-      /** Ask the host for a team, exactly like the menu's Team row. Resolves with its answer. */
-      team: (team: TeamId) => requestTeam(team),
+      /**
+       * Pick a side exactly as the team screen's cards do ('a' | 'b' | 'auto'), and resolve
+       * with the host's answer. The screen closes itself when the answer is yes — this is the
+       * headless playtests' way through it, since a card click needs a pointer.
+       */
+      pickTeam: (team: TeamChoice) => requestTeam(team),
+      /** Older name for the same call (the Esc menu's Team row, before W5-A). */
+      team: (team: TeamChoice) => requestTeam(team),
+      /** Open or close the team screen without a pointer; no argument reads its mode. */
+      teamScreen: (mode?: TeamScreenMode | false) => {
+        if (mode === false) closeTeamScreen()
+        else if (mode) openTeamScreen(mode)
+        return teamScreen.mode
+      },
+      /** Rosters and the "Choosing…" list, exactly as the screen shows them. */
+      roster: () => roster(),
       /** Heads per team, bots included — what the menu's Team row shows. */
       teams: () => teamCounts(),
       menu: (open?: boolean) => {
