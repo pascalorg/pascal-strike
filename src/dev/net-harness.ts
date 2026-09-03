@@ -376,7 +376,9 @@ function run(root: HTMLElement, room: Room, name: string, botsFill?: boolean): v
           : '—',
       ),
       row('bots fill', fill ? 'on' : 'off'),
-      row('teams', teamSummary(registry)),
+      // Our own entity always carries a side (`PlayerEntity` has nowhere to put "none"), so it
+      // has to be left out of the counts by hand while we are choosing — exactly as game.ts does.
+      row('teams', teamSummary(registry, mine ? null : room.me.id)),
       // Nobody choosing has an entity (no avatar, no capsule, no bot can see them), so the
       // participants table below cannot show them: this row is where they are.
       row(
@@ -387,7 +389,9 @@ function run(root: HTMLElement, room: Room, name: string, botsFill?: boolean): v
       ),
     )
 
-    tableBox.replaceChildren(renderTable(registry, binding, room.me.id, room.isHost()))
+    tableBox.replaceChildren(
+      renderTable(registry, binding, room.me.id, room.isHost(), mine ? null : room.me.id),
+    )
 
     const enemies = mine ? registry.enemiesOf(mine) : []
     const key = enemies.map((e) => e.id).join(',')
@@ -409,6 +413,8 @@ function renderTable(
   binding: NetBinding,
   localId: string,
   hostSim: boolean,
+  /** Us, when we have not picked a side yet: the row's team and state would otherwise lie. */
+  choosingId: string | null,
 ): HTMLElement {
   const now = Date.now()
   const rows = registry
@@ -417,13 +423,14 @@ function renderTable(
     .sort((a, b) => a.team.localeCompare(b.team) || a.name.localeCompare(b.name))
     .map((e) => {
       const age = binding.lastSnapshotAt(e.id)
-      return el('tr', { class: e.team === 'a' ? 'ps-a' : 'ps-b' }, [
+      const choosing = e.id === choosingId
+      return el('tr', { class: choosing ? '' : e.team === 'a' ? 'ps-a' : 'ps-b' }, [
         el('td', { text: e.id.slice(0, 6) + (e.id === localId ? ' *' : '') }),
         el('td', { text: e.name }),
-        el('td', { text: e.team }),
+        el('td', { text: choosing ? '—' : e.team }),
         el('td', { text: e.isBot ? 'bot' : 'human' }),
         el('td', { text: String(e.hp) }),
-        el('td', { text: e.alive ? 'alive' : 'DEAD' }),
+        el('td', { text: choosing ? 'CHOOSING' : e.alive ? 'alive' : 'DEAD' }),
         el('td', { text: `${e.kills}/${e.deaths}` }),
         el('td', {
           text: `${e.position.x.toFixed(1)}, ${e.position.z.toFixed(1)}`,
@@ -452,9 +459,9 @@ function renderTable(
   ])
 }
 
-function teamSummary(registry: EntityRegistry): string {
-  const a = registry.byTeam('a')
-  const b = registry.byTeam('b')
+function teamSummary(registry: EntityRegistry, skipId: string | null): string {
+  const a = registry.byTeam('a').filter((e) => e.id !== skipId)
+  const b = registry.byTeam('b').filter((e) => e.id !== skipId)
   return `A ${a.length}/${MATCH.teamSize} (${a.map((e) => e.name).join(', ') || '—'})  ·  B ${
     b.length
   }/${MATCH.teamSize} (${b.map((e) => e.name).join(', ') || '—'})`
