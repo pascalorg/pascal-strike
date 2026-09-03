@@ -640,7 +640,12 @@ export async function startGame(opts: GameOptions): Promise<Game> {
         }
         return botsFillFrom(room.getGlobal<unknown>(GS.botsFill))
       },
-      menu: (open: boolean) => (open ? menu.open() : menu.close()),
+      /** No argument = read the Esc menu; a boolean opens or closes it (no pointer needed). */
+      menu: (open?: boolean) => {
+        if (open === true) menu.open()
+        else if (open === false) menu.close()
+        return menu.isOpen
+      },
       move: (forward: number, right: number, jump = false, crouch = false, walk = false) =>
         localPlayer.debug.setMove(forward, right, jump, crouch, walk),
       look: (dx: number, dy: number) => localPlayer.debug.look(dx, dy),

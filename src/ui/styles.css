@@ -186,6 +186,30 @@ canvas {
   pointer-events: none;
 }
 
+/*
+ * The Esc menu wears the same screen as glass (W4-C): the match keeps rendering behind it, so
+ * the opaque gradient and the grid are dropped and only ~55 % black plus a blur remain. The blur
+ * stays light on purpose — the HUD below (scores, timer, kill feed) has to stay readable around
+ * the card while the game moves.
+ */
+.ps-screen--glass {
+  background: rgba(9, 9, 11, 0.55);
+  -webkit-backdrop-filter: blur(6px) saturate(0.9);
+  backdrop-filter: blur(6px) saturate(0.9);
+}
+.ps-screen--glass::before {
+  display: none;
+}
+.ps-card--menu {
+  width: min(440px, 100%);
+  background: linear-gradient(180deg, rgba(28, 28, 32, 0.88), rgba(18, 18, 21, 0.92));
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+.ps-card--menu .ps-actions {
+  margin-top: 18px;
+}
+
 .ps-brand {
   position: absolute;
   top: 28px;

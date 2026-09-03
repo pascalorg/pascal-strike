@@ -97,15 +97,22 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
   const sound = el('button', { class: 'ps-btn ps-btn--block' }, ['Sound: on'])
   const bots = el('button', { class: 'ps-btn ps-btn--block' }, ['Bots: on'])
   const leave = el('button', { class: 'ps-btn ps-btn--ghost ps-btn--block' }, ['Leave to lobby'])
-  const screen = el('div', { class: 'ps-screen', style: 'z-index:15;display:none' }, [
-    el('div', { class: 'ps-card', style: 'max-width:440px' }, [
+  /**
+   * The menu is glass, not a wall: the match keeps rendering *and* running behind it (remotes,
+   * bots, the timer and the kill feed all carry on) — the only thing that stops is us, because
+   * releasing the pointer lock stops feeding the controller. Hence `ps-screen--glass`: no opaque
+   * gradient, no grid, just ≈ 55 % black and a blur light enough to read the HUD through.
+   */
+  const screen = el('div', { class: 'ps-screen ps-screen--glass', style: 'z-index:15;display:none' }, [
+    el('div', { class: 'ps-card ps-card--menu' }, [
       el('h1', { class: 'ps-title', html: 'Pascal <em>Strike</em>' }),
       el('p', {
         class: 'ps-tagline',
         html: '<b>WASD</b> move · <b>SHIFT</b> walk · <b>SPACE</b> jump · <b>CTRL</b> crouch · <b>R</b> reload · <b>E</b> doors · <b>TAB</b> scores · <b>ESC</b> menu',
       }),
+      el('div', { class: 'ps-actions' }, [resume, invite]),
       mapsField,
-      el('div', { class: 'ps-actions' }, [resume, invite, sound, bots, leave, note]),
+      el('div', { class: 'ps-actions' }, [bots, sound, leave, note]),
     ]),
   ])
   opts.mount.appendChild(screen)
@@ -167,6 +174,8 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
 
   let open = false
   let audioOn = true
+  /** The very first open is the "click to start" screen; every one after it is a pause. */
+  let played = false
 
   const menu: PauseMenu = {
     get isOpen() {
@@ -175,6 +184,7 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
     open() {
       if (open) return
       open = true
+      resume.textContent = played ? 'Resume' : 'Play'
       renderMaps()
       renderBots()
       screen.style.display = ''
@@ -195,6 +205,7 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
   }, 500)
 
   resume.addEventListener('click', () => {
+    played = true
     menu.close()
     opts.onResume()
   })
