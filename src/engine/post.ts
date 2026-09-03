@@ -11,6 +11,7 @@
  *     → vignette
  *     → renderOutput    tone mapping + sRGB
  *     → grain           film grain, display-referred so it does not survive the tone curve
+ *     → FXAA / SMAA     the pass render target has no MSAA, so AA happens here
  *
  * Every stage is switchable at runtime (`post.set({ ao: { enabled: false } })`) because that is
  * the only honest way to measure what each one costs; `?dev=map` binds `P` to the whole chain.
@@ -44,8 +45,11 @@ import {
 } from 'three/tsl'
 import { ao } from 'three/examples/jsm/tsl/display/GTAONode.js'
 import { bloom } from 'three/examples/jsm/tsl/display/BloomNode.js'
+import { fxaa } from 'three/examples/jsm/tsl/display/FXAANode.js'
+import { smaa } from 'three/examples/jsm/tsl/display/SMAANode.js'
 
 export type ToneMappingName = 'aces' | 'agx' | 'neutral'
+export type AntiAliasName = 'fxaa' | 'smaa' | 'none'
 
 export interface PostSettings {
   /** Master switch for the whole chain. `false` renders the scene straight to the canvas. */
@@ -86,6 +90,13 @@ export interface PostSettings {
   grade: { enabled: boolean; contrast: number; saturation: number }
   vignette: { enabled: boolean; amount: number }
   grain: { enabled: boolean; amount: number }
+  aa: AntiAliasName
+  /**
+   * MSAA samples on the scene pass (0 = off). Multisampling the pass target is the best-looking
+   * AA there is, but the AO reads that pass's depth buffer and WebGPU cannot resolve a
+   * multisampled depth attachment — so it only works with the AO off.
+   */
+  samples: number
 }
 
 /**
@@ -115,6 +126,8 @@ export const QUALITY: PostSettings = {
   grade: { enabled: true, contrast: 1.15, saturation: 1.12 },
   vignette: { enabled: true, amount: 0.25 },
   grain: { enabled: true, amount: 0.02 },
+  aa: 'smaa',
+  samples: 0,
 }
 
 const TONE_MAPPING = {
@@ -173,7 +186,7 @@ export function createPostFx(opts: PostFxOptions): PostFx {
     dispose()
     applyToneMapping()
 
-    const scenePass = pass(scene, camera)
+    const scenePass = pass(scene, camera, settings.samples > 0 ? { samples: settings.samples } : {})
     const needsNormalMRT = settings.ao.enabled && settings.ao.normals === 'mrt'
     if (needsNormalMRT) scenePass.setMRT(mrt({ output, normal: normalView }))
 
@@ -265,7 +278,8 @@ export function createPostFx(opts: PostFxOptions): PostFx {
 
     const pipe = new RenderPipeline(renderer)
     pipe.outputColorTransform = false
-    pipe.outputNode = display
+    pipe.outputNode =
+      settings.aa === 'fxaa' ? fxaa(display) : settings.aa === 'smaa' ? smaa(display) : display
     pipeline = pipe
     dirty = false
   }
@@ -322,6 +336,7 @@ export function createPostFx(opts: PostFxOptions): PostFx {
       const parts = [
         settings.ao.enabled ? `ao ${settings.ao.radius}m` : 'ao off',
         settings.bloom.enabled ? `bloom ${settings.bloom.threshold}` : 'bloom off',
+        settings.aa,
         settings.toneMapping,
         `exp ${settings.exposure}`,
       ]
@@ -343,13 +358,20 @@ function depthAtDistance(camera: Camera, metres: number): number {
 }
 
 /**
- * WebGL2 is the fallback of last resort: keep the grade and the bloom, drop the AO. GTAO is the
- * one piece of this chain that has no business running on a machine that just lost WebGPU.
+ * Combinations that cannot work, forced back into line before every build:
+ * - WebGL2 is the fallback of last resort — keep the grade and the AA, drop the AO (the GTAO
+ *   pass is the one piece of this chain that has no business running on a machine that just
+ *   lost WebGPU) and the grain.
+ * - MSAA on the scene pass and the AO are mutually exclusive: WGSL cannot even call
+ *   `textureDimensions` on the multisampled depth texture GTAO wants to read, and the whole
+ *   pipeline fails to compile. MSAA wins if it was asked for; SMAA is the default instead.
  */
 function applyBackendLimits(settings: PostSettings, backend: 'webgpu' | 'webgl2'): void {
+  if (settings.samples > 0) settings.ao.enabled = false
   if (backend === 'webgpu') return
   settings.ao.enabled = false
   settings.grain.enabled = false
+  settings.samples = 0
 }
 
 function cloneSettings(source: PostSettings): PostSettings {
