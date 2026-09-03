@@ -116,7 +116,11 @@ export function createInput(canvas: HTMLCanvasElement): Input {
     for (const callback of lockCallbacks) callback(locked)
   }
   const requestLock = () => {
-    void canvas.requestPointerLock()
+    // Chrome answers with a promise, and rejects it when it refuses the lock (a click within a
+    // second of Esc, a document it will not lock): swallow that, or every refusal is an
+    // uncaught error in the console. The `pointerlockchange` that never comes is the signal.
+    const request = canvas.requestPointerLock() as unknown as Promise<void> | undefined
+    request?.catch?.(() => {})
   }
   const onCanvasClick = () => requestLock()
   const onContextMenu = (event: Event) => event.preventDefault()
