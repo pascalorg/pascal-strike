@@ -268,11 +268,15 @@ export function createPostFx(opts: PostFxOptions): PostFx {
       TONE_MAPPING[settings.toneMapping],
       renderer.outputColorSpace,
     )
+    // `hash()` truncates its seed to a uint, so the seed has to change by whole numbers from one
+    // pixel to the next: with fractional per-pixel steps every pixel on a ~75 px diagonal band
+    // shared one value, and the "grain" was a set of stripes sweeping across the frame. One
+    // integer per pixel instead: the column, plus a row key spread over the uint range by a
+    // first hash and re-keyed every frame (mod 64 keeps it exact in float32).
     const grain = Fn(() => {
-      const seed = screenCoordinate.x
-        .mul(0.013)
-        .add(screenCoordinate.y.mul(0.0071))
-        .add(time.mul(11.3))
+      const frame = time.mul(60).floor().mod(64)
+      const row = hash(screenCoordinate.y.floor().add(frame.mul(4096))).mul(65536)
+      const seed = screenCoordinate.x.floor().add(row)
       return hash(seed).sub(0.5).mul(settings.grain.amount)
     })
     const display = settings.grain.enabled
