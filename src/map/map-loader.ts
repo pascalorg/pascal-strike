@@ -13,6 +13,7 @@ import {
   Mesh,
   MeshStandardMaterial,
   Object3D,
+  Scene,
   Vector3,
 } from 'three'
 import { loadGltf, type Loaders } from '../engine/loaders'
@@ -76,7 +77,7 @@ export async function loadMap(
   const bounds = new Box3()
   if (collider.geometry.boundingBox) bounds.copy(collider.geometry.boundingBox)
 
-  prepareMaterials(root, opts?.tintTerrain !== false)
+  const matte = prepareMaterials(root, opts?.tintTerrain !== false)
 
   // Batch after the materials are final (the batches reuse the very same instances) and after
   // the colliders are baked (they read the original meshes' world matrices).
@@ -91,6 +92,8 @@ export async function loadMap(
     // This rewrites `leafMeshes`, so it has to run before anything builds their BVHs.
     batchOpenableLeaves(parsed.doors, [parsed.doorLeafNodes, parsed.windowLeafNodes], glassMeshes)
   }
+  // The batches are the meshes that actually render, so the hook goes on after batching.
+  clampEnvironment(root, matte)
 
   // Every mesh queried at runtime rather than baked gets its bounds tree now: door leaves and
   // sashes (bullets, and the controller's dynamic colliders) and the panes (the shatter ray).
@@ -139,9 +142,19 @@ function resolveZoneFloor(zone: ZoneInfo, world: ReturnType<typeof createWorldQu
  * their own roughness — they are supposed to shine.
  */
 const MIN_ROUGHNESS = 0.55
+/**
+ * The textured ones — stone, plaster, wood — go further: at 0.55 a wall still carries a chromed
+ * sky reflection at grazing angles, and 0.8 is where it starts to read as masonry.
+ */
+const MIN_ROUGHNESS_TEXTURED = 0.8
 const METAL_THRESHOLD = 0.3
-/** How much of `scene.environment` a map material takes. 1 = whatever the environment says. */
-const ENV_MAP_INTENSITY = 1
+/**
+ * How much of the scene's environment a textured non-metal takes, relative to
+ * `scene.environmentIntensity`. Glass and metal keep the full sky. In three's node materials a
+ * per-material `envMapIntensity` only counts once `material.envMap` is set (otherwise the scene
+ * intensity wins outright), which is what `clampEnvironment` arranges.
+ */
+const TEXTURED_ENV_SCALE = 0.6
 
 /** World extent on X and Z past which a flat mesh is the lot, not a floor slab. */
 const TERRAIN_MIN_EXTENT = 20
@@ -149,7 +162,12 @@ const TERRAIN_MAX_THICKNESS = 1
 /** Dry lawn. Multiplied into the terrain's colour, so a textured lot keeps its map. */
 const GRASS_TINT = new Color(0x7f8f5a)
 
-function prepareMaterials(root: Object3D, tintTerrain: boolean): void {
+/**
+ * Shadow flags, sidedness, the roughness floors and the terrain tint, in one traversal. Returns
+ * the textured non-metals, which `clampEnvironment` hooks up after batching.
+ */
+function prepareMaterials(root: Object3D, tintTerrain: boolean): Set<MeshStandardMaterial> {
+  const matte = new Set<MeshStandardMaterial>()
   const grass = new Map<Material, Material>()
   root.traverse((obj) => {
     const mesh = obj as Mesh
@@ -167,22 +185,27 @@ function prepareMaterials(root: Object3D, tintTerrain: boolean): void {
 
     const material = mesh.material
     if (Array.isArray(material)) {
-      for (const m of material) prepareMaterial(m)
+      for (const m of material) prepareMaterial(m, matte)
     } else if (material) {
-      prepareMaterial(material)
+      prepareMaterial(material, matte)
     }
   })
+  return matte
 }
 
-function prepareMaterial(material: Material): void {
+function prepareMaterial(material: Material, matte: Set<MeshStandardMaterial>): void {
   applySide(material)
 
   const standard = material as MeshStandardMaterial
   if (!standard.isMeshStandardMaterial) return
-  standard.envMapIntensity = ENV_MAP_INTENSITY
   // Glass keeps its mirror finish; everything else gets the matte floor.
   if (!standard.transparent && (standard.metalness ?? 0) < METAL_THRESHOLD) {
-    standard.roughness = Math.max(standard.roughness ?? 1, MIN_ROUGHNESS)
+    const textured = !!standard.map
+    standard.roughness = Math.max(
+      standard.roughness ?? 1,
+      textured ? MIN_ROUGHNESS_TEXTURED : MIN_ROUGHNESS,
+    )
+    if (textured) matte.add(standard)
   }
 }
 
@@ -207,6 +230,40 @@ function grassMaterial(source: Material, cache: Map<Material, Material>): Materi
   tinted.metalness = 0
   cache.set(source, tinted)
   return tinted
+}
+
+/**
+ * Give every mesh drawn with a textured non-metal a hook that mirrors `scene.environment` into
+ * `material.envMap` — the only way the node materials honour a per-material intensity — at
+ * `TEXTURED_ENV_SCALE` of the scene's own. Runs on the batches, not the meshes they replaced.
+ * The environment is baked after the map loads (and re-baked once), so this follows the scene
+ * rather than capturing a texture.
+ */
+function clampEnvironment(root: Object3D, matte: Set<MeshStandardMaterial>): void {
+  if (matte.size === 0) return
+  const sync = (
+    _renderer: unknown,
+    scene: Scene,
+    _camera: unknown,
+    _geometry: unknown,
+    material: Material,
+  ): void => {
+    const standard = material as MeshStandardMaterial
+    if (!matte.has(standard)) return
+    const environment = scene.environment
+    if (standard.envMap !== environment) {
+      standard.envMap = environment
+      standard.needsUpdate = true
+    }
+    standard.envMapIntensity = scene.environmentIntensity * TEXTURED_ENV_SCALE
+  }
+  root.traverse((obj) => {
+    const mesh = obj as Mesh
+    if (!mesh.isMesh || !mesh.visible) return
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+    if (!materials.some((m) => matte.has(m as MeshStandardMaterial))) return
+    mesh.onBeforeRender = sync
+  })
 }
 
 function applySide(material: Material): void {
