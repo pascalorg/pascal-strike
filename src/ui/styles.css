@@ -1473,6 +1473,25 @@ canvas {
   color: var(--muted-2);
   vertical-align: 1px;
 }
+/* Humans still on the team screen: on nobody's side yet, so they get a line of their own. */
+.ps-board-choosing {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 24px;
+  border-top: 1px solid var(--border);
+}
+.ps-board-choosing .ps-label {
+  margin: 0;
+  white-space: nowrap;
+}
+.ps-board-choosing span:last-child {
+  font-size: 13px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ps-board-foot {
   padding: 14px 24px;
   border-top: 1px solid var(--border);

@@ -583,7 +583,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     // reason — the two must agree, or Tab erases the result.
     if (match?.phase !== 'ended' && input.scoreboard !== boardOpen) {
       boardOpen = input.scoreboard
-      if (boardOpen) board.show(registry.list(), match)
+      if (boardOpen) board.show(registry.list(), match, binding.spectators())
       else board.hide()
     }
   })
@@ -652,9 +652,9 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       }
       if (match.phase === 'ended' && endedRound !== match.round) {
         endedRound = match.round
-        board.end(match, registry.list())
+        board.end(match, registry.list(), binding.spectators())
       }
-      if (match.phase !== 'ended' && boardOpen) board.show(registry.list(), match)
+      if (match.phase !== 'ended' && boardOpen) board.show(registry.list(), match, binding.spectators())
     }
     if (debugMode) {
       hud.setFps(fps)

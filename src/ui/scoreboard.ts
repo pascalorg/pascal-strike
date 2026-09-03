@@ -15,11 +15,22 @@ export interface ScoreboardOptions {
   localId?: string
 }
 
+/**
+ * Somebody who is in the room but on no side yet — still on the team screen (W5-A). They have
+ * no entity, so the tables cannot list them; `NetBinding.spectators()` is where they come from.
+ */
+export interface ChoosingPlayer {
+  id: string
+  name: string
+  isLocal: boolean
+}
+
 export interface Scoreboard {
   el: HTMLElement
-  show(entities: PlayerEntity[], match: MatchState | null): void
+  /** `choosing`: the humans still picking a side, shown under the tables. */
+  show(entities: PlayerEntity[], match: MatchState | null, choosing?: ChoosingPlayer[]): void
   hide(): void
-  end(match: MatchState, entities: PlayerEntity[]): void
+  end(match: MatchState, entities: PlayerEntity[], choosing?: ChoosingPlayer[]): void
   setLocalId(id: string | null): void
   readonly visible: boolean
   dispose(): void
@@ -32,9 +43,10 @@ export function createScoreboard(opts: ScoreboardOptions = {}): Scoreboard {
 
   const head = el('div', { class: 'ps-board-head' })
   const cols = el('div', { class: 'ps-board-cols' })
+  const choosingRow = el('div', { class: 'ps-board-choosing', style: 'display:none' })
   const foot = el('div', { class: 'ps-board-foot' })
   const winner = el('div', { class: 'ps-winner', style: 'display:none' })
-  const inner = el('div', { class: 'ps-board-inner' }, [winner, head, cols, foot])
+  const inner = el('div', { class: 'ps-board-inner' }, [winner, head, cols, choosingRow, foot])
   const root = el('div', { class: 'ps-board' }, [inner])
   mount.appendChild(root)
 
@@ -72,8 +84,13 @@ export function createScoreboard(opts: ScoreboardOptions = {}): Scoreboard {
     ])
   }
 
-  const render = (entities: PlayerEntity[], match: MatchState | null) => {
+  const render = (all: PlayerEntity[], match: MatchState | null, choosing: ChoosingPlayer[] = []) => {
     const scores = match?.scores ?? { a: 0, b: 0 }
+    // Somebody who is choosing is on no side, whatever their entity says: the local entity exists
+    // from the first frame with a placeholder team, and must not be seated in a table meanwhile.
+    const entities = choosing.length
+      ? all.filter((e) => !choosing.some((p) => p.id === e.id))
+      : all
     head.replaceChildren(
       el('h2', { text: match ? `Round ${match.round}` : 'Scoreboard' }),
       el('span', {
@@ -87,24 +104,36 @@ export function createScoreboard(opts: ScoreboardOptions = {}): Scoreboard {
       }),
     )
     cols.replaceChildren(renderTable(entities, 'a', scores.a), renderTable(entities, 'b', scores.b))
+    // Nobody choosing is the usual case: the row only exists while somebody is on the team screen.
+    choosingRow.style.display = choosing.length ? '' : 'none'
+    choosingRow.replaceChildren(
+      el('span', { class: 'ps-label', text: `Choosing… ${choosing.length}` }),
+      el('span', {
+        text: choosing
+          .map((p) => (p.isLocal || p.id === localId ? `${p.name} (you)` : p.name))
+          .join(' · '),
+      }),
+    )
     foot.replaceChildren(
       el('span', { text: 'Hold TAB for the scoreboard' }),
-      el('span', { text: `${entities.length} players · first to 30 kills` }),
+      el('span', {
+        text: `${entities.length} players${choosing.length ? ` · ${choosing.length} choosing` : ''} · first to 30 kills`,
+      }),
     )
   }
 
   const board: Scoreboard = {
     el: root,
-    show(entities, match) {
+    show(entities, match, choosing) {
       winner.style.display = 'none'
-      render(entities, match)
+      render(entities, match, choosing)
       root.classList.add('is-on')
     },
     hide() {
       if (endState) return // the end screen is not dismissible
       root.classList.remove('is-on')
     },
-    end(match, entities) {
+    end(match, entities, choosing) {
       endState = match
       const team = match.winner
       winner.style.display = ''
@@ -115,7 +144,7 @@ export function createScoreboard(opts: ScoreboardOptions = {}): Scoreboard {
         }),
         el('p', { class: 'ps-next', text: 'Next round starting…' }),
       )
-      render(entities, match)
+      render(entities, match, choosing)
       root.classList.add('is-on')
       window.clearInterval(countdown)
       const next = winner.querySelector('.ps-next') as HTMLElement | null
