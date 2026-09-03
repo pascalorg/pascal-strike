@@ -5,7 +5,7 @@
  * whoever inherits the room after a migration, adopting whatever state the previous host
  * published (teams, scores, match phase) instead of resetting the match.
  */
-import { DAMAGE, MATCH, PLAYER } from '../config'
+import { DAMAGE, WEAPONS, MATCH, PLAYER } from '../config'
 import type { EntityRegistry } from '../game/entities'
 import { createMatch, isLive, type Match } from '../game/match'
 import { botName, otherTeam, pickTeam } from '../game/teams'
@@ -308,7 +308,10 @@ export function startHostAuthority(
 
     // The shooter names the body part; the host still owns the number that goes with it.
     const part = bodyPart(hit.part)
-    const amount = DAMAGE[part]
+    const weapon = hit.weapon && hit.weapon in WEAPONS ? hit.weapon : 'rifle'
+    const amount = weapon === 'knife'
+      ? WEAPONS.knife.damage
+      : Math.round(DAMAGE[part] * WEAPONS[weapon].damageScale)
     target.hp = Math.max(0, target.hp - amount)
     write(target.id, PS.hp, target.hp)
     void room.rpc.call(

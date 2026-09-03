@@ -32,11 +32,13 @@ import {
   type Material,
 } from 'three'
 import { TEAMS } from '../config'
-import type { TeamId } from '../types'
+import type { TeamId, WeaponKind } from '../types'
 
 export type WeaponQuality = 'first' | 'third'
 
 export interface WeaponModelOptions {
+  /** Which weapon to build; missing = rifle. Pistol and knife are built by the weapons package. */
+  kind?: WeaponKind
   team: TeamId
   /** `'first'` = full detail for the view model, `'third'` = ~60 % of the parts for avatars. */
   quality: WeaponQuality

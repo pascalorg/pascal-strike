@@ -117,6 +117,18 @@ export interface StaticCollider {
   geometry: BufferGeometry
 }
 
+/**
+ * A glass pane paintballs can shatter. Excluded from the bullet collider and tested dynamically
+ * by WorldQuery until `broken`; stays in the movement collider (windows never let players
+ * through unless their sash is open).
+ */
+export interface GlassPane {
+  /** Deterministic across clients: `glass:<index in traversal order>`. */
+  id: string
+  mesh: Mesh
+  broken: boolean
+}
+
 export interface MapData {
   name: string
   /** Root group of the loaded GLB, already added to the scene by the loader caller. */
@@ -142,6 +154,8 @@ export interface MapData {
   bounds: Box3
   /** Meshes to feed the navmesh generator (walkable + obstacles). Usually [collider.mesh]. */
   navMeshSource: Mesh[]
+  /** Breakable glass panes (see GlassPane). Missing = none. */
+  breakables?: GlassPane[]
 }
 
 export interface SpawnPoint {
@@ -236,6 +250,11 @@ export interface CharacterController {
   update(dt: number, input: MoveInput, yaw: number): void
   /** Teleport (respawn). Clears velocity. */
   setPosition(position: Vector3): void
+  /**
+   * Moving obstacles (door leaves, window sashes) that block the capsule wherever they
+   * currently are: each mesh has its own boundsTree and is tested with its live matrixWorld.
+   */
+  setDynamicColliders?(meshes: Mesh[]): void
 }
 
 // ---------------------------------------------------------------------------
@@ -273,11 +292,16 @@ export interface PlayerEntity {
   crouching: boolean
   /** Speed on XZ in m/s, for animation. */
   speed: number
+  /** Currently held weapon (player state key `w`); missing = rifle. */
+  weapon?: WeaponKind
 }
 
 // ---------------------------------------------------------------------------
 // Weapons
 // ---------------------------------------------------------------------------
+
+/** Slot 1 = rifle (the marker), 2 = pistol, 3 = knife. Per-weapon numbers live in config WEAPONS. */
+export type WeaponKind = 'rifle' | 'pistol' | 'knife'
 
 export interface ShotEvent {
   /** Unique per shot: `${playerId}:${counter}` */
@@ -294,6 +318,8 @@ export interface ShotEvent {
   t: number
   /** Deterministic seed for splat shape/rotation */
   seed: number
+  /** Missing = rifle. */
+  weapon?: WeaponKind
 }
 
 export interface HitEvent {
@@ -304,6 +330,8 @@ export interface HitEvent {
   normal: [number, number, number]
   /** Body part hit; missing = torso (host uses DAMAGE[part]). */
   part?: BodyPart
+  /** Weapon that scored the hit; missing = rifle (host scales DAMAGE[part] by WEAPONS[weapon].damageScale). */
+  weapon?: WeaponKind
 }
 
 export interface KillEvent {

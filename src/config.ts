@@ -80,11 +80,61 @@ export const WEAPON = {
   projectileRadius: 0.025,
   /** metres before the projectile is discarded */
   maxRange: 80,
-  hopperSize: 40,
+  hopperSize: 30,
   reloadMs: 1_400,
   /** Recoil kick in radians applied to pitch per shot, recovers quickly. */
   recoilPitch: 0.0045,
 }
+
+/**
+ * Per-weapon tuning. Slot keys 1/2/3. `damageScale` multiplies DAMAGE[part]; the knife uses
+ * `damage` flat (60 = two swings, one from behind). Spread values are gaussian sigmas in degrees.
+ */
+export const WEAPONS = {
+  rifle: {
+    slot: 1,
+    label: 'Marker',
+    auto: true,
+    fireRate: 9,
+    ammo: 30,
+    reloadMs: 1_400,
+    projectileSpeed: 95,
+    damageScale: 1,
+    spreadScale: 1,
+    moveSpeedScale: 1,
+  },
+  pistol: {
+    slot: 2,
+    label: 'Pistol',
+    auto: false,
+    fireRate: 5,
+    ammo: 12,
+    reloadMs: 1_100,
+    projectileSpeed: 110,
+    damageScale: 1,
+    /** Tighter than the rifle in every motion state. */
+    spreadScale: 0.5,
+    moveSpeedScale: 1.05,
+  },
+  knife: {
+    slot: 3,
+    label: 'Knife',
+    auto: false,
+    /** Swings per second. */
+    fireRate: 2.2,
+    ammo: Infinity,
+    reloadMs: 0,
+    projectileSpeed: 0,
+    damageScale: 0,
+    spreadScale: 0,
+    moveSpeedScale: 1.12,
+    /** Melee reach (m) from the eye along the look direction, and the hit cone half-angle. */
+    range: 1.7,
+    coneDeg: 25,
+    damage: 60,
+    backstabScale: 2,
+  },
+} as const
 
 /** Damage per body part. 100 hp: head = 2 hits, torso = 3, limbs = 5. */
 export const DAMAGE: Record<'head' | 'torso' | 'arm' | 'leg', number> = {
@@ -106,9 +156,9 @@ export const DOORS = {
   /** Players toggle doors/windows with E when the crosshair is on one within this range (m). */
   interactRange: 2.5,
   /** Bots open a closed door on their path when within this distance of it (m). */
-  botOpenRadius: 1.4,
+  botOpenRadius: 2.4,
   /** Playback speed of the baked 1 s clip. */
-  openTimeScale: 2.2,
+  openTimeScale: 3,
 }
 
 export const NET = {
