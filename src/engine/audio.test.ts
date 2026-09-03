@@ -1,6 +1,9 @@
 // @ts-ignore Bun provides this runtime module; the project intentionally has no @types/bun dependency.
 import { expect, test } from 'bun:test'
 import { createAudio, type SoundName } from './audio'
+import { SFX_MANIFEST, variantUrls } from './sfx-manifest'
+// @ts-ignore Node's runtime modules are available under Bun; the project does not include Node globals.
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 
 interface ParamEvent {
   kind: 'set' | 'exponential'
@@ -45,6 +48,8 @@ class FakeFilter extends FakeNode {
 
 class FakeSource extends FakeNode {
   buffer: AudioBuffer | null = null
+  readonly playbackRate = new FakeAudioParam()
+  onended: (() => void) | null = null
   startTime = NaN
   stopTime = NaN
 
@@ -52,8 +57,8 @@ class FakeSource extends FakeNode {
     this.startTime = time
   }
 
-  stop(time: number): void {
-    this.stopTime = time
+  stop(time?: number): void {
+    this.stopTime = time ?? this.startTime
   }
 }
 
@@ -119,6 +124,10 @@ class FakeAudioContext {
     return new FakeBuffer(length) as unknown as AudioBuffer
   }
 
+  async decodeAudioData(_data: ArrayBuffer): Promise<AudioBuffer> {
+    return new FakeBuffer(8) as unknown as AudioBuffer
+  }
+
   async resume(): Promise<void> {
     this.state = 'running'
   }
@@ -138,6 +147,101 @@ const NEW_SOUNDS: SoundName[] = [
   'glassBreak',
   'shardTinkle',
 ]
+
+const ALL_SOUNDS: SoundName[] = [
+  'shot',
+  'splat',
+  'hit',
+  'hitConfirm',
+  'reload',
+  'reloadStart',
+  'reloadEnd',
+  'pistolShot',
+  'knifeSwing',
+  'knifeHit',
+  'weaponSwitch',
+  'glassBreak',
+  'shardTinkle',
+  'respawn',
+  'door',
+  'footstep',
+  'death',
+  'dryFire',
+]
+
+test('manifest covers the API and every referenced sample exists within the size budget', () => {
+  expect(Object.keys(SFX_MANIFEST).sort()).toEqual([...ALL_SOUNDS].sort())
+  expect(readdirSync('public/sfx').length).toBeLessThanOrEqual(25)
+  for (const entry of Object.values(SFX_MANIFEST)) {
+    const count = entry.variants ?? 1
+    for (let variant = 1; variant <= count; variant++) {
+      for (const url of variantUrls(entry, variant)) {
+        const path = `public${url}`
+        expect(statSync(path).isFile()).toBe(true)
+        expect(statSync(path).size).toBeLessThanOrEqual(120_000)
+      }
+    }
+  }
+})
+
+test('literal audio play names in src have manifest entries', () => {
+  const files = readdirSync('src', { recursive: true, encoding: 'utf8' })
+    .filter((path: string) => path.endsWith('.ts') && !path.endsWith('audio.test.ts'))
+  const used = new Set<string>()
+
+  for (const path of files) {
+    const source = readFileSync(`src/${path}`, 'utf8')
+    const calls = source.matchAll(/\b(?:audio|rawAudio)\.play\s*\(/g)
+    for (const call of calls) {
+      const start = (call.index ?? 0) + call[0].length
+      let depth = 0
+      let quote = ''
+      let argument = ''
+      for (let index = start; index < source.length; index++) {
+        const char = source[index]!
+        if (quote) {
+          argument += char
+          if (char === quote && source[index - 1] !== '\\') quote = ''
+          continue
+        }
+        if (char === "'" || char === '"' || char === '`') quote = char
+        if (char === '(' || char === '[' || char === '{') depth++
+        if (char === ')' || char === ']' || char === '}') {
+          if (char === ')' && depth === 0) break
+          depth--
+        }
+        if (char === ',' && depth === 0) break
+        argument += char
+      }
+      const direct = argument.trim().match(/^['"]([A-Za-z]+)['"]$/)
+      if (direct) expect(direct[1]! in SFX_MANIFEST).toBe(true)
+      for (const literal of argument.matchAll(/['"]([A-Za-z]+)['"]/g)) {
+        if (literal[1]! in SFX_MANIFEST) used.add(literal[1]!)
+      }
+    }
+  }
+
+  expect([...used].sort()).toEqual([
+    'death',
+    'door',
+    'dryFire',
+    'footstep',
+    'glassBreak',
+    'hit',
+    'hitConfirm',
+    'knifeHit',
+    'knifeSwing',
+    'pistolShot',
+    'reload',
+    'reloadEnd',
+    'reloadStart',
+    'respawn',
+    'shot',
+    'splat',
+    'weaponSwitch',
+  ])
+  for (const name of used) expect(name in SFX_MANIFEST).toBe(true)
+})
 
 test('every wave-four sound schedules finite sub-second sources and envelopes', () => {
   const originalWindow = globalThis.window
@@ -195,6 +299,74 @@ test('every wave-four sound schedules finite sub-second sources and envelopes', 
     Object.defineProperty(globalThis, 'window', {
       configurable: true,
       value: originalWindow,
+    })
+  }
+})
+
+test('decoded samples play from buffers while failed samples use the synth fallback', async () => {
+  const originalWindow = globalThis.window
+  const originalFetch = globalThis.fetch
+  const contexts: FakeAudioContext[] = []
+  const decoded = new FakeBuffer(12) as unknown as AudioBuffer
+
+  class TestAudioContext extends FakeAudioContext {
+    constructor() {
+      super()
+      contexts.push(this)
+    }
+
+    override async decodeAudioData(_data: ArrayBuffer): Promise<AudioBuffer> {
+      return decoded
+    }
+  }
+
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: { AudioContext: TestAudioContext },
+  })
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    value: async (input: RequestInfo | URL) => {
+      const url = String(input)
+      const ok = url.endsWith('/shot-1.ogg')
+      return {
+        ok,
+        status: ok ? 200 : 404,
+        async arrayBuffer() {
+          return new ArrayBuffer(4)
+        },
+      }
+    },
+  })
+
+  try {
+    const audio = createAudio()
+    await audio.resume()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const context = contexts[0]!
+    audio.play('shot')
+    const sample = context.sources.at(-1)!
+    expect(sample.buffer).toBe(decoded)
+    expect(sample.playbackRate.value).toBeGreaterThanOrEqual(0.94)
+    expect(sample.playbackRate.value).toBeLessThanOrEqual(1.06)
+
+    for (let index = 0; index < 24; index++) audio.play('shot')
+    expect(sample.stopTime).toBe(context.currentTime)
+
+    const sourceCount = context.sources.length
+    audio.play('door')
+    expect(context.sources.length).toBeGreaterThan(sourceCount)
+    expect(context.sources.slice(sourceCount).some((source) => source.buffer !== decoded)).toBe(true)
+    audio.dispose()
+  } finally {
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: originalWindow,
+    })
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: originalFetch,
     })
   }
 })

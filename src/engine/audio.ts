@@ -1,4 +1,5 @@
 import { Vector3 } from 'three'
+import { SFX_MANIFEST, variantUrls } from './sfx-manifest'
 
 export type SoundName =
   | 'shot'
@@ -20,26 +21,8 @@ export type SoundName =
   | 'death'
   | 'dryFire'
 
-const SOUND_NAMES: ReadonlySet<string> = new Set<SoundName>([
-  'shot',
-  'splat',
-  'hit',
-  'hitConfirm',
-  'reload',
-  'reloadStart',
-  'reloadEnd',
-  'pistolShot',
-  'knifeSwing',
-  'knifeHit',
-  'weaponSwitch',
-  'glassBreak',
-  'shardTinkle',
-  'respawn',
-  'door',
-  'footstep',
-  'death',
-  'dryFire',
-])
+const SOUND_NAMES: ReadonlySet<string> = new Set(Object.keys(SFX_MANIFEST))
+const MAX_SAMPLE_VOICES = 24
 
 export interface AudioListenerPose {
   position: Vector3
@@ -57,6 +40,10 @@ export function createAudio(): Audio {
   let context: AudioContext | null = null
   let master: GainNode | null = null
   let noise: AudioBuffer | null = null
+  let loadCycle = 0
+  const buffers = new Map<string, AudioBuffer>()
+  const pendingUrls = new Map<string, Promise<AudioBuffer | null>>()
+  const sampleVoices: AudioBufferSourceNode[] = []
 
   const initialise = () => {
     if (context) return context
@@ -75,6 +62,50 @@ export function createAudio(): Audio {
       channel[index] = ((value >>> 0) / 2147483648) - 1
     }
     return context
+  }
+
+  const sampleKey = (name: SoundName, variant: number) => `${name}:${variant}`
+
+  function decodeUrl(ctx: AudioContext, url: string): Promise<AudioBuffer | null> {
+    const pending = pendingUrls.get(url)
+    if (pending) return pending
+    const request = fetch(url)
+      .then((response) => {
+        if (!response.ok) throw new Error(`SFX request failed: ${response.status}`)
+        return response.arrayBuffer()
+      })
+      .then((data) => ctx.decodeAudioData(data))
+      .catch(() => null)
+    pendingUrls.set(url, request)
+    return request
+  }
+
+  async function decodeVariant(
+    ctx: AudioContext,
+    name: SoundName,
+    variant: number,
+    cycle: number,
+  ): Promise<void> {
+    const entry = SFX_MANIFEST[name]
+    for (const url of variantUrls(entry, variant)) {
+      const buffer = await decodeUrl(ctx, url)
+      if (buffer) {
+        if (context === ctx && loadCycle === cycle) buffers.set(sampleKey(name, variant), buffer)
+        return
+      }
+    }
+  }
+
+  function preloadSamples(ctx: AudioContext): void {
+    const cycle = ++loadCycle
+    const jobs: Promise<void>[] = []
+    for (const name of Object.keys(SFX_MANIFEST) as SoundName[]) {
+      const count = SFX_MANIFEST[name].variants ?? 1
+      for (let variant = 1; variant <= count; variant++) {
+        jobs.push(decodeVariant(ctx, name, variant, cycle))
+      }
+    }
+    void Promise.all(jobs)
   }
 
   function destination(at?: Vector3, listener?: AudioListenerPose, volume = 1): AudioNode {
@@ -197,16 +228,55 @@ export function createAudio(): Audio {
     source.stop(start + duration)
   }
 
+  function playSample(
+    name: SoundName,
+    at?: Vector3,
+    listener?: AudioListenerPose,
+    volume = 1,
+  ): boolean {
+    const entry = SFX_MANIFEST[name]
+    const available: AudioBuffer[] = []
+    const count = entry.variants ?? 1
+    for (let variant = 1; variant <= count; variant++) {
+      const buffer = buffers.get(sampleKey(name, variant))
+      if (buffer) available.push(buffer)
+    }
+    if (available.length === 0) return false
+
+    const ctx = context!
+    while (sampleVoices.length >= MAX_SAMPLE_VOICES) {
+      const oldest = sampleVoices.shift()
+      try {
+        oldest?.stop()
+      } catch {
+        // A source that ended between selection and stealing needs no further work.
+      }
+    }
+    const source = ctx.createBufferSource()
+    source.buffer = available[Math.floor(Math.random() * available.length)]!
+    source.playbackRate.value = 1 + (Math.random() * 2 - 1) * entry.pitchJitter
+    source.connect(destination(at, listener, volume * entry.gain))
+    sampleVoices.push(source)
+    source.onended = () => {
+      const index = sampleVoices.indexOf(source)
+      if (index >= 0) sampleVoices.splice(index, 1)
+    }
+    source.start(ctx.currentTime)
+    return true
+  }
+
   return {
     async resume() {
       const ctx = initialise()
       if (ctx.state !== 'running') await ctx.resume()
+      if (buffers.size === 0 && pendingUrls.size === 0) preloadSamples(ctx)
     },
     play(name, at, listener, gain = 1) {
       // Runtime callers can still supply untyped input; unknown sounds are true no-ops.
       if (!SOUND_NAMES.has(name)) return
       const ctx = initialise()
       if (ctx.state !== 'running') return
+      if (playSample(name, at, listener, gain)) return
       const output = destination(at, listener, gain)
       const time = ctx.currentTime
       switch (name) {
@@ -306,6 +376,17 @@ export function createAudio(): Audio {
       }
     },
     dispose() {
+      loadCycle++
+      for (const source of sampleVoices) {
+        try {
+          source.stop()
+        } catch {
+          // Already-ended sources are harmless during teardown.
+        }
+      }
+      sampleVoices.length = 0
+      buffers.clear()
+      pendingUrls.clear()
       void context?.close()
       context = null
       master = null
