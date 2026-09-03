@@ -176,7 +176,8 @@ export function createGlassSystem(map: MapData, scene: Scene): GlassSystem {
     const origin = impactPoint ?? _center
     const count = SHARDS_MIN + Math.floor(Math.random() * (SHARDS_MAX + 1 - SHARDS_MIN))
     for (let i = 0; i < count; i++) {
-      const shard = pool[cursor]
+      const index = cursor
+      const shard = pool[index]
       if (shard.life <= 0) live++
       cursor = (cursor + 1) % MAX_SHARDS
 
@@ -202,7 +203,7 @@ export function createGlassSystem(map: MapData, scene: Scene): GlassSystem {
       const material = pane.mesh.material
       const source = Array.isArray(material) ? material[0] : material
       _color.copy((source as MeshStandardMaterial)?.color ?? _color.setHex(0xdbe7ef))
-      shards.setColorAt(cursor, _color)
+      shards.setColorAt(index, _color)
     }
     if (shards.instanceColor) shards.instanceColor.needsUpdate = true
 
