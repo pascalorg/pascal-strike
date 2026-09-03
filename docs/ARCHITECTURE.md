@@ -14,9 +14,10 @@ Decisions already made (do not re-litigate):
   is shared through Playroom state.
 - Mode v1: **Team deathmatch**, 3 hits to die (100 hp, 34 dmg), instant respawn at team spawn
   after 2.5 s with 3 s invincibility. First team to 30 kills or 5 min.
-- Doors and openable windows toggle with **E** (state synced to every client). Doors are for
-  passage (leaves never block players, closed leaves block paintballs); windows are for paint
-  (sashes never let players through; a closed sash blocks paintballs, an open one does not).
+- Doors and openable windows toggle with **E** (state synced to every client). Door leaves and
+  window sashes are physical wherever they are: closed blocks players and paintballs, open lets
+  both through (an open Floor-1 window is a way out of the house: Pascal sills sit 0.30 m above
+  the floor). Bots use doors only. Transparent panes are breakable glass.
 - Movement: running is the default, **Shift walks** (slow, precise). Accuracy depends on
   motion (standing 0.12° → running 1.6° → airborne 2.8°). Damage by body part: head 50,
   torso 34, arms/legs 20.
@@ -194,9 +195,13 @@ mesh gets its own `computeBoundsTree()` once; they move with their door, so use
 - Bots (host only, `game/host-side.ts`): a shut **door** within `DOORS.botOpenRadius` of a bot's
   feet on its floor is toggled through the same RPC (one toggle per door per 1.5 s). Never windows.
 - `ui/prompt.ts` shows "E · Open door" / "E · Close window" under the crosshair while in range.
-- Colliders: the movement collider excludes door leaves and includes window sashes at their
-  closed pose (windows are never passable); the bullet collider excludes all animated leaves,
-  which `WorldQuery` tests dynamically via their own BVHs and current `matrixWorld`.
+- Colliders: the movement collider excludes every animated leaf (door leaves and sashes);
+  the controller collides with them dynamically through `setDynamicColliders(leafMeshes)`
+  (live `matrixWorld`, per-leaf BVH). The bullet collider excludes leaves and glass panes,
+  which `WorldQuery` tests dynamically (`kind: 'door' | 'glass'`); a broken pane is skipped.
+  The navmesh source keeps sashes closed and excludes roofs and door leaves.
+- Glass (`map/glass.ts`): `GlassPane`s (`glass:<n>`, deterministic ids) shatter on the shot
+  owner's client (RPC `glass`, mirrored in global `glass` state for late joiners) with shards.
 
 ## Spawns (W1-A)
 
@@ -227,8 +232,11 @@ three-mesh-bvh's `characterMovement` example and Pascal's floating capsule contr
   `airControl` in the air), gravity, jump when grounded. Target speed: `runSpeed` by default,
   `walkSpeed` while `MoveInput.walk` (Shift), `crouchSpeed` when crouching.
 - Stairs: a step-up sweep (up ≤ `stepHeight`, forward, down onto the tread) climbs 0.25 m
-  risers at 45° at run, walk and crouch speed without leaving the ground; descending snaps down
-  so the player never bounces.
+  risers at run, walk and crouch speed without leaving the ground; the lift takes only the
+  headroom that is actually free (Pascal storey soffits sit 2.48 m over the treads, so a full
+  0.46 m head sweep from a 1.75 m capsule would refuse every step). Descending snaps down.
+- Moving obstacles: `capsule-body.ts` / `dynamic-colliders.ts` run the same push-out against
+  each leaf mesh in its local space; `update(..., speedScale)` applies the weapon's speed bonus.
 - Collision: move, then iterate 3–5 push-out passes with `geometry.boundsTree.shapecast`
   (capsule segment vs triangles, `closestPointToSegment`) exactly like the example. A contact
   whose normal.y > cos(maxSlope) counts as ground; resolve steps by allowing the capsule to be
