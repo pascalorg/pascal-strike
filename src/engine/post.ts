@@ -7,6 +7,7 @@
  *   scene pass (MRT: colour + view normals, depth)
  *     → GTAO            ambient occlusion; what actually makes a room read as a room
  *     → grade           contrast around mid grey + saturation, still scene-referred
+ *     → bloom           high threshold: sun-lit highlights, muzzle flashes, nothing else
  *     → vignette
  *     → renderOutput    tone mapping + sRGB
  *     → grain           film grain, display-referred so it does not survive the tone curve
@@ -26,6 +27,7 @@ import {
   clamp,
   float,
   hash,
+  luminance,
   mix,
   mrt,
   normalView,
@@ -41,6 +43,7 @@ import {
   vec4,
 } from 'three/tsl'
 import { ao } from 'three/examples/jsm/tsl/display/GTAONode.js'
+import { bloom } from 'three/examples/jsm/tsl/display/BloomNode.js'
 
 export type ToneMappingName = 'aces' | 'agx' | 'neutral'
 
@@ -73,6 +76,13 @@ export interface PostSettings {
     /** Metres. AO fades out again in the distance so the sky edge grows no dark rim. */
     farFade: [number, number]
   }
+  bloom: {
+    enabled: boolean
+    strength: number
+    radius: number
+    /** Scene-referred luminance where the glow starts. High = only real highlights. */
+    threshold: number
+  }
   grade: { enabled: boolean; contrast: number; saturation: number }
   vignette: { enabled: boolean; amount: number }
   grain: { enabled: boolean; amount: number }
@@ -80,7 +90,7 @@ export interface PostSettings {
 
 /**
  * The look. Tuned against Pascal's viewer render mode: warm afternoon sun, soft contact
- * occlusion and a gentle S-curve about mid grey.
+ * occlusion, a gentle S-curve, and just enough bloom to feel like air.
  */
 export const QUALITY: PostSettings = {
   enabled: true,
@@ -101,6 +111,7 @@ export const QUALITY: PostSettings = {
     nearFade: [0.4, 0.9],
     farFade: [35, 90],
   },
+  bloom: { enabled: true, strength: 0.1, radius: 0.6, threshold: 1.3 },
   grade: { enabled: true, contrast: 1.15, saturation: 1.12 },
   vignette: { enabled: true, amount: 0.25 },
   grain: { enabled: true, amount: 0.02 },
@@ -210,6 +221,22 @@ export function createPostFx(opts: PostFxOptions): PostFx {
       )
     }
 
+    if (settings.bloom.enabled) {
+      // BloomNode's own threshold passes the *whole* colour of every pixel above it, so a bright
+      // sky ends up smeared over the entire frame as a milky veil. Feeding it a subtractive
+      // high-pass instead (only the energy above the threshold) keeps the glow on the things
+      // that are actually hot: the sky right around the sun, a muzzle flash, a specular glint.
+      const lum = luminance(rgb)
+      const excess = lum.sub(settings.bloom.threshold).max(0).div(lum.max(0.0001))
+      const bloomPass = bloom(
+        vec4(rgb.mul(excess), 1),
+        settings.bloom.strength,
+        settings.bloom.radius,
+        0,
+      )
+      rgb = rgb.add(bloomPass.rgb)
+    }
+
     if (settings.vignette.enabled) {
       const offset = screenUV.sub(0.5)
       const falloff = smoothstep(float(0.32), float(0.78), offset.length())
@@ -294,6 +321,7 @@ export function createPostFx(opts: PostFxOptions): PostFx {
       if (!settings.enabled) return 'post off'
       const parts = [
         settings.ao.enabled ? `ao ${settings.ao.radius}m` : 'ao off',
+        settings.bloom.enabled ? `bloom ${settings.bloom.threshold}` : 'bloom off',
         settings.toneMapping,
         `exp ${settings.exposure}`,
       ]
@@ -315,8 +343,8 @@ function depthAtDistance(camera: Camera, metres: number): number {
 }
 
 /**
- * WebGL2 is the fallback of last resort: keep the grade, drop the AO. GTAO is the one piece of
- * this chain that has no business running on a machine that just lost WebGPU.
+ * WebGL2 is the fallback of last resort: keep the grade and the bloom, drop the AO. GTAO is the
+ * one piece of this chain that has no business running on a machine that just lost WebGPU.
  */
 function applyBackendLimits(settings: PostSettings, backend: 'webgpu' | 'webgl2'): void {
   if (backend === 'webgpu') return
@@ -328,6 +356,7 @@ function cloneSettings(source: PostSettings): PostSettings {
   return {
     ...source,
     ao: { ...source.ao, nearFade: [...source.ao.nearFade], farFade: [...source.ao.farFade] },
+    bloom: { ...source.bloom },
     grade: { ...source.grade },
     vignette: { ...source.vignette },
     grain: { ...source.grain },
