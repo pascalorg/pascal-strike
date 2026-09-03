@@ -64,6 +64,14 @@ export function buildTestRoomGeometry(): TestRoom {
   addStaircase(root, collisionParts, 'stair-45', 10, 3, 12, 0.25, 0.25)
   addStaircase(root, collisionParts, 'stair-shallow', 13, 3.48, 12, 0.17, 0.29)
 
+  // Two steps under a Pascal-height ceiling (soffit 2.48 m): from the upper one a 1.75 m
+  // capsule has 0.43 m of headroom, less than the 0.46 m step lift, which is exactly what
+  // made the house staircase unclimbable (see `availableLift` in the controller).
+  addBox(root, collisionParts, 'floor', [4, 0.2, 6], [19, -0.1, 0])
+  addBox(root, collisionParts, 'step', [4, 0.3, 1.5], [19, 0.15, -0.75])
+  addBox(root, collisionParts, 'step', [4, 0.55, 1.5], [19, 0.275, -2.25])
+  addBox(root, collisionParts, 'ceiling', [4, 0.2, 6], [19, 2.58, 0])
+
   // Doorway with a swinging leaf, also outside the room (see TestRoom.doorLeaf).
   addBox(root, collisionParts, 'floor', [4.4, 0.2, 4.4], [16, -0.1, 0])
   addBox(root, collisionParts, 'wall', [1.5, 2.5, 0.2], [14.75, 1.25, 0])

@@ -3,6 +3,12 @@ import { expect, test } from 'bun:test'
 import { Vector3 } from 'three'
 import type { MoveInput } from '../types'
 import { buildTestRoomGeometry, createTestRoom } from '../dev/test-room'
+import {
+  buildPascalStairCollider,
+  PASCAL_STAIR,
+  stairAutopilotYaw,
+  stairPoint,
+} from '../dev/fixtures/pascal-stair'
 import { createCharacterController } from './controller'
 
 const DT = 1 / 120
@@ -42,6 +48,30 @@ function climbStairs(input: MoveInput, x = 10, z = 4.5, seconds = 4) {
     }
   }
   return { controller, rise: controller.state.position.y - startY, airborneFrames, maxTreadGap }
+}
+
+/**
+ * Walks up the real staircase of pascal-house.glb (see `dev/fixtures`): a curved flight of ten
+ * 0.25 m risers sweeping 180°, with a newel at r = 0.24 m and a railing at r = 1.34 m, under the
+ * 2.48 m ceiling of the storey. `radius` is the distance from the newel the player holds.
+ */
+function climbPascalStairs(input: MoveInput, radius: number, seconds = 6) {
+  const controller = createCharacterController(buildPascalStairCollider())
+  const [startX, startZ] = stairPoint(PASCAL_STAIR.startAngle - 0.5, radius)
+  controller.setPosition(new Vector3(startX, PASCAL_STAIR.floorY + 0.02, startZ))
+  run(controller, 0.33, idle)
+
+  let airborne = 0
+  let maxY = controller.state.position.y
+  let reachedAt = -1
+  for (let index = 0; index < Math.ceil(seconds / DT); index++) {
+    const p = controller.state.position
+    controller.update(DT, input, stairAutopilotYaw(p.x, p.z, radius))
+    if (!controller.state.grounded) airborne++
+    maxY = Math.max(maxY, controller.state.position.y)
+    if (reachedAt < 0 && maxY >= PASCAL_STAIR.landingY - 0.05) reachedAt = index * DT
+  }
+  return { controller, maxY, airborne, reachedAt }
 }
 
 /**
@@ -110,6 +140,34 @@ test('an open leaf is ground: the capsule steps onto it', () => {
   expect(controller.state.position.z).toBeLessThan(1.5)
 })
 
+test('walks up the two steps under a 2.48 m ceiling (the Pascal storey height)', () => {
+  // From the 0.30 m step a standing capsule has 2.48 − 0.30 − 1.75 = 0.43 m of headroom, less
+  // than the 0.46 m the step lift used to demand in one piece. It refused every further step.
+  const controller = spawnAt(19, 1.5)
+  run(controller, 1.2, { ...idle, forward: 1, walk: true })
+  expect(controller.state.position.y).toBeGreaterThan(0.54)
+  expect(controller.state.position.z).toBeLessThan(-1.5)
+  expect(controller.state.grounded).toBe(true)
+})
+
+test('walks up the real Pascal staircase to Floor 1, from any lateral offset', () => {
+  for (const radius of [0.6, 0.7, 0.85, 1.0]) {
+    const result = climbPascalStairs({ ...idle, forward: 1, walk: true }, radius)
+    expect(result.maxY).toBeGreaterThanOrEqual(PASCAL_STAIR.landingY - 0.05)
+    expect(result.reachedAt).toBeGreaterThan(0)
+  }
+})
+
+test('runs and crouches up the real Pascal staircase too', () => {
+  for (const radius of [0.6, 0.7, 0.85]) {
+    const running = climbPascalStairs({ ...idle, forward: 1 }, radius)
+    expect(running.maxY).toBeGreaterThanOrEqual(PASCAL_STAIR.landingY - 0.05)
+    const crouching = climbPascalStairs({ ...idle, forward: 1, crouch: true }, radius)
+    expect(crouching.maxY).toBeGreaterThanOrEqual(PASCAL_STAIR.landingY - 0.05)
+    expect(crouching.airborne).toBe(0)
+  }
+})
+
 test('walking into a wall stops without penetrating by more than 1 cm', () => {
   const controller = spawnAt(0, -4)
   run(controller, 1, { ...idle, forward: 1 })
@@ -138,7 +196,9 @@ test('standing is blocked by the 1.3 m slab and crouching passes underneath', ()
 
 test('climbs the 20 degree ramp', () => {
   const controller = spawnAt(2.5, 4.1)
-  run(controller, 0.95, { ...idle, forward: 1 })
+  // 0.75 s, not the 0.95 s this test used to take: a partial step lift (see `availableLift`)
+  // climbs the ramp ~15 % faster, and by 0.95 s the capsule has run off the top of it.
+  run(controller, 0.75, { ...idle, forward: 1 })
   expect(controller.state.position.y).toBeGreaterThan(1.05)
   expect(controller.state.position.z).toBeLessThan(0.7)
 })

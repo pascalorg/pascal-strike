@@ -28,6 +28,12 @@ export type CharacterControllerOptions = Partial<typeof PLAYER> & {
 const EPSILON = 1e-5
 const SKIN = 1e-4
 const GROUND_PROBE = 0.08
+/** Below this a step-up is not worth attempting (and the ground snap covers it anyway). */
+const MIN_STEP_LIFT = 0.05
+/** Bisection steps when the full step lift does not fit: 0.46 m / 2^6 ≈ 7 mm of resolution. */
+const LIFT_BISECTIONS = 6
+/** Headroom left under a ceiling-limited lift: the step is rejected if the head touches it. */
+const LIFT_MARGIN = 0.01
 
 class CapsuleController implements CharacterController {
   readonly state: CharacterState = {
@@ -62,7 +68,7 @@ class CapsuleController implements CharacterController {
   private contactCeiling = false
   private contactWall = false
   private stepBlocked = false
-  private castMode: 'resolve' | 'test' = 'resolve'
+  private castMode: 'resolve' | 'test' | 'lift' = 'resolve'
   private castTolerance = SKIN
   private castCorrected = false
   private castPenetrating = false
@@ -266,8 +272,8 @@ class CapsuleController implements CharacterController {
   }
 
   private tryStep(): boolean {
-    const lift = this.stepHeight + 0.01
-    if (!this.hasLiftClearance(this.beforeMove, this.currentHeight, lift)) return false
+    const lift = this.availableLift(this.beforeMove, this.currentHeight, this.stepHeight + 0.01)
+    if (lift < MIN_STEP_LIFT) return false
     this.stepResult.copy(this.beforeMove)
     this.stepResult.y += lift
     this.stepResult.x += this.desiredHorizontal.x
@@ -278,7 +284,31 @@ class CapsuleController implements CharacterController {
     this.resolveCapsule(this.stepResult, this.currentHeight)
     if (Math.hypot(this.stepResult.x - beforeResolveX, this.stepResult.z - beforeResolveZ) > this.radius * 0.5) return false
     if (this.contactCeiling) return false
-    return this.findGround(this.stepResult, this.beforeMove.y, this.stepHeight + 0.01, GROUND_PROBE, false)
+    return this.findGround(this.stepResult, this.beforeMove.y, lift, GROUND_PROBE, false)
+  }
+
+  /**
+   * How far the capsule may rise before its head meets something, up to `maxLift`.
+   *
+   * Asking only for "is the whole step lift free?" makes low ceilings forbid *every* step: a
+   * Pascal storey is 2.48 m, a standing player 1.75 m, so from the first 0.30 m stair tread the
+   * 0.46 m sweep pokes 3 cm into the ceiling and the staircase becomes unclimbable (jumping,
+   * which skips this, still worked — exactly what was reported). A 0.25 m riser only needs
+   * 0.25 m of headroom, so take as much of the lift as there is: the swept volume grows with
+   * the lift, so the test is monotone and a short bisection finds the largest one that fits.
+   */
+  private availableLift(position: Vector3, height: number, maxLift: number): number {
+    if (this.hasLiftClearance(position, height, maxLift)) return maxLift
+    let free = 0
+    let blocked = maxLift
+    for (let i = 0; i < LIFT_BISECTIONS; i++) {
+      const middle = (free + blocked) * 0.5
+      if (this.hasLiftClearance(position, height, middle)) free = middle
+      else blocked = middle
+    }
+    // Stop short of the ceiling: a lifted capsule that touches it counts as a ceiling contact
+    // and the step is thrown away again.
+    return Math.max(0, free - LIFT_MARGIN)
   }
 
   private tryGroundSnap(): boolean {
@@ -371,7 +401,7 @@ class CapsuleController implements CharacterController {
    * every moving leaf whose world AABB it overlaps — each in that leaf's own local space, which
    * is where its BVH lives. In `resolve` mode every push-out keeps all three capsules in step.
    */
-  private castCapsule(mode: 'resolve' | 'test'): void {
+  private castCapsule(mode: 'resolve' | 'test' | 'lift'): void {
     this.castMode = mode
     this.castEntry = null
     this.castRadius = this.radius
@@ -379,7 +409,7 @@ class CapsuleController implements CharacterController {
     this.capsule.end.copy(this.castEnd)
     this.setCapsuleBounds(this.radius)
     this.bvh.shapecast(this.shapecastCallbacks)
-    if (mode === 'test' && this.castPenetrating) return
+    if (mode !== 'resolve' && this.castPenetrating) return
 
     for (let index = 0; index < this.dynamics.length; index++) {
       const entry = this.dynamics[index]!
@@ -392,7 +422,7 @@ class CapsuleController implements CharacterController {
       this.castRadius = this.radius * entry.inverseScale
       this.setCapsuleBounds(this.castRadius)
       entry.bvh.shapecast(this.shapecastCallbacks)
-      if (mode === 'test' && this.castPenetrating) break
+      if (mode !== 'resolve' && this.castPenetrating) break
     }
     this.castEntry = null
     this.castRadius = this.radius
@@ -415,7 +445,7 @@ class CapsuleController implements CharacterController {
     this.castEnd.set(position.x, topY + lift, position.z)
     this.castTolerance = 2e-3
     this.castPenetrating = false
-    this.castCapsule('test')
+    this.castCapsule('lift')
     return !this.castPenetrating
   }
 
@@ -456,6 +486,15 @@ class CapsuleController implements CharacterController {
       this.correction.copy(this.triangleNormal)
     } else {
       this.correction.multiplyScalar(1 / distance)
+    }
+    if (this.castMode === 'lift') {
+      // Only what is *above* the head stops a lift. A stair handrail brushing the side of the
+      // capsule is pushed away by the normal resolve pass; letting it veto the step would
+      // strand a crouched player halfway up a flight.
+      if (entry) entry.toWorldVector(this.correction, this.worldCorrection).normalize()
+      else this.worldCorrection.copy(this.correction)
+      if (this.worldCorrection.y < -0.5) this.castPenetrating = true
+      return this.castPenetrating
     }
     this.correction.multiplyScalar(this.castRadius - distance + SKIN / toWorld)
     if (entry) entry.toWorldVector(this.correction, this.worldCorrection)
