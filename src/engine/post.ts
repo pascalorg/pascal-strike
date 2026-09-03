@@ -4,23 +4,32 @@
  * One `RenderPipeline` (three's WebGPU post stack — `PostProcessing` is its deprecated name)
  * built from TSL nodes, in this order:
  *
- *   scene pass
+ *   scene pass (MRT: colour + view normals, depth)
+ *     → GTAO            ambient occlusion; what actually makes a room read as a room
  *     → grade           contrast around mid grey + saturation, still scene-referred
  *     → vignette
  *     → renderOutput    tone mapping + sRGB
  *     → grain           film grain, display-referred so it does not survive the tone curve
  *
- * Every stage is switchable at runtime (`post.set({ grade: { enabled: false } })`) because that
- * is the only honest way to measure what each one costs; `?dev=map` binds `P` to the whole
- * chain and `?nopost=1` starts without it.
+ * Every stage is switchable at runtime (`post.set({ ao: { enabled: false } })`) because that is
+ * the only honest way to measure what each one costs; `?dev=map` binds `P` to the whole chain.
+ *
+ * The chain is WebGPU-first. On the WebGL2 fallback the node system still compiles, but the
+ * MRT + AO path is not worth the risk on a machine that already lost WebGPU, so AO is dropped
+ * and the rest of the chain stays (see `applyBackendLimits`).
  */
 import type { Camera, Scene } from 'three'
 import { ACESFilmicToneMapping, AgXToneMapping, NeutralToneMapping } from 'three'
-import { RenderPipeline, type Renderer } from 'three/webgpu'
+import { RenderPipeline, type Node, type Renderer } from 'three/webgpu'
 import {
   Fn,
+  clamp,
   float,
   hash,
+  mix,
+  mrt,
+  normalView,
+  output,
   pass,
   renderOutput,
   saturation,
@@ -31,6 +40,7 @@ import {
   vec3,
   vec4,
 } from 'three/tsl'
+import { ao } from 'three/examples/jsm/tsl/display/GTAONode.js'
 
 export type ToneMappingName = 'aces' | 'agx' | 'neutral'
 
@@ -39,14 +49,38 @@ export interface PostSettings {
   enabled: boolean
   toneMapping: ToneMappingName
   exposure: number
+  ao: {
+    enabled: boolean
+    /** World-space radius of the occlusion search, in metres. */
+    radius: number
+    scale: number
+    thickness: number
+    distanceExponent: number
+    samples: number
+    /** 1 = full resolution. 0.5 halves the AO pass and costs a quarter as much. */
+    resolutionScale: number
+    /**
+     * Where the AO gets its normals. `depth` reconstructs them in the shader; `mrt` renders a
+     * view-normal attachment. MRT is a touch more accurate on curved surfaces but every
+     * additively blended sprite (muzzle puffs, tracers) blends into that attachment too, and
+     * GTAO then paints a hard-edged dark rectangle wherever a puff was. Depth it is.
+     */
+    normals: 'depth' | 'mrt'
+    /** 0..1 — how much of the occlusion is applied to the beauty pass. */
+    intensity: number
+    /** Metres. Nothing closer than this is occluded — that is the first-person weapon. */
+    nearFade: [number, number]
+    /** Metres. AO fades out again in the distance so the sky edge grows no dark rim. */
+    farFade: [number, number]
+  }
   grade: { enabled: boolean; contrast: number; saturation: number }
   vignette: { enabled: boolean; amount: number }
   grain: { enabled: boolean; amount: number }
 }
 
 /**
- * The look. Tuned against Pascal's viewer render mode: warm afternoon sun,
- * a gentle S-curve about mid grey and a quiet vignette.
+ * The look. Tuned against Pascal's viewer render mode: warm afternoon sun, soft contact
+ * occlusion and a gentle S-curve about mid grey.
  */
 export const QUALITY: PostSettings = {
   enabled: true,
@@ -54,6 +88,19 @@ export const QUALITY: PostSettings = {
   // not tint the shadows blue the way ACES does. It is also the cheapest of the three.
   toneMapping: 'neutral',
   exposure: 0.72,
+  ao: {
+    enabled: true,
+    radius: 0.4,
+    scale: 1.1,
+    thickness: 0.5,
+    distanceExponent: 1.6,
+    samples: 16,
+    resolutionScale: 0.5,
+    normals: 'depth',
+    intensity: 0.9,
+    nearFade: [0.4, 0.9],
+    farFade: [35, 90],
+  },
   grade: { enabled: true, contrast: 1.15, saturation: 1.12 },
   vignette: { enabled: true, amount: 0.25 },
   grain: { enabled: true, amount: 0.02 },
@@ -116,8 +163,43 @@ export function createPostFx(opts: PostFxOptions): PostFx {
     applyToneMapping()
 
     const scenePass = pass(scene, camera)
+    const needsNormalMRT = settings.ao.enabled && settings.ao.normals === 'mrt'
+    if (needsNormalMRT) scenePass.setMRT(mrt({ output, normal: normalView }))
+
     const sceneColor = scenePass.getTextureNode('output')
     let rgb = sceneColor.rgb
+
+    if (settings.ao.enabled) {
+      const depth = scenePass.getTextureNode('depth')
+      // `ao()` accepts a null normal node (it then reconstructs from depth); the typings do not
+      // say so, hence the cast.
+      const normal = (needsNormalMRT ? scenePass.getTextureNode('normal') : null) as Node
+      const aoPass = ao(depth, normal, camera)
+      aoPass.radius.value = settings.ao.radius
+      aoPass.scale.value = settings.ao.scale
+      aoPass.thickness.value = settings.ao.thickness
+      aoPass.distanceExponent.value = settings.ao.distanceExponent
+      aoPass.samples.value = settings.ao.samples
+      aoPass.resolutionScale = settings.ao.resolutionScale
+
+      // The AO is masked in view depth: the view model lives ~0.3 m from the eye and would
+      // otherwise be swallowed by its own occlusion, and the sky (depth 1) would grow a dark
+      // rim along every roof line.
+      // The thresholds are computed on the CPU on purpose: TSL's `cameraNear`/`cameraFar`
+      // resolve to whatever camera is rendering, and inside the pipeline that is the
+      // fullscreen quad's own orthographic camera — not the scene's.
+      const depthValue = depth.sample(screenUV).r
+      const near0 = float(depthAtDistance(camera, settings.ao.nearFade[0]))
+      const near1 = float(depthAtDistance(camera, settings.ao.nearFade[1]))
+      const far0 = float(depthAtDistance(camera, settings.ao.farFade[0]))
+      const far1 = float(depthAtDistance(camera, settings.ao.farFade[1]))
+      // smoothstep needs edge0 < edge1, so the far end is inverted rather than reversed.
+      const gate = smoothstep(near0, near1, depthValue)
+        .mul(smoothstep(far0, far1, depthValue).oneMinus())
+        .mul(settings.ao.intensity)
+      const occlusion = mix(float(1), clamp(aoPass.getTextureNode().r, 0, 1), gate)
+      rgb = rgb.mul(occlusion)
+    }
 
     if (settings.grade.enabled) {
       // Contrast about the 18 % mid grey, then a saturation lift — scene-referred, so the tone
@@ -211,8 +293,7 @@ export function createPostFx(opts: PostFxOptions): PostFx {
     describe() {
       if (!settings.enabled) return 'post off'
       const parts = [
-        settings.grade.enabled ? `grade ${settings.grade.contrast}` : 'grade off',
-        settings.vignette.enabled ? 'vignette' : 'no vignette',
+        settings.ao.enabled ? `ao ${settings.ao.radius}m` : 'ao off',
         settings.toneMapping,
         `exp ${settings.exposure}`,
       ]
@@ -222,15 +303,31 @@ export function createPostFx(opts: PostFxOptions): PostFx {
   }
 }
 
-/** WebGL2 is the fallback of last resort: keep the grade, drop what is likely to misbehave. */
+/**
+ * Perspective depth (0..1, what the depth attachment holds) of a point `metres` in front of the
+ * camera. Used to fade the screen-space effects in and out by distance.
+ */
+function depthAtDistance(camera: Camera, metres: number): number {
+  const { near, far } = camera as Camera & { near?: number; far?: number }
+  if (typeof near !== 'number' || typeof far !== 'number') return 0
+  const viewZ = -Math.max(metres, 1e-4)
+  return ((near + viewZ) * far) / ((far - near) * viewZ)
+}
+
+/**
+ * WebGL2 is the fallback of last resort: keep the grade, drop the AO. GTAO is the one piece of
+ * this chain that has no business running on a machine that just lost WebGPU.
+ */
 function applyBackendLimits(settings: PostSettings, backend: 'webgpu' | 'webgl2'): void {
   if (backend === 'webgpu') return
+  settings.ao.enabled = false
   settings.grain.enabled = false
 }
 
 function cloneSettings(source: PostSettings): PostSettings {
   return {
     ...source,
+    ao: { ...source.ao, nearFade: [...source.ao.nearFade], farFade: [...source.ao.farFade] },
     grade: { ...source.grade },
     vignette: { ...source.vignette },
     grain: { ...source.grain },
