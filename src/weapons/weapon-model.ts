@@ -25,6 +25,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  Matrix4,
   Object3D,
   PlaneGeometry,
   SphereGeometry,
@@ -32,6 +33,7 @@ import {
   type BufferGeometry,
   type Material,
 } from 'three'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { TEAMS } from '../config'
 import type { TeamId, WeaponKind } from '../types'
 import { buildKnife, buildPistol } from './weapon-model-sidearms'
@@ -91,6 +93,8 @@ export interface ModelKit {
 export interface ModelBuild {
   muzzle: Object3D
   length: number
+  /** Reservoir fill is the only solid part that changes transform after construction. */
+  paintLevel?: Mesh
   /** 0..1 → visible paint. A weapon with no reservoir passes a no-op. */
   setPaintLevel(level: number): void
 }
@@ -105,10 +109,10 @@ export function createWeaponModel(options: WeaponModelOptions): WeaponModel {
   const detail = options.quality === 'first'
   const teamHex = TEAMS[options.team].colorHex
 
-  const geometries: BufferGeometry[] = []
+  const geometries = new Set<BufferGeometry>()
   const materials: Material[] = []
   const track = <T extends BufferGeometry>(geometry: T): T => {
-    geometries.push(geometry)
+    geometries.add(geometry)
     return geometry
   }
   const use = <T extends Material>(material: T): T => {
@@ -209,6 +213,24 @@ export function createWeaponModel(options: WeaponModelOptions): WeaponModel {
       : kind === 'knife' ? buildKnife(kit, root, flash)
         : buildRifle(kit, root, flash)
 
+  // Every authored primitive is rigid after construction except the reservoir fill. Baking
+  // their transforms into one grouped geometry preserves the material boundaries while turning
+  // dozens of scene nodes (48 on the third-person rifle) into one Mesh. The flash stays under
+  // its muzzle pivot and the paint stays under its hopper pivot because both animate at runtime.
+  const flashParts: Mesh[] = []
+  flash.traverse((object) => {
+    if (object instanceof Mesh) flashParts.push(object)
+  })
+  const flashPartSet = new Set(flashParts)
+  const staticParts: Mesh[] = []
+  root.traverse((object) => {
+    if (object instanceof Mesh && object !== build.paintLevel && !flashPartSet.has(object)) {
+      staticParts.push(object)
+    }
+  })
+  mergeRigidMeshes(root, staticParts, 'weapon-static', !detail, geometries)
+  mergeRigidMeshes(flash, flashParts, 'muzzle-flash', false, geometries)
+
   if (detail) {
     // The view model is drawn last so it never fights the world for depth, but it still
     // depth-tests against itself — the chamfer trick above only reads with a depth buffer.
@@ -247,7 +269,7 @@ export function createWeaponModel(options: WeaponModelOptions): WeaponModel {
       root.removeFromParent()
       for (const geometry of geometries) geometry.dispose()
       for (const material of materials) material.dispose()
-      geometries.length = 0
+      geometries.clear()
       materials.length = 0
     },
   }
@@ -375,6 +397,7 @@ function buildRifle(kit: ModelKit, root: Group, flash: Group): ModelBuild {
   return {
     muzzle,
     length: MODEL_LENGTH,
+    paintLevel,
     setPaintLevel(level) {
       const clamped = level <= 0 ? 0 : level >= 1 ? 1 : level
       paintLevel.visible = clamped > 0.001
@@ -382,4 +405,70 @@ function buildRifle(kit: ModelKit, root: Group, flash: Group): ModelBuild {
       paintLevel.position.y = -0.037 + 0.037 * clamped
     },
   }
+}
+
+/**
+ * Bake meshes relative to one rigid pivot, first coalescing equal materials and then putting the
+ * material batches into one grouped BufferGeometry. A grouped mesh still renders each material
+ * correctly, but traversal, culling and the shadow pass no longer process every tiny primitive.
+ */
+function mergeRigidMeshes(
+  pivot: Object3D,
+  meshes: Mesh[],
+  name: string,
+  castShadow: boolean,
+  owned: Set<BufferGeometry>,
+): Mesh | null {
+  if (meshes.length === 0) return null
+
+  pivot.updateWorldMatrix(true, true)
+  const inversePivot = new Matrix4().copy(pivot.matrixWorld).invert()
+  const transform = new Matrix4()
+  const batches = new Map<Material, BufferGeometry[]>()
+
+  for (const mesh of meshes) {
+    if (Array.isArray(mesh.material)) {
+      throw new Error('Weapon primitives must have exactly one material before batching')
+    }
+    const geometry = mesh.geometry.clone()
+    transform.multiplyMatrices(inversePivot, mesh.matrixWorld)
+    geometry.applyMatrix4(transform)
+    const batch = batches.get(mesh.material)
+    if (batch) batch.push(geometry)
+    else batches.set(mesh.material, [geometry])
+  }
+
+  const materials: Material[] = []
+  const materialGeometries: BufferGeometry[] = []
+  for (const [material, parts] of batches) {
+    const geometry = parts.length === 1 ? parts[0] : mergeGeometries(parts, false)
+    if (!geometry) throw new Error(`Could not merge ${name} material batch`)
+    for (const part of parts) {
+      if (part !== geometry) part.dispose()
+    }
+    materials.push(material)
+    materialGeometries.push(geometry)
+  }
+
+  const geometry = materialGeometries.length === 1
+    ? materialGeometries[0]
+    : mergeGeometries(materialGeometries, true)
+  if (!geometry) throw new Error(`Could not merge ${name}`)
+  for (const materialGeometry of materialGeometries) {
+    if (materialGeometry !== geometry) materialGeometry.dispose()
+  }
+
+  for (const mesh of meshes) {
+    mesh.removeFromParent()
+    if (owned.delete(mesh.geometry)) mesh.geometry.dispose()
+  }
+
+  owned.add(geometry)
+  const merged = new Mesh(geometry, materials.length === 1 ? materials[0] : materials)
+  merged.name = name
+  merged.castShadow = castShadow
+  merged.receiveShadow = false
+  merged.frustumCulled = false
+  pivot.add(merged)
+  return merged
 }

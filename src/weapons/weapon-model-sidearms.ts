@@ -93,6 +93,7 @@ export function buildPistol(kit: ModelKit, root: Group, flash: Group): ModelBuil
   return {
     muzzle,
     length: 0.22,
+    paintLevel,
     setPaintLevel(level) {
       const clamped = level <= 0 ? 0 : level >= 1 ? 1 : level
       paintLevel.visible = clamped > 0.001

@@ -17,7 +17,10 @@ import {
   Sprite,
   SpriteMaterial,
   Vector3,
+  type BufferGeometry,
+  type Material,
 } from 'three'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { PLAYER, TEAMS } from '../config'
 import type { HitShape, Hittable, TeamId, WeaponKind } from '../types'
 import { computeHitShapes, createHitShapes } from './hitshapes'
@@ -165,44 +168,48 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
   const visorMaterial = new MeshStandardMaterial({ color: 0x09090b, roughness: 0.25, metalness: 0.25 })
   const materials = [teamMaterial, limbMaterial, visorMaterial]
 
-  const torso = part(body, new CapsuleGeometry(0.25, 0.48, 4, 8), teamMaterial, [0, 1.1, 0])
+  const torsoPivot = new Group()
+  torsoPivot.name = 'avatar-anchor-torso'
+  torsoPivot.position.set(0, 1.1, 0)
+  body.add(torsoPivot)
+  const torso = part(torsoPivot, new CapsuleGeometry(0.25, 0.48, 4, 8), teamMaterial, [0, 0, 0])
+  torso.name = 'avatar-body-torso'
   torso.scale.set(1, 1, 0.72)
   const headPivot = new Group()
+  headPivot.name = 'avatar-anchor-head'
   headPivot.position.set(0, 1.53, 0)
   body.add(headPivot)
   const head = part(headPivot, new SphereGeometry(0.22, 10, 7), teamMaterial, [0, 0, 0])
   const visor = part(headPivot, new BoxGeometry(0.36, 0.105, 0.08), visorMaterial, [0, 0.02, -0.18])
   visor.rotation.x = -0.04
+  const headMesh = mergeRigidParts(headPivot, [head, visor], 'avatar-body-head')
 
-  const leftLeg = limb(body, -0.13)
-  const rightLeg = limb(body, 0.13)
-  const leftArm = arm(body, -0.31)
-  const rightArm = arm(body, 0.31)
+  const leftLeg = limb(body, -0.13, 'leg-left')
+  const rightLeg = limb(body, 0.13, 'leg-right')
+  const leftArm = arm(body, -0.31, 'arm-left')
+  const rightArm = arm(body, 0.31, 'arm-right')
   // The marker is the real weapon model at avatar detail, held in the right hand. Its origin is
   // the grip and it fires along -Z, so the hand anchor only has to sit where the fist is.
   let weaponKind: WeaponKind = 'rifle'
   let weapon: WeaponModel = createWeaponModel({ kind: weaponKind, team: initialTeam, quality: 'third' })
   const weaponHand = new Group()
+  weaponHand.name = 'avatar-anchor-weapon'
   weaponHand.position.set(-0.1, -0.44, -0.05)
   rightArm.add(weaponHand)
   weaponHand.add(weapon.object)
   // Paint sticks to these, not to the meshes: the torso mesh is squashed on Z and the limb
   // pivots are not, so an anchor per part keeps every splat round wherever it lands.
-  const torsoAnchor = new Group()
-  torsoAnchor.position.set(0, 1.1, 0)
-  body.add(torsoAnchor)
   /** Index-aligned with `createHitShapes()`: head, torso, arm L, arm R, leg L, leg R. */
-  const splatAnchors: Object3D[] = [headPivot, torsoAnchor, leftArm, rightArm, leftLeg, rightLeg]
+  const splatAnchors: Object3D[] = [headPivot, torsoPivot, leftArm, rightArm, leftLeg, rightLeg]
   /**
    * Surfaces paint can land on, and where a splat that lands on each of them is parented. The
    * hit shapes are thinner than the meshes that draw them (torso: 0.20 vs 0.25 m), so a splat
    * placed on the shape would be buried inside the body — paint goes where the mesh actually is.
    */
-  const paintMeshes: Mesh[] = [torso, head, visor, ...limbMeshes]
+  const paintMeshes: Mesh[] = [torso, headMesh, ...limbMeshes]
   const anchorByMesh = new Map<Mesh, Object3D>([
-    [torso, torsoAnchor],
-    [head, headPivot],
-    [visor, headPivot],
+    [torso, torsoPivot],
+    [headMesh, headPivot],
   ])
   for (const [pivot, mesh] of limbPairs) anchorByMesh.set(mesh, pivot)
 
@@ -257,8 +264,9 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
   let splatSeed = 1
   let fadedOut = false
 
-  function limb(parent: Group, x: number): Group {
+  function limb(parent: Group, x: number, name: string): Group {
     const pivot = new Group()
+    pivot.name = `avatar-anchor-${name}`
     pivot.position.set(x, 0.67, 0)
     parent.add(pivot)
     const mesh = part(pivot, new CapsuleGeometry(0.105, 0.44, 4, 7), limbMaterial, [0, -0.27, 0])
@@ -267,8 +275,9 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
     return pivot
   }
 
-  function arm(parent: Group, x: number): Group {
+  function arm(parent: Group, x: number, name: string): Group {
     const pivot = new Group()
+    pivot.name = `avatar-anchor-${name}`
     pivot.position.set(x, 1.28, 0)
     pivot.rotation.x = -0.75
     parent.add(pivot)
@@ -316,7 +325,7 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
       headPivot.rotation.x = pitch * 0.45
       body.position.y = crouching ? -0.18 : 0
       body.scale.y = crouching ? 0.78 : 1
-      torso.rotation.x = Math.min(speed / 5.5, 1) * 0.08
+      torsoPivot.rotation.x = Math.min(speed / 5.5, 1) * 0.08
       // Cancel the arm's own rotation so the barrel ends up pointing where the avatar looks,
       // damped like the head so a steep look does not swing the marker through the chest.
       // The hand cancels the arm's own rotation, so the kick has to be re-applied here or the
@@ -552,6 +561,48 @@ function part(
 ): Mesh {
   const mesh = new Mesh(geometry, material)
   mesh.position.fromArray(position)
+  mesh.castShadow = true
+  mesh.receiveShadow = true
+  parent.add(mesh)
+  return mesh
+}
+
+/** Combine the materials of one rigid body-part pivot into a single grouped mesh. */
+function mergeRigidParts(parent: Object3D, parts: Mesh[], name: string): Mesh {
+  const batches = new Map<Material, BufferGeometry[]>()
+  for (const mesh of parts) {
+    if (Array.isArray(mesh.material)) throw new Error('Avatar parts must have one material')
+    mesh.updateMatrix()
+    const geometry = mesh.geometry.clone().applyMatrix4(mesh.matrix)
+    const batch = batches.get(mesh.material)
+    if (batch) batch.push(geometry)
+    else batches.set(mesh.material, [geometry])
+  }
+
+  const materials: Material[] = []
+  const materialGeometries: BufferGeometry[] = []
+  for (const [material, geometries] of batches) {
+    const merged = geometries.length === 1 ? geometries[0] : mergeGeometries(geometries, false)
+    if (!merged) throw new Error(`Could not merge ${name} material batch`)
+    for (const geometry of geometries) if (geometry !== merged) geometry.dispose()
+    materials.push(material)
+    materialGeometries.push(merged)
+  }
+
+  const geometry = materialGeometries.length === 1
+    ? materialGeometries[0]
+    : mergeGeometries(materialGeometries, true)
+  if (!geometry) throw new Error(`Could not merge ${name}`)
+  for (const materialGeometry of materialGeometries) {
+    if (materialGeometry !== geometry) materialGeometry.dispose()
+  }
+  for (const mesh of parts) {
+    mesh.removeFromParent()
+    mesh.geometry.dispose()
+  }
+
+  const mesh = new Mesh(geometry, materials.length === 1 ? materials[0] : materials)
+  mesh.name = name
   mesh.castShadow = true
   mesh.receiveShadow = true
   parent.add(mesh)
