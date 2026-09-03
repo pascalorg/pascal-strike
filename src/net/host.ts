@@ -29,7 +29,10 @@ import {
   RPCS,
   SEEN_SHOTS,
   TEAM_SWAP_COOLDOWN_MS,
+  teamChoiceFrom,
+  teamFrom,
   type BotStats,
+  type TeamChoice,
   type TeamRequest,
   type TeamResult,
 } from './protocol'
@@ -53,12 +56,14 @@ export interface HostAuthority {
    */
   setBotsFill(on: boolean): void
   /**
-   * A player asked the Esc menu to move them to `team`. Accepted while the HUMAN counts stay
-   * within one of each other (bots do not count — the fill rebalances around them) and the
-   * player has not swapped in the last `TEAM_SWAP_COOLDOWN_MS`. The answer is broadcast as
-   * `teamResult` and returned, so the host's own client can skip the round trip.
+   * A player picked a side — on the team screen (their first pick) or in the Esc menu (a swap).
+   * `'auto'` resolves here to the smaller team. Accepted while the HUMAN counts stay within one
+   * of each other (bots do not count — the fill rebalances around them) and the player has not
+   * swapped in the last `TEAM_SWAP_COOLDOWN_MS`. A first pick pays no cooldown: there is no side
+   * to leave, and the screen it comes from is the only way into the match. The answer is
+   * broadcast as `teamResult` and returned, so the host's own client can skip the round trip.
    */
-  requestTeam(playerId: string, team: TeamId): TeamResult
+  requestTeam(playerId: string, team: TeamChoice): TeamResult
   /** Force everyone back to a spawn point (used on round change). */
   respawnAll(): void
   /**
@@ -72,6 +77,7 @@ export interface HostAuthority {
 
 interface HostPlayer {
   id: string
+  /** Null = a human who has not picked yet (the team screen is up on their client). */
   team: TeamId | null
   hp: number
   alive: boolean
@@ -128,8 +134,10 @@ export function startHostAuthority(
       // Adopt whatever the previous host published so a migration is invisible to players:
       // someone who already has a team was placed by the old host and must not be teleported,
       // while someone who was dead gets a fresh respawn timer (the old one died with its host).
-      const team = (p?.getState(PS.team) as TeamId | undefined) ?? null
-      const alive = p?.getState(PS.alive) !== false
+      // No team means they were still choosing when the room changed hands — they stay that way,
+      // and `balance()` keeps them out of the match instead of dropping them onto a side.
+      const team = teamFrom(p?.getState(PS.team))
+      const alive = team !== null && p?.getState(PS.alive) !== false
       hp = {
         id,
         team,
@@ -139,7 +147,8 @@ export function startHostAuthority(
         deaths: num(p?.getState(PS.deaths), 0),
         inv: num(p?.getState(PS.inv), 0),
         isBot,
-        respawnAt: alive ? 0 : clock.now() + PLAYER.respawnDelayMs,
+        // A spectator is not "waiting to respawn": no team, no timer, nothing to come back to.
+        respawnAt: alive || team === null ? 0 : clock.now() + PLAYER.respawnDelayMs,
         spawned: team !== null,
       }
       players.set(id, hp)
@@ -157,7 +166,9 @@ export function startHostAuthority(
   }
 
   const respawn = (hp: HostPlayer, now: number) => {
-    const team = hp.team ?? 'a'
+    // No team, no spawn: a player who has not picked yet stays off the map entirely (W5-A).
+    const team = hp.team
+    if (!team) return
     const point = spawnFor(team)
     const position: [number, number, number] = point
       ? [point.position.x, point.position.y, point.position.z]
@@ -202,6 +213,21 @@ export function startHostAuthority(
     room.kick(hp.id)
   }
 
+  /**
+   * A human who has not picked a side: off the map, out of the numbers. `alive: false` is what
+   * carries that to everyone else — the bot brains, the projectile sim and this file's own hit
+   * validation all skip a target that is not alive, so a spectator cannot be seen, shot or
+   * counted anywhere, on any client, without a new state key.
+   */
+  const spectate = (hp: HostPlayer) => {
+    hp.alive = false
+    hp.hp = PLAYER.maxHp
+    hp.respawnAt = 0
+    hp.spawned = false
+    write(hp.id, PS.alive, false)
+    write(hp.id, PS.hp, PLAYER.maxHp)
+  }
+
   const balance = () => {
     const list = room.players()
     const humans: HostPlayer[] = []
@@ -225,8 +251,14 @@ export function startHostAuthority(
 
     const counts = { a: 0, b: 0 }
     for (const hp of humans) {
+      // Nobody is dropped onto a side any more (W5-A): a human joins as a spectator and stays
+      // one until they pick. Only an over-full side (a migration adopting a bad state) is moved.
+      if (!hp.team) {
+        spectate(hp)
+        continue
+      }
       let team = hp.team
-      if (!team || counts[team] >= MATCH.teamSize) {
+      if (counts[team] >= MATCH.teamSize) {
         team = pickTeam(fakeCount(counts))
         if (counts[team] >= MATCH.teamSize) team = otherTeam(team)
       }
@@ -260,8 +292,11 @@ export function startHostAuthority(
       }
     }
 
-    const total = counts.a + counts.b
-    if (fill && total < MATCH.maxPlayers && !addingBot) {
+    // Seats, not team slots: a spectator still occupies one of the room's `maxPlayersPerRoom`
+    // places, so filling up to `counts.a + counts.b` would ask Playroom for a seventh
+    // participant and the `addBot` would simply fail. The teams do fill to 3 + 3 around them —
+    // the bot the picker displaces is kicked and re-added on the other side by the pass above.
+    if (fill && players.size < MATCH.maxPlayers && !addingBot) {
       addingBot = true
       room
         .addBot()
@@ -338,23 +373,49 @@ export function startHostAuthority(
     return counts
   }
 
-  const requestTeam = (id: string, wanted: TeamId): TeamResult => {
-    const answer = (ok: boolean, reason?: string): TeamResult => ({
+  /** Bots per team — the tie-breaker for `'auto'`. */
+  const botCounts = (): { a: number; b: number } => {
+    const counts = { a: 0, b: 0 }
+    for (const hp of players.values()) if (hp.isBot && hp.team) counts[hp.team]++
+    return counts
+  }
+
+  /**
+   * `'auto'` = the smaller HUMAN side; a tie goes to the side with fewer bots (the one whose
+   * filler will be kicked to make room, so the room churns less), and a dead tie goes to 'a'.
+   * The asking player is not counted: they are joining, not staying.
+   */
+  const autoTeam = (id: string): TeamId => {
+    const humans = humanCounts()
+    const mine = players.get(id)?.team
+    if (mine) humans[mine]--
+    if (humans.a !== humans.b) return humans.b < humans.a ? 'b' : 'a'
+    const bots = botCounts()
+    return bots.b < bots.a ? 'b' : 'a'
+  }
+
+  const requestTeam = (id: string, choice: TeamChoice): TeamResult => {
+    const answer = (ok: boolean, reason?: string, assigned?: TeamId): TeamResult => ({
       player: id,
-      team: wanted,
+      team: choice,
       ok,
+      assigned,
       reason,
     })
     if (!room.isHost()) return answer(false, 'No host here')
-    if (wanted !== 'a' && wanted !== 'b') return answer(false, 'Unknown team')
+    if (!teamChoiceFrom(choice)) return answer(false, 'Unknown team')
     const hp = players.get(id)
     if (!hp) return answer(false, 'Not in the match yet')
     if (hp.isBot) return answer(false, 'Bots do not pick sides')
-    if (hp.team === wanted) return answer(true)
+    const wanted: TeamId = choice === 'auto' ? autoTeam(id) : choice
+    if (hp.team === wanted) return answer(true, undefined, wanted)
 
     const now = clock.now()
+    // A first pick is not a swap: there is no side to leave and the team screen is the only way
+    // into the match, so the anti-flip cooldown only starts once somebody has a team to change.
+    const joining = hp.team === null
     const since = now - (lastSwap.get(id) ?? -Infinity)
-    if (since < TEAM_SWAP_COOLDOWN_MS) {
+    if (!joining && since < TEAM_SWAP_COOLDOWN_MS) {
       const wait = Math.ceil((TEAM_SWAP_COOLDOWN_MS - since) / 1000)
       return answer(false, `Wait ${wait} s before switching again`)
     }
@@ -371,9 +432,16 @@ export function startHostAuthority(
       return answer(false, 'Teams would be unbalanced — turn bots on to share a side')
     }
 
-    lastSwap.set(id, now)
+    if (!joining) lastSwap.set(id, now)
     hp.team = wanted
     write(id, PS.team, wanted)
+    // Coming off the team screen: they were `alive: false` so that nothing could see or shoot
+    // them, and the respawn below is their first appearance in the house.
+    if (joining) {
+      hp.alive = true
+      hp.hp = PLAYER.maxHp
+      hp.spawned = false
+    }
     // Rebalance on the spot instead of at the next 500 ms window: with the fill on this is what
     // kicks a bot from the side we joined; the same pass adds a fresh one to the side we left,
     // so the room is back to 3v3 within a tick instead of sitting at 4v2.
@@ -383,7 +451,7 @@ export function startHostAuthority(
     // invincibility. Somebody who is waiting to respawn keeps their timer (swapping is not a way
     // to skip it) — that pending respawn already uses the new team's spawn.
     if (hp.alive) respawn(hp, now)
-    return answer(true)
+    return answer(true, undefined, wanted)
   }
 
   const offTeam = room.rpc.register<TeamRequest>(RPCS.team, (payload, sender) => {
@@ -391,7 +459,14 @@ export function startHostAuthority(
     // The sender id is the only identity we trust; the payload only carries the wish.
     const id = sender?.id
     if (!id) return
-    void room.rpc.call(RPCS.teamResult, requestTeam(id, payload?.team as TeamId), 'all')
+    const choice = teamChoiceFrom(payload?.team)
+    void room.rpc.call(
+      RPCS.teamResult,
+      choice
+        ? requestTeam(id, choice)
+        : ({ player: id, team: 'auto', ok: false, reason: 'Unknown team' } satisfies TeamResult),
+      'all',
+    )
   })
 
   // --- damage --------------------------------------------------------------
@@ -416,7 +491,9 @@ export function startHostAuthority(
     // Only the shooter (or the host, on behalf of its bots) may claim a hit.
     if (senderId && senderId !== hit.by && !(shooter.isBot && senderId === room.me.id)) return null
     if (!shooter.alive || !target.alive) return null
-    if (shooter.team && target.team && shooter.team === target.team) return null
+    // Somebody still on the team screen is on nobody's side: they cannot shoot and cannot be shot.
+    if (!shooter.team || !target.team) return null
+    if (shooter.team === target.team) return null
     const now = clock.now()
     if (target.inv > now) return null
     if (!hit.shotId || !rememberShot(hit.shotId)) return null
@@ -600,7 +677,8 @@ export function startHostAuthority(
     respawnPlayer(id) {
       if (!id || !room.isHost()) return false
       const hp = players.get(id)
-      if (!hp) return false
+      // Nothing to put back for a player who has not picked a side yet.
+      if (!hp?.team) return false
       respawn(hp, clock.now())
       return true
     },

@@ -33,7 +33,11 @@ export type {
 export const PS = {
   /** string — display name */
   name: 'name',
-  /** TeamId — host assigns */
+  /**
+   * TeamId — the host writes it, and only once the player has PICKED (W5-A). Missing is a
+   * meaningful value: that human is still on the team screen, i.e. a spectator — no spawn, no
+   * hittable, not counted for balance or bot fill. Bots always have one from the moment they join.
+   */
   team: 'team',
   /** number — host writes */
   hp: 'hp',
@@ -179,6 +183,18 @@ export const TEAM_SWAP_COOLDOWN_MS = 10_000
 /** How long the menu waits for the host's `teamResult` before giving up on a swap. */
 export const TEAM_SWAP_TIMEOUT_MS = 4_000
 
+/**
+ * How long `isHost()` must hold one value before a client acts on it (W5-A).
+ *
+ * A Playroom socket hiccup flipped a guest's `isHost()` to true for about a second; it started a
+ * full authority — adopt, bot loader, state writes — while the real host was still there, and for
+ * that second two clients wrote the same player states. `isHost()` is polled at 1 Hz, so three
+ * consecutive agreeing seconds is the cheapest filter that a blip cannot pass; a real migration
+ * pays three seconds of nobody hosting, which the players never see (the authority is idempotent
+ * and adopts the published state when it does start).
+ */
+export const HOST_STABLE_MS = 3_000
+
 export const DEFAULT_PLAYER_STATES: Record<string, unknown> = {
   [PS.name]: '',
   [PS.hp]: PLAYER.maxHp,
@@ -231,18 +247,36 @@ export interface GlassEvent {
 /** Value of the `glass` room state: the ids of the panes broken in the current map. */
 export type GlassStates = string[]
 
-/** "Move me to the other team." The host trusts the sender id, never the payload. */
+/**
+ * What a player may ask for: a side, or `'auto'` — "put me on the smaller team" (W5-A). The host
+ * resolves `'auto'` itself so the answer cannot depend on a client's stale view of the room.
+ */
+export type TeamChoice = TeamId | 'auto'
+
+/** Read a `PS.team` state value: anything that is not a side means "still choosing". */
+export function teamFrom(value: unknown): TeamId | null {
+  return value === 'a' || value === 'b' ? value : null
+}
+
+/** Read a team choice off the wire ('auto' included); unknown values are refused by the host. */
+export function teamChoiceFrom(value: unknown): TeamChoice | null {
+  return value === 'a' || value === 'b' || value === 'auto' ? value : null
+}
+
+/** "Put me on this team." The host trusts the sender id, never the payload. */
 export interface TeamRequest {
-  team: TeamId
+  team: TeamChoice
 }
 
 /** The host's answer to one `team` request. Broadcast; only `player` acts on it. */
 export interface TeamResult {
   player: string
-  /** The team that was asked for (not necessarily the one the player ends up on). */
-  team: TeamId
+  /** What was asked for — `'auto'` included, so a refusal can be shown on the card that asked. */
+  team: TeamChoice
   ok: boolean
-  /** Why it was refused, ready to show in the menu ("Teams would be unbalanced"). */
+  /** The side the host actually put them on. Only set when `ok`. */
+  assigned?: TeamId
+  /** Why it was refused, ready to show on the card ("Teal is full"). */
   reason?: string
 }
 

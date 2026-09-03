@@ -13,7 +13,6 @@ import type {
   PlayerSnapshot,
   RespawnEvent,
   ShotEvent,
-  TeamId,
   WeaponKind,
 } from '../types'
 import {
@@ -21,7 +20,9 @@ import {
   PS,
   RPCS,
   TEAM_SWAP_TIMEOUT_MS,
+  teamFrom,
   type BotStats,
+  type TeamChoice,
   type TeamRequest,
   type TeamResult,
 } from './protocol'
@@ -34,12 +35,25 @@ const STATE_POLL_MS = 100
 const scratchPos = new Vector3()
 const scratchPose: PoseOut = { yaw: 0, pitch: 0, crouching: false, speed: 0 }
 
+/** Somebody in the room who is still on the team screen (W5-A). */
+export interface Spectator {
+  id: string
+  name: string
+  isLocal: boolean
+}
+
 export interface NetBinding {
   /** Call every frame: pulls `p` snapshots and writes interpolated poses into the entities. */
   update(): void
   /** Date.now() when we last received a snapshot for this player (0 = never). */
   lastSnapshotAt(id: string): number
   interpolatorFor(id: string): Interpolator | undefined
+  /**
+   * Everyone in the room with no `team` state — the players choosing a side. They deliberately
+   * have no entity (no avatar, no name tag, no hittable, nothing for a bot to look at), so this
+   * is the only place they show up: the team screen's "Choosing…" line reads it.
+   */
+  spectators(): Spectator[]
   stop(): void
 }
 
@@ -50,6 +64,8 @@ export function bindNetToRegistry(
 ): NetBinding {
   const interps = new Map<string, Interpolator>()
   const cleanups: (() => void)[] = []
+  /** Rebuilt by every poll; the team screen reads it at 100 ms resolution. */
+  const spectatorList: Spectator[] = []
 
   registry.setLocal(room.me.id)
 
@@ -59,14 +75,26 @@ export function bindNetToRegistry(
     return addPlayer(player)
   }
 
-  const addPlayer = (player: ReturnType<Room['players']>[number]): PlayerEntity => {
+  /**
+   * A human with no `team` state has not picked a side yet (W5-A) and gets NO entity: an entity
+   * is what gives you an avatar in `remote-players.ts`, a capsule in the projectile sim and a
+   * body for the bot brains to see, and a spectator must have none of the three. They reappear
+   * the moment the host publishes their team — the poll below adds them within 100 ms.
+   * Ourselves excepted: the local entity is the one the whole game is wired to, and it exists
+   * from the first frame whether we have picked or not.
+   */
+  const isSpectator = (player: ReturnType<Room['players']>[number]): boolean =>
+    player.id !== room.me.id && !isBotPlayer(player) && teamFrom(player.getState(PS.team)) === null
+
+  const addPlayer = (player: ReturnType<Room['players']>[number]): PlayerEntity | undefined => {
+    if (isSpectator(player)) return registry.get(player.id)
     const isLocal = player.id === room.me.id
     const isBot = isBotPlayer(player)
     const isNew = !registry.get(player.id)
     const entity = registry.upsert({
       id: player.id,
       name: readName(player, isBot),
-      team: (player.getState(PS.team) as TeamId) ?? 'a',
+      team: teamFrom(player.getState(PS.team)) ?? 'a',
       isBot,
       isLocal,
       hp: numberOr(player.getState(PS.hp), PLAYER.maxHp),
@@ -82,7 +110,11 @@ export function bindNetToRegistry(
     return entity
   }
 
-  cleanups.push(room.onJoin(addPlayer))
+  cleanups.push(
+    room.onJoin((player) => {
+      addPlayer(player)
+    }),
+  )
   cleanups.push(
     room.onLeave((id) => {
       interps.delete(id)
@@ -116,9 +148,25 @@ export function bindNetToRegistry(
 
   const poll = () => {
     const players = room.players()
+    spectatorList.length = 0
     for (const player of players) {
       const isBot = isBotPlayer(player)
       const entity = registry.get(player.id)
+      if (isSpectator(player)) {
+        spectatorList.push({ id: player.id, name: readName(player, isBot), isLocal: false })
+        // They had a team and lost it: only a host that never published one can do that, and
+        // the honest answer is to take the body away again.
+        if (entity) {
+          interps.delete(player.id)
+          lastRaw.delete(player.id)
+          registry.remove(player.id)
+          events.emit('player-left', { id: player.id })
+        }
+        continue
+      }
+      if (player.id === room.me.id && teamFrom(player.getState(PS.team)) === null) {
+        spectatorList.push({ id: player.id, name: readName(player, isBot), isLocal: true })
+      }
       if (!entity) {
         addPlayer(player)
         continue
@@ -150,16 +198,16 @@ export function bindNetToRegistry(
       })
     }
     applyBotStats()
-    // Anyone the registry still knows but Playroom dropped (missed onQuit).
-    if (registry.size > players.length) {
-      const live = new Set(players.map((p) => p.id))
-      for (const entity of registry.list()) {
-        if (!live.has(entity.id)) {
-          interps.delete(entity.id)
-          lastRaw.delete(entity.id)
-          registry.remove(entity.id)
-          events.emit('player-left', { id: entity.id })
-        }
+    // Anyone the registry still knows but Playroom dropped (missed onQuit). Not gated on the
+    // sizes any more: with spectators the registry is legitimately smaller than the room, so a
+    // stale entity would sit there forever behind a `size > length` test.
+    const live = new Set(players.map((p) => p.id))
+    for (const entity of registry.list()) {
+      if (!live.has(entity.id)) {
+        interps.delete(entity.id)
+        lastRaw.delete(entity.id)
+        registry.remove(entity.id)
+        events.emit('player-left', { id: entity.id })
       }
     }
   }
@@ -266,26 +314,31 @@ export function bindNetToRegistry(
     interpolatorFor(id) {
       return interps.get(id)
     },
+    spectators() {
+      return spectatorList
+    },
     stop() {
       for (const off of cleanups) off()
       cleanups.length = 0
       interps.clear()
       lastRaw.clear()
+      spectatorList.length = 0
     },
   }
 }
 
 /**
- * Ask the host to move us to `team` (the Esc menu's Team row).
+ * Ask the host for a side — the team screen's cards and the Esc menu both come through here.
+ * `'auto'` lets the host pick the smaller team.
  *
  * The answer cannot come back as an RPC return value — `room.rpc.register` drops what a handler
  * returns — so the host broadcasts a `teamResult` and this filters it by player id. A host that
  * never answers (migration mid-request, dropped packet) resolves as a refusal rather than
- * leaving the menu stuck on "…".
+ * leaving the screen stuck on "…".
  */
 export function requestTeamSwap(
   room: Room,
-  team: TeamId,
+  team: TeamChoice,
   timeoutMs = TEAM_SWAP_TIMEOUT_MS,
 ): Promise<TeamResult> {
   return new Promise((resolve) => {
