@@ -2,8 +2,8 @@
  * In-match HUD. Every element is driven by explicit method calls — the HUD never reads game
  * state itself, so it stays cheap and testable (see `dev/ui-showcase.ts`).
  */
-import { MATCH, PLAYER, TEAMS, WEAPON } from '../config'
-import type { BodyPart, MatchPhase, TeamId } from '../types'
+import { MATCH, PLAYER, TEAMS, WEAPONS } from '../config'
+import type { BodyPart, MatchPhase, TeamId, WeaponKind } from '../types'
 import { appRoot, clamp, el, formatClock, svg } from './dom'
 
 export interface KillFeedEntry {
@@ -20,7 +20,10 @@ export interface KillFeedEntry {
 export interface Hud {
   el: HTMLElement
   setHp(hp: number): void
+  /** Rounds left in the magazine; `Infinity` (the knife) shows as a dash. */
   setHopper(count: number, reloading?: boolean): void
+  /** Which slot is in hand: lights its dot and renames the widget. */
+  setWeapon(kind: WeaponKind): void
   setScores(a: number, b: number, msLeft: number): void
   setPhase(phase: MatchPhase, round?: number): void
   killFeed(entry: KillFeedEntry): void
@@ -94,9 +97,17 @@ export function createHud(mount: HTMLElement = appRoot()): Hud {
   const hpValue = hpNum.firstElementChild as HTMLElement
   const health = el('div', { class: 'ps-health' }, [hpNum, meter])
 
-  const ammoCount = el('b', { text: String(WEAPON.hopperSize) })
+  // Weapon widget: name, the three slot dots, then the magazine. `∞` is the reserve — you
+  // never run out of paint, only out of what is in the gun.
+  const weaponName = el('i', { class: 'ps-weapon-name', text: WEAPONS.rifle.label })
+  const slotDots = WEAPON_SLOTS.map((kind, index) =>
+    el('i', { class: index === 0 ? 'is-on' : '', text: String(WEAPONS[kind].slot) }))
+  const slots = el('div', { class: 'ps-slots' }, slotDots)
+  const ammoCount = el('b', { text: String(WEAPONS.rifle.ammo) })
+  const ammoSuffix = el('span', { text: '/∞' })
   const ammo = el('div', { class: 'ps-ammo' }, [
-    el('div', {}, [ammoCount, el('span', { text: `/${WEAPON.hopperSize}` })]),
+    el('div', { class: 'ps-weapon' }, [weaponName, slots]),
+    el('div', {}, [ammoCount, ammoSuffix]),
     el('em', { text: 'Reloading' }),
   ])
 
@@ -179,8 +190,23 @@ export function createHud(mount: HTMLElement = appRoot()): Hud {
       shownHp = value
     },
     setHopper(count, reloading = false) {
-      ammoCount.textContent = String(Math.max(0, Math.round(count)))
+      // The knife has no magazine: `Infinity` reads as a dash, not as "Infinity".
+      ammoCount.textContent = Number.isFinite(count) ? String(Math.max(0, Math.round(count))) : '—'
+      ammoSuffix.hidden = !Number.isFinite(count)
       ammo.classList.toggle('is-reloading', reloading)
+    },
+    setWeapon(kind) {
+      const spec = WEAPONS[kind]
+      weaponName.textContent = spec.label
+      for (let index = 0; index < slotDots.length; index++) {
+        slotDots[index].classList.toggle('is-on', WEAPON_SLOTS[index] === kind)
+      }
+      if (!Number.isFinite(spec.ammo)) {
+        ammoCount.textContent = '—'
+        ammoSuffix.hidden = true
+      } else {
+        ammoSuffix.hidden = false
+      }
     },
     setScores(a, b, msLeft) {
       if (a !== lastA) bump(scoreA, a)
@@ -289,7 +315,36 @@ export function createHud(mount: HTMLElement = appRoot()): Hud {
   hud.setHp(PLAYER.maxHp)
   hud.setScores(0, 0, MATCH.durationMs)
   hud.setSpread(0)
+  hud.setWeapon('rifle')
+
+  /**
+   * The weapon in hand is decided in `game/local-player.ts`, which has no HUD reference; the
+   * game orchestrator drives every other widget but does not know about this one yet.
+   * TODO(game owner): call `hud.setWeapon(localPlayer.weapon)` / `hud.setHopper(...)` from the
+   * HUD poll and delete this listener — both ends are W4-B files, the bridge is the interim.
+   */
+  const onWeaponEvent = (event: Event) => {
+    const detail = (event as CustomEvent<WeaponEventDetail>).detail
+    if (!detail?.weapon) return
+    hud.setWeapon(detail.weapon)
+    hud.setHopper(detail.ammo, detail.reloading)
+  }
+  window.addEventListener('ps:weapon', onWeaponEvent)
+  const disposeHud = hud.dispose
+  hud.dispose = () => {
+    window.removeEventListener('ps:weapon', onWeaponEvent)
+    disposeHud()
+  }
   return hud
+}
+
+/** Slot order of the weapon dots, 1 → 3. */
+const WEAPON_SLOTS: readonly WeaponKind[] = ['rifle', 'pistol', 'knife']
+
+interface WeaponEventDetail {
+  weapon: WeaponKind
+  ammo: number
+  reloading: boolean
 }
 
 /**
@@ -361,6 +416,39 @@ function injectStyles(): void {
   animation: ps-drip 1200ms cubic-bezier(0.33, 0, 0.67, 1) forwards;
 }
 @keyframes ps-drip { from { transform: scaleY(0.15); } to { transform: scaleY(1); } }
+
+.ps-weapon {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.ps-weapon-name {
+  font-style: normal;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(250, 250, 250, 0.72);
+}
+.ps-slots { display: flex; gap: 3px; }
+.ps-slots i {
+  font-style: normal;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  line-height: 16px;
+  width: 16px;
+  text-align: center;
+  border-radius: 4px;
+  color: rgba(250, 250, 250, 0.38);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.ps-slots i.is-on {
+  color: #09090b;
+  background: #fafafa;
+  box-shadow: 0 0 10px rgba(250, 250, 250, 0.35);
+}
 
 .ps-hitmark line { stroke: var(--hit, #fafafa); }
 .ps-hitmark.is-on.is-head { animation: ps-hit-head 320ms ease-out; }

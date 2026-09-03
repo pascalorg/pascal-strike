@@ -19,14 +19,17 @@ import { createViewModel, type ViewModel } from '../player/viewmodel'
 import { computeHitShapes, createHitShapes } from '../player/hitshapes'
 import type {
   CharacterController,
+  HitEvent,
   Hittable,
   MoveInput,
   PlayerEntity,
   PlayerSnapshot,
   ShotEvent,
   TeamId,
+  WeaponKind,
 } from '../types'
-import { createMarker, type Marker } from '../weapons/marker'
+import { createMarker, weaponSpec, WEAPON_BY_SLOT, type Marker } from '../weapons/marker'
+import { createMelee, type Melee } from '../weapons/melee'
 import type { MapSession } from './map-session'
 
 export interface LocalPlayerOptions {
@@ -40,12 +43,25 @@ export interface LocalPlayerOptions {
   onShot: (shot: ShotEvent) => void
   /** The controller left the world — ask the host to put us back. */
   onFell: () => void
+  /**
+   * The player switched weapon. The game owner writes it to the room
+   * (`room.me.setState('w', kind, true)`) so remotes can show the right model in the avatar's
+   * hands; without it the weapon is local-only. See `PlayerEntity.weapon` in types.ts.
+   */
+  onWeapon?: (kind: WeaponKind) => void
+  /**
+   * Where a hit this client detected goes. Defaults to the projectile sim's own callback
+   * list, which the game already routes to the host — melee travels the paintball's path.
+   */
+  onHit?: (hit: HitEvent) => void
 }
 
 /** Injected input for headless playtests (`window.__ps`). */
 export interface LocalPlayerDebug {
   /** Overrides WASD until `clear()`. */
   setMove(forward: number, right: number, jump?: boolean, crouch?: boolean, walk?: boolean): void
+  /** Select a weapon by kind or by slot number (1/2/3), as the number keys would. */
+  setWeapon(weapon: WeaponKind | number): void
   /** Radians-free: same units as raw mouse movement (pixels). */
   look(dx: number, dy: number): void
   setFire(on: boolean): void
@@ -60,6 +76,8 @@ export interface LocalPlayer {
   readonly pitch: number
   readonly dead: boolean
   readonly marker: Marker
+  /** The weapon in hand. */
+  readonly weapon: WeaponKind
   /** 0..1 crosshair bloom from recoil. */
   readonly spread: number
   /** Camera eye + look direction, for positional audio. */
@@ -93,6 +111,9 @@ const _eye = new Vector3()
 const _look = new Vector3()
 const _spawn = new Vector3()
 const _muzzle = new Vector3()
+const _smear = new Vector3()
+const _smearPoint = new Vector3()
+const _up = new Vector3(0, 1, 0)
 
 export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
   const { engine, input, audio, entity } = opts
@@ -106,6 +127,8 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
   const viewModel: ViewModel = createViewModel(camera)
   viewModel.setTeam(entity.team)
   const marker: Marker = createMarker({ ownerId: entity.id, team: entity.team, now: opts.now })
+  const melee: Melee = createMelee({ ownerId: entity.id, team: entity.team, now: opts.now })
+  entity.weapon = marker.weapon
 
   const move: MoveInput = { forward: 0, right: 0, jump: false, crouch: false, walk: false }
   const override: MoveInput = { forward: 0, right: 0, jump: false, crouch: false, walk: false }
@@ -135,6 +158,49 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
   let overrideMove = false
   let overrideFire: boolean | null = null
   let overrideReload = false
+  let pendingSlot = 0
+  let publishedWeapon: WeaponKind | null = null
+  let publishedAmmo = -1
+  let publishedReloading = false
+
+  /**
+   * Switch slots. The marker owns the 0.35 s lockout and the per-weapon magazines; the view
+   * model plays the lower/raise; the entity and the room state carry the choice to everyone
+   * else (`PlayerEntity.weapon`, player state `w`).
+   */
+  function selectWeapon(kind: WeaponKind): void {
+    if (!marker.setWeapon(kind)) return
+    viewModel.setWeapon(kind)
+    input.setWeaponSlot(weaponSpec(kind).slot)
+    entity.weapon = kind
+    audio.play('weaponSwitch')
+    opts.onWeapon?.(kind)
+    publishWeapon()
+  }
+
+  /**
+   * The ammo/weapon widget lives in `ui/hud.ts`, which the game orchestrator owns and drives.
+   * Until it calls `hud.setWeapon` itself, this event is how the widget learns which slot is
+   * in hand — both ends of the bridge are this work package's files.
+   */
+  function publishWeapon(): void {
+    const ammo = marker.hopper
+    if (publishedWeapon === marker.weapon && publishedAmmo === ammo
+      && publishedReloading === marker.reloading) return
+    publishedWeapon = marker.weapon
+    publishedAmmo = ammo
+    publishedReloading = marker.reloading
+    window.dispatchEvent(new CustomEvent('ps:weapon', {
+      detail: {
+        weapon: marker.weapon,
+        slot: marker.spec.slot,
+        label: marker.spec.label,
+        ammo,
+        magazine: marker.magazine,
+        reloading: marker.reloading,
+      },
+    }))
+  }
 
   function makeController(next: MapSession): CharacterController {
     return createCharacterController(next.map.collider, { onFellOut: () => opts.onFell() })
@@ -157,6 +223,9 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
       return dead
     },
     marker,
+    get weapon() {
+      return marker.weapon
+    },
     get spread() {
       return spread
     },
@@ -172,14 +241,22 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
     setTeam(team) {
       hittable.team = team
       marker.setTeam(team)
+      melee.setTeam(team)
       viewModel.setTeam(team)
     },
 
     fixedUpdate(dt) {
       if (dead) return
       const source = overrideMove ? override : input.locked ? input.move : ZERO_MOVE
-      move.forward = source.forward
-      move.right = source.right
+      // A lighter weapon is meant to move you faster (`WEAPONS[kind].moveSpeedScale`). The
+      // controller derives its target speed from PLAYER.runSpeed alone and clamps |input| to
+      // 1, so scaling the wish vector can only ever slow the player down — the pistol's 1.05
+      // and the knife's 1.12 are inert until `CharacterController.update` takes a speed scale.
+      // TODO(W4-E, controller owner): `update(dt, input, yaw, speedScale?)`, applied to the
+      // target speed. Then this becomes `controller.update(dt, move, yaw, moveScale)`.
+      const moveScale = Math.min(1, marker.moveSpeedScale)
+      move.forward = source.forward * moveScale
+      move.right = source.right * moveScale
       move.jump = source.jump
       move.crouch = source.crouch
       move.walk = source.walk ?? false
@@ -237,11 +314,44 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
       listener.position.copy(_eye)
       listener.forward.copy(_look)
 
+      // Slot keys and the wheel. Read before `input.update()` clears the edge (it runs at the
+      // end of this function), and ignored while dead — you respawn with what you had.
+      const slot = pendingSlot || (input.locked ? input.weaponSlot : 0)
+      pendingSlot = 0
+      if (slot >= 1 && slot <= WEAPON_BY_SLOT.length && !dead) selectWeapon(WEAPON_BY_SLOT[slot - 1])
+
       const firing = !dead && (overrideFire ?? (input.locked ? input.fire : false))
       const reloading = (input.locked && input.reload) || overrideReload
       overrideReload = false
       marker.setMotion(speed, controller.state.grounded, controller.state.crouching, walking)
       const shots = marker.update(dt, firing, reloading, _eye, _look)
+      // The knife: `marker` only holds the switch lockout, the swing itself lives in melee.ts.
+      if (marker.weapon === 'knife' && !marker.switching) {
+        const swing = melee.update(dt, firing, _eye, _look, session.projectiles.targets, session.world)
+        if (swing.started) {
+          viewModel.swing()
+          audio.play('knifeSwing')
+        }
+        for (const hit of swing.hits) {
+          audio.play('knifeHit')
+          if (opts.onHit) opts.onHit(hit)
+          else session.projectiles.reportHit(hit)
+        }
+        // A miss that lands on a wall wipes paint off the blade: two overlapping splats
+        // along the swing read as a smear rather than a bullet splat.
+        if (swing.surface) {
+          const target = swing.surface.object as Parameters<typeof session.decals.add>[0]
+          _smear.copy(swing.surface.normal).cross(_up)
+          if (_smear.lengthSq() < 1e-6) _smear.set(1, 0, 0)
+          else _smear.normalize()
+          for (let i = -1; i <= 1; i++) {
+            _smearPoint.copy(swing.surface.point).addScaledVector(_smear, i * 0.09)
+            session.decals.add(target, _smearPoint, swing.surface.normal, entity.team, swing.seed + i)
+          }
+          session.effects.splat(swing.surface.point, swing.surface.normal, entity.team)
+          audio.play('splat', swing.surface.point, listener)
+        }
+      }
       for (const shot of shots) {
         viewModel.fire()
         // Yaw kick is +-30 % of the pitch kick, side picked from the shot seed so the
@@ -250,7 +360,7 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
         const yawScale = 0.3 * (0.35 + ((shot.seed >>> 8) & 0xff) / 255 * 0.65)
         fpsCamera.kick(WEAPON.recoilPitch, yawSign * WEAPON.recoilPitch * yawScale)
         session.effects.muzzle(viewModel.muzzleWorld(_muzzle), _look, shot.team)
-        audio.play('shot')
+        audio.play(shot.weapon === 'pistol' ? 'pistolShot' : 'shot')
         opts.onShot(shot)
       }
       if (marker.dryFire) audio.play('dryFire')
@@ -264,10 +374,12 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
         1,
       )
       spread += (spreadTarget - spread) * Math.min(1, dt * SPREAD_FOLLOW)
-      viewModel.setHopper(marker.hopper, WEAPON.hopperSize)
+      viewModel.setHopper(marker.hopper, marker.magazine)
       if (marker.reloading) viewModel.reload(marker.reloadProgress)
-      if (!wasReloading && marker.reloading) audio.play('reload')
+      if (!wasReloading && marker.reloading) audio.play('reloadStart')
+      if (wasReloading && !marker.reloading) audio.play('reloadEnd')
       wasReloading = marker.reloading
+      publishWeapon()
       viewModel.update(springDt, speed, controller.state.grounded)
       viewModel.object.visible = !dead
 
@@ -328,6 +440,7 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
       deathTilt = 0
       hittable.alive = false
       marker.reset()
+      melee.reset()
     },
 
     revive() {
@@ -336,7 +449,9 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
       deathTilt = 0
       hittable.alive = true
       marker.reset()
+      melee.reset()
       spread = 0
+      publishWeapon()
     },
 
     debug: {
@@ -347,6 +462,14 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
         override.jump = jump
         override.crouch = crouch
         override.walk = walk
+      },
+      setWeapon(weapon) {
+        const kind = typeof weapon === 'number'
+          ? WEAPON_BY_SLOT[Math.round(weapon) - 1]
+          : weapon
+        if (!kind) return
+        // Go through the same edge the keys use, so a debug switch is a real switch.
+        pendingSlot = weaponSpec(kind).slot
       },
       look(dx, dy) {
         pendingLookX += dx
