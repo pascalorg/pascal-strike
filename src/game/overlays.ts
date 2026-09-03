@@ -5,10 +5,11 @@
  * Everything here is plain DOM on the shared Pascal tokens from `ui/styles.css`; the in-match
  * HUD proper lives in `ui/hud.ts` and is not touched by this file.
  */
-import { BUILTIN_MAPS } from '../config'
+import { BUILTIN_MAPS, TEAMS } from '../config'
 import type { Room } from '../net/room'
+import type { TeamResult } from '../net/protocol'
 import { isConfigured, uploadMap } from '../storage/maps-upload'
-import type { MapSelection, MatchState } from '../types'
+import type { MapSelection, MatchState, TeamId } from '../types'
 import { el } from '../ui/dom'
 import type { EntityRegistry } from './entities'
 import type { LocalPlayer } from './local-player'
@@ -76,14 +77,24 @@ export interface PauseMenuOptions {
   botsFill(): boolean
   /** Host-only — the menu never calls this for anyone else. */
   setBotsFill(on: boolean): void
+  /** Heads on each team, bots included — what the scoreboard shows. Polled while open. */
+  teams(): { a: number; b: number }
+  /** Our team, or null before the host has assigned one. */
+  myTeam(): TeamId | null
+  /** Ask the host to move us. Resolves with its answer; the menu toasts a refusal. */
+  onTeam(team: TeamId): Promise<TeamResult>
 }
 
 export interface PauseMenu {
   readonly isOpen: boolean
   open(): void
   close(): void
+  /** A line of feedback under the card (host refusals, mostly). Fades after a few seconds. */
+  toast(text: string): void
   dispose(): void
 }
+
+const TOAST_MS = 3_400
 
 export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
   const note = el('div', { class: 'ps-note' })
@@ -97,6 +108,16 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
   const sound = el('button', { class: 'ps-btn ps-btn--block' }, ['Sound: on'])
   const bots = el('button', { class: 'ps-btn ps-btn--block' }, ['Bots: on'])
   const leave = el('button', { class: 'ps-btn ps-btn--ghost ps-btn--block' }, ['Leave to lobby'])
+  const toastNode = el('div', { class: 'ps-toast' })
+  const teamCounts: Record<TeamId, HTMLElement> = { a: teamCount(), b: teamCount() }
+  const teamButtons: Record<TeamId, HTMLButtonElement> = {
+    a: teamButton('a', teamCounts.a),
+    b: teamButton('b', teamCounts.b),
+  }
+  const teamField = el('div', { class: 'ps-field', style: 'margin-top:18px' }, [
+    el('label', { class: 'ps-label', text: 'Team' }),
+    el('div', { class: 'ps-teams' }, [teamButtons.a, teamButtons.b]),
+  ])
   /**
    * The menu is glass, not a wall: the match keeps rendering *and* running behind it (remotes,
    * bots, the timer and the kill feed all carry on) — the only thing that stops is us, because
@@ -111,9 +132,11 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
         html: '<b>WASD</b> move · <b>SHIFT</b> walk · <b>SPACE</b> jump · <b>CTRL</b> crouch · <b>R</b> reload · <b>E</b> doors · <b>TAB</b> scores · <b>ESC</b> menu',
       }),
       el('div', { class: 'ps-actions' }, [resume, invite]),
+      teamField,
       mapsField,
       el('div', { class: 'ps-actions' }, [bots, sound, leave, note]),
     ]),
+    toastNode,
   ])
   opts.mount.appendChild(screen)
 
@@ -174,8 +197,45 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
 
   let open = false
   let audioOn = true
+  /** True between asking the host for a team and its answer — both buttons are dead meanwhile. */
+  let swapping = false
+  let toastTimer = 0
   /** The very first open is the "click to start" screen; every one after it is a pause. */
   let played = false
+
+  /**
+   * Counts include bots on purpose: three heads a side is what the player sees, and the host
+   * moves a bot the other way when a human swaps, so "3 / 3" stays true through the swap.
+   * The current team is the pressed one; the other is only clickable while no swap is pending.
+   */
+  const renderTeams = () => {
+    const counts = opts.teams()
+    const mine = opts.myTeam()
+    for (const team of TEAM_KEYS) {
+      const button = teamButtons[team]
+      teamCounts[team].textContent = String(counts[team] ?? 0)
+      button.setAttribute('aria-pressed', String(team === mine))
+      button.toggleAttribute('disabled', swapping || !mine)
+    }
+  }
+
+  const askTeam = (team: TeamId) => {
+    if (swapping || !opts.myTeam() || opts.myTeam() === team) return
+    swapping = true
+    renderTeams()
+    void opts
+      .onTeam(team)
+      .then((result) => {
+        if (!result?.ok) menu.toast(result?.reason || 'Teams would be unbalanced')
+      })
+      .catch((err: Error) => menu.toast(err.message))
+      .finally(() => {
+        swapping = false
+        renderTeams()
+      })
+  }
+  teamButtons.a.addEventListener('click', () => askTeam('a'))
+  teamButtons.b.addEventListener('click', () => askTeam('b'))
 
   const menu: PauseMenu = {
     get isOpen() {
@@ -187,6 +247,7 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
       resume.textContent = played ? 'Resume' : 'Play'
       renderMaps()
       renderBots()
+      renderTeams()
       screen.style.display = ''
     },
     close() {
@@ -194,14 +255,25 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
       open = false
       screen.style.display = 'none'
     },
+    toast(text) {
+      toastNode.textContent = text
+      toastNode.classList.add('is-on')
+      window.clearTimeout(toastTimer)
+      toastTimer = window.setTimeout(() => toastNode.classList.remove('is-on'), TOAST_MS)
+    },
     dispose() {
       window.clearInterval(botsTimer)
+      window.clearTimeout(toastTimer)
       screen.remove()
     },
   }
 
+  // The room decides both of these, not this client: a flip by the host, a joining player or a
+  // host migration has to show up on a menu that is already open.
   const botsTimer = window.setInterval(() => {
-    if (open) renderBots()
+    if (!open) return
+    renderBots()
+    renderTeams()
   }, 500)
 
   resume.addEventListener('click', () => {
@@ -232,6 +304,20 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
   leave.addEventListener('click', () => opts.onLeave())
 
   return menu
+}
+
+const TEAM_KEYS: readonly TeamId[] = ['a', 'b']
+
+function teamCount(): HTMLElement {
+  return el('span', { class: 'ps-team-count', text: '0' })
+}
+
+function teamButton(team: TeamId, count: HTMLElement): HTMLButtonElement {
+  return el('button', { class: `ps-team-pick ps-team-pick--${team}`, type: 'button' }, [
+    el('span', { class: 'ps-team-dot' }),
+    el('span', { class: 'ps-team-name', text: TEAMS[team].name }),
+    count,
+  ])
 }
 
 // ---------------------------------------------------------------------------

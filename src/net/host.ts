@@ -8,7 +8,7 @@
 import { DAMAGE, WEAPONS, MATCH, PLAYER } from '../config'
 import type { EntityRegistry } from '../game/entities'
 import { createMatch, isLive, type Match } from '../game/match'
-import { botName, otherTeam, pickTeam } from '../game/teams'
+import { botName, otherTeam, pickTeam, teamName } from '../game/teams'
 import type {
   BodyPart,
   EventBus,
@@ -19,7 +19,18 @@ import type {
   SpawnPoint,
   TeamId,
 } from '../types'
-import { botsFillFrom, botsFillValue, GS, HIT_MAX_DESYNC_M, PS, RPCS, SEEN_SHOTS } from './protocol'
+import {
+  botsFillFrom,
+  botsFillValue,
+  GS,
+  HIT_MAX_DESYNC_M,
+  PS,
+  RPCS,
+  SEEN_SHOTS,
+  TEAM_SWAP_COOLDOWN_MS,
+  type TeamRequest,
+  type TeamResult,
+} from './protocol'
 import { isBotPlayer, type Room } from './room'
 import type { NetClock } from './sync'
 
@@ -39,6 +50,13 @@ export interface HostAuthority {
    * usual onLeave path), on refills to `MATCH.maxPlayers`.
    */
   setBotsFill(on: boolean): void
+  /**
+   * A player asked the Esc menu to move them to `team`. Accepted while the HUMAN counts stay
+   * within one of each other (bots do not count — the fill rebalances around them) and the
+   * player has not swapped in the last `TEAM_SWAP_COOLDOWN_MS`. The answer is broadcast as
+   * `teamResult` and returned, so the host's own client can skip the round trip.
+   */
+  requestTeam(playerId: string, team: TeamId): TeamResult
   /** Force everyone back to a spawn point (used on round change). */
   respawnAll(): void
   /**
@@ -216,14 +234,18 @@ export function startHostAuthority(
     }
     for (const hp of bots) {
       let team = hp.team
-      if (!team || counts[team] >= MATCH.teamSize) {
-        const alt = team ? otherTeam(team) : pickTeam(fakeCount(counts))
-        if (counts[alt] < MATCH.teamSize) team = alt
-        else {
-          // Both sides are full: this bot is the one a joining human replaces.
-          dropBot(hp)
-          continue
-        }
+      if (!team) {
+        team = pickTeam(fakeCount(counts))
+        if (counts[team] >= MATCH.teamSize) team = otherTeam(team)
+      }
+      if (counts[team] >= MATCH.teamSize) {
+        // Its side is full — a human took the slot, by joining or by swapping. The bot is
+        // KICKED, never moved across: playroomkit 0.0.97 delivers a bot's state to the other
+        // clients when it joins and never again, so a bot that changed shirt would keep the old
+        // colour (and count for the old team) everywhere but here. A kick and a fresh bot do
+        // reach everyone, and the fill below adds that fresh one on the side that needs a body.
+        dropBot(hp)
+        continue
       }
       hp.team = team
       counts[team]++
@@ -246,6 +268,18 @@ export function startHostAuthority(
           const taken = [...players.values()]
             .map((o) => (o.id === hp.id ? null : playerById(o.id)?.getState(PS.name)))
             .filter((n): n is string => typeof n === 'string')
+          // Team first, and in the same burst as the rest: everyone else only ever sees the
+          // state a bot has when it joins (see the kick above), so waiting for the next
+          // `balance()` would risk publishing the team after the join reached them.
+          const seats = { a: 0, b: 0 }
+          for (const other of players.values()) {
+            if (other.id !== hp.id && other.team) seats[other.team]++
+          }
+          const team = seats.b < seats.a ? 'b' : 'a'
+          if (seats[team] < MATCH.teamSize) {
+            hp.team = team
+            bot.setState(PS.team, team, true)
+          }
           bot.setState(PS.name, botName(players.size, taken), true)
           bot.setState(PS.hp, PLAYER.maxHp, true)
           bot.setState(PS.alive, true, true)
@@ -263,6 +297,72 @@ export function startHostAuthority(
         })
     }
   }
+
+  // --- team swaps ----------------------------------------------------------
+
+  /** Host clock ms of the last ACCEPTED swap per player (the rate limit). */
+  const lastSwap = new Map<string, number>()
+
+  /**
+   * Humans per team. Bots are deliberately not counted: they are filler, and `balance()` moves
+   * one of them the other way right after an accepted swap so the room stays 3v3.
+   */
+  const humanCounts = (): { a: number; b: number } => {
+    const counts = { a: 0, b: 0 }
+    for (const hp of players.values()) if (!hp.isBot && hp.team) counts[hp.team]++
+    return counts
+  }
+
+  const requestTeam = (id: string, wanted: TeamId): TeamResult => {
+    const answer = (ok: boolean, reason?: string): TeamResult => ({
+      player: id,
+      team: wanted,
+      ok,
+      reason,
+    })
+    if (!room.isHost()) return answer(false, 'No host here')
+    if (wanted !== 'a' && wanted !== 'b') return answer(false, 'Unknown team')
+    const hp = players.get(id)
+    if (!hp) return answer(false, 'Not in the match yet')
+    if (hp.isBot) return answer(false, 'Bots do not pick sides')
+    if (hp.team === wanted) return answer(true)
+
+    const now = clock.now()
+    const since = now - (lastSwap.get(id) ?? -Infinity)
+    if (since < TEAM_SWAP_COOLDOWN_MS) {
+      const wait = Math.ceil((TEAM_SWAP_COOLDOWN_MS - since) / 1000)
+      return answer(false, `Wait ${wait} s before switching again`)
+    }
+
+    // Balance is judged on the humans only, as they would stand after the move.
+    const counts = humanCounts()
+    if (hp.team) counts[hp.team]--
+    counts[wanted]++
+    if (counts[wanted] > MATCH.teamSize) return answer(false, `${teamName(wanted)} is full`)
+    if (Math.abs(counts.a - counts.b) > 1) return answer(false, 'Teams would be unbalanced')
+
+    lastSwap.set(id, now)
+    hp.team = wanted
+    write(id, PS.team, wanted)
+    // Rebalance on the spot instead of at the next 500 ms window: with the fill on this is what
+    // kicks a bot from the side we joined; the same pass adds a fresh one to the side we left,
+    // so the room is back to 3v3 within a tick instead of sitting at 4v2.
+    lastBalance = now
+    balance()
+    // Kill-less respawn: no death, no score, straight to the new team's spawn with the usual
+    // invincibility. Somebody who is waiting to respawn keeps their timer (swapping is not a way
+    // to skip it) — that pending respawn already uses the new team's spawn.
+    if (hp.alive) respawn(hp, now)
+    return answer(true)
+  }
+
+  const offTeam = room.rpc.register<TeamRequest>(RPCS.team, (payload, sender) => {
+    if (!room.isHost()) return
+    // The sender id is the only identity we trust; the payload only carries the wish.
+    const id = sender?.id
+    if (!id) return
+    void room.rpc.call(RPCS.teamResult, requestTeam(id, payload?.team as TeamId), 'all')
+  })
 
   // --- damage --------------------------------------------------------------
 
@@ -418,8 +518,10 @@ export function startHostAuthority(
     stop() {
       window.clearInterval(timer)
       offHit()
+      offTeam()
       offHostChange()
       players.clear()
+      lastSwap.clear()
       active = null
     },
     submitHit: (hit) => applyHit(hit, room.me.id),
@@ -437,6 +539,7 @@ export function startHostAuthority(
       lastBalance = clock.now()
       balance()
     },
+    requestTeam,
     respawnAll,
     respawnPlayer(id) {
       if (!id || !room.isHost()) return false

@@ -15,7 +15,13 @@ import type {
   ShotEvent,
   TeamId,
 } from '../types'
-import { PS, RPCS } from './protocol'
+import {
+  PS,
+  RPCS,
+  TEAM_SWAP_TIMEOUT_MS,
+  type TeamRequest,
+  type TeamResult,
+} from './protocol'
 import { isBotPlayer, type Room } from './room'
 import { createInterpolator, type Interpolator, type NetClock, type PoseOut } from './sync'
 
@@ -246,6 +252,38 @@ export function bindNetToRegistry(
       lastRaw.clear()
     },
   }
+}
+
+/**
+ * Ask the host to move us to `team` (the Esc menu's Team row).
+ *
+ * The answer cannot come back as an RPC return value — `room.rpc.register` drops what a handler
+ * returns — so the host broadcasts a `teamResult` and this filters it by player id. A host that
+ * never answers (migration mid-request, dropped packet) resolves as a refusal rather than
+ * leaving the menu stuck on "…".
+ */
+export function requestTeamSwap(
+  room: Room,
+  team: TeamId,
+  timeoutMs = TEAM_SWAP_TIMEOUT_MS,
+): Promise<TeamResult> {
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (result: TeamResult) => {
+      if (settled) return
+      settled = true
+      window.clearTimeout(timer)
+      off()
+      resolve(result)
+    }
+    const off = room.rpc.register<TeamResult>(RPCS.teamResult, (result) => {
+      if (result?.player === room.me.id) finish(result)
+    })
+    const timer = window.setTimeout(() => {
+      finish({ player: room.me.id, team, ok: false, reason: 'The host did not answer' })
+    }, timeoutMs)
+    void room.rpc.call(RPCS.team, { team } satisfies TeamRequest, 'host')
+  })
 }
 
 function numberOr(value: unknown, fallback: number): number {

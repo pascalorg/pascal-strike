@@ -119,6 +119,17 @@ export const RPCS = {
    * mirrors the result into the `doors` room state for late joiners.
    */
   door: 'door',
+  /**
+   * HOST — TeamRequest. Teams stay host-authoritative: the Esc menu asks, the host decides
+   * (balance, cooldown, bot rebalance) and answers with `teamResult`.
+   */
+  team: 'team',
+  /**
+   * ALL — TeamResult. Playroom has no "reply to one player" mode and our `rpc.register`
+   * wrapper drops handler return values, so the host's answer is a broadcast that every
+   * client filters by `player`.
+   */
+  teamResult: 'teamResult',
 } as const
 
 export type RpcName = (typeof RPCS)[keyof typeof RPCS]
@@ -134,6 +145,12 @@ export const HIT_MAX_DESYNC_M = 3
 
 /** How many recent shot ids the host remembers to reject replays. */
 export const SEEN_SHOTS = 512
+
+/** One accepted team swap per player per this long (host-enforced). */
+export const TEAM_SWAP_COOLDOWN_MS = 10_000
+
+/** How long the menu waits for the host's `teamResult` before giving up on a swap. */
+export const TEAM_SWAP_TIMEOUT_MS = 4_000
 
 export const DEFAULT_PLAYER_STATES: Record<string, unknown> = {
   [PS.name]: '',
@@ -166,6 +183,21 @@ export interface DoorEvent {
 /** Value of the `doors` room state: `{ [DoorInfo.id]: open }` for the current map. */
 export type DoorStates = Record<string, boolean>
 
+/** "Move me to the other team." The host trusts the sender id, never the payload. */
+export interface TeamRequest {
+  team: TeamId
+}
+
+/** The host's answer to one `team` request. Broadcast; only `player` acts on it. */
+export interface TeamResult {
+  player: string
+  /** The team that was asked for (not necessarily the one the player ends up on). */
+  team: TeamId
+  ok: boolean
+  /** Why it was refused, ready to show in the menu ("Teams would be unbalanced"). */
+  reason?: string
+}
+
 /** Payload of every RPC, keyed by name — lets `rpc.register` stay type safe. */
 export interface RpcPayloads {
   shot: ShotEvent
@@ -175,4 +207,6 @@ export interface RpcPayloads {
   respawn: RespawnEvent
   fell: FellEvent
   door: DoorEvent
+  team: TeamRequest
+  teamResult: TeamResult
 }

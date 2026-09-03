@@ -193,9 +193,11 @@ canvas {
  * the card while the game moves.
  */
 .ps-screen--glass {
+  /* Room at the bottom for the toast, which floats free of the card. */
+  padding-bottom: 88px;
   background: rgba(9, 9, 11, 0.55);
-  -webkit-backdrop-filter: blur(6px) saturate(0.9);
-  backdrop-filter: blur(6px) saturate(0.9);
+  -webkit-backdrop-filter: blur(3px) saturate(0.9);
+  backdrop-filter: blur(3px) saturate(0.9);
 }
 .ps-screen--glass::before {
   display: none;
@@ -208,6 +210,91 @@ canvas {
 }
 .ps-card--menu .ps-actions {
   margin-top: 18px;
+}
+
+/* Team row: two cards with the side's colour and its head count (bots included). */
+.ps-teams {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.ps-team-pick {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 46px;
+  padding: 0 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  background: var(--card-2);
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+}
+.ps-team-pick--a {
+  --team: var(--team-a);
+}
+.ps-team-pick--b {
+  --team: var(--team-b);
+}
+.ps-team-pick:hover:not([disabled]) {
+  color: var(--fg);
+  border-color: color-mix(in srgb, var(--team) 45%, var(--border-strong));
+}
+.ps-team-pick[aria-pressed='true'] {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--team) 16%, var(--card-2));
+  border-color: color-mix(in srgb, var(--team) 60%, var(--border-strong));
+}
+.ps-team-pick[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ps-team-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--team);
+  flex: none;
+}
+.ps-team-name {
+  flex: 1;
+  text-align: left;
+}
+.ps-team-count {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--fg);
+}
+
+/* The host's answer to a swap, in the kill feed's clothes, under the card. */
+.ps-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translate(-50%, 10px);
+  max-width: min(420px, 86vw);
+  padding: 9px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(10, 10, 12, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  font-size: 13px;
+  color: var(--fg);
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--t-med), transform var(--t-med);
+}
+.ps-toast.is-on {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 .ps-brand {

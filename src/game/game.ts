@@ -16,7 +16,7 @@ import { createInput } from '../engine/input'
 import { createLoaders } from '../engine/loaders'
 import { createRenderer, type Engine } from '../engine/renderer'
 import { createNavMeshHelper } from '../map/navmesh'
-import { bindNetToRegistry } from '../net/client'
+import { bindNetToRegistry, requestTeamSwap } from '../net/client'
 import {
   BOTS_FILL_DEFAULT,
   botsFillFrom,
@@ -27,6 +27,7 @@ import {
   type DoorEvent,
   type DoorStates,
   type FellEvent,
+  type TeamResult,
 } from '../net/protocol'
 import type { Room } from '../net/room'
 import { createClock, createSnapshotSender } from '../net/sync'
@@ -501,6 +502,27 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     return [right / length, forward / length]
   }
 
+  // --- teams (W4-C) --------------------------------------------------------
+  // Sides are host-authoritative like the rest of the rules: the menu asks, the host answers.
+  // On the host itself there is no round trip — we hold the authority, so we call it directly.
+
+  function teamCounts(): { a: number; b: number } {
+    const counts = { a: 0, b: 0 }
+    for (const entity of registry.list()) counts[entity.team]++
+    return counts
+  }
+
+  function requestTeam(team: TeamId): Promise<TeamResult> {
+    const authority = hostSide.authority
+    if (authority) {
+      const result = authority.requestTeam(room.me.id, team)
+      // Tell everyone else too: their menus read the counts from the same broadcast path.
+      void room.rpc.call(RPCS.teamResult, result, 'others')
+      return Promise.resolve(result)
+    }
+    return requestTeamSwap(room, team)
+  }
+
   // --- menu, debug overlays ------------------------------------------------
 
   const menu = createPauseMenu({
@@ -512,6 +534,9 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       if (hostSide.authority) hostSide.authority.setMap(next)
       else room.setGlobal(GS.map, next, true)
     },
+    teams: teamCounts,
+    myTeam: () => registry.local?.team ?? null,
+    onTeam: requestTeam,
     botsFill: () => botsFillFrom(room.getGlobal<unknown>(GS.botsFill)),
     setBotsFill: (on) => {
       // The menu only offers this to the host; the authority kicks or refills on its next tick.
@@ -641,6 +666,10 @@ export async function startGame(opts: GameOptions): Promise<Game> {
         return botsFillFrom(room.getGlobal<unknown>(GS.botsFill))
       },
       /** No argument = read the Esc menu; a boolean opens or closes it (no pointer needed). */
+      /** Ask the host for a team, exactly like the menu's Team row. Resolves with its answer. */
+      team: (team: TeamId) => requestTeam(team),
+      /** Heads per team, bots included — what the menu's Team row shows. */
+      teams: () => teamCounts(),
       menu: (open?: boolean) => {
         if (open === true) menu.open()
         else if (open === false) menu.close()
