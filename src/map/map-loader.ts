@@ -4,7 +4,16 @@
  * Works for Pascal exports (levels/zones/spawns/doors from glTF extras) and for a plain GLB from
  * anywhere — the latter simply produces empty registries and one big static collider.
  */
-import { Box3, FrontSide, Group, Material, Mesh, Object3D, Vector3 } from 'three'
+import {
+  Box3,
+  FrontSide,
+  Group,
+  Material,
+  Mesh,
+  MeshStandardMaterial,
+  Object3D,
+  Vector3,
+} from 'three'
 import { loadGltf, type Loaders } from '../engine/loaders'
 import { batchOpenableLeaves, batchStaticMeshes } from './batch'
 import {
@@ -114,6 +123,17 @@ function resolveZoneFloor(zone: ZoneInfo, world: ReturnType<typeof createWorldQu
   }
 }
 
+/**
+ * Roughness floor for non-metals (W5-C). Pascal exports textured surfaces at roughness 0.5,
+ * which under a sky environment map turns stone and plaster into wet plastic: a broad specular
+ * sheen that hides the albedo and crawls as the player walks. Metals (handles, hinges) keep
+ * their own roughness — they are supposed to shine.
+ */
+const MIN_ROUGHNESS = 0.55
+const METAL_THRESHOLD = 0.3
+/** How much of `scene.environment` a map material takes. 1 = whatever the environment says. */
+const ENV_MAP_INTENSITY = 1
+
 function prepareMaterials(root: Object3D): void {
   root.traverse((obj) => {
     const mesh = obj as Mesh
@@ -124,11 +144,23 @@ function prepareMaterials(root: Object3D): void {
 
     const material = mesh.material
     if (Array.isArray(material)) {
-      for (const m of material) applySide(m)
+      for (const m of material) prepareMaterial(m)
     } else if (material) {
-      applySide(material)
+      prepareMaterial(material)
     }
   })
+}
+
+function prepareMaterial(material: Material): void {
+  applySide(material)
+
+  const standard = material as MeshStandardMaterial
+  if (!standard.isMeshStandardMaterial) return
+  standard.envMapIntensity = ENV_MAP_INTENSITY
+  // Glass keeps its mirror finish; everything else gets the matte floor.
+  if (!standard.transparent && (standard.metalness ?? 0) < METAL_THRESHOLD) {
+    standard.roughness = Math.max(standard.roughness ?? 1, MIN_ROUGHNESS)
+  }
 }
 
 function applySide(material: Material): void {
