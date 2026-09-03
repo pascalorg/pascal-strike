@@ -227,6 +227,12 @@ interface Sample {
   c: number
   /** Sender stamp — ordering and spacing only. */
   t: number
+  /**
+   * Set when this sample is farther from the one before it than a player can move in the
+   * time between them: a respawn, a map change, a fall-out. Shown as a jump, never blended
+   * with its predecessor and never used as a velocity.
+   */
+  teleport: boolean
 }
 
 export function createInterpolator(
@@ -265,7 +271,7 @@ export function createInterpolator(
 
   const acquire = (): Sample => {
     if (buf.length >= BUFFER_SIZE) return buf.shift()!
-    return { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, c: 0, t: 0 }
+    return { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, c: 0, t: 0, teleport: false }
   }
 
   const state: Interpolator = {
@@ -296,6 +302,16 @@ export function createInterpolator(
       delay += (target - delay) * DELAY_FOLLOW
 
       const sample = acquire()
+      // A jump no player could have made in `gap` ms is a teleport (respawn, map change): it
+      // must be shown as one. Interpolating across it slides the avatar across the map, and
+      // extrapolating from it flings the avatar past its spawn and yanks it back.
+      sample.teleport = !!newest && (() => {
+        const dx = snapshot.x - newest.x
+        const dy = snapshot.y - newest.y
+        const dz = snapshot.z - newest.z
+        const seconds = Math.max(snapshot.t - newest.t, MIN_VELOCITY_SPAN_MS) / 1000
+        return Math.sqrt(dx * dx + dy * dy + dz * dz) > MAX_SPEED * seconds + 0.1
+      })()
       sample.x = snapshot.x
       sample.y = snapshot.y
       sample.z = snapshot.z
@@ -349,7 +365,8 @@ export function createInterpolator(
         const e = ahead / MAX_EXTRAPOLATION_MS
         const eased = MAX_EXTRAPOLATION_MS * (e - 0.5 * e * e)
         // A stale or too-tight pair says nothing about the current velocity: hold instead.
-        const k = span >= MIN_VELOCITY_SPAN_MS && span <= MAX_SPAN_MS ? eased / span : 0
+        const k =
+          !newest.teleport && span >= MIN_VELOCITY_SPAN_MS && span <= MAX_SPAN_MS ? eased / span : 0
         rawX = newest.x + (newest.x - prev.x) * k
         rawY = newest.y + (newest.y - prev.y) * k
         rawZ = newest.z + (newest.z - prev.z) * k
@@ -368,7 +385,7 @@ export function createInterpolator(
         // crawling the whole way at a fraction of walking speed.
         const from = span > MAX_SPAN_MS ? b.t - MAX_SPAN_MS : a.t
         const width = b.t - from
-        const t = width > 0 ? clamp((target - from) / width, 0, 1) : 1
+        const t = b.teleport ? 1 : width > 0 ? clamp((target - from) / width, 0, 1) : 1
         rawX = a.x + (b.x - a.x) * t
         rawY = a.y + (b.y - a.y) * t
         rawZ = a.z + (b.z - a.z) * t

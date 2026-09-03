@@ -194,6 +194,41 @@ test('a teleport snaps instead of sliding across the map', () => {
   expect(position.z).toBeCloseTo(30, 3)
 })
 
+test('a respawn mid-feed shows as one jump: no slide across the gap, no overshoot past the spawn', () => {
+  const id = 'respawn'
+  const interp = createInterpolator(entity(id), () => local)
+  const out: PoseOut = { yaw: 0, pitch: 0, crouching: false, speed: 0 }
+  const position = new Vector3()
+  let local = 0
+  const xs: number[] = []
+  // A steady 5 m/s walk toward +x, then a snapshot 30 m away 50 ms after the last one (the
+  // respawn), then standing still at the spawn — every 50 ms, with 45 ms of latency.
+  const snapAt = (t: number): PlayerSnapshot => ({
+    x: t < 1000 ? (t / 1000) * 5 : 30,
+    y: 0,
+    z: 0,
+    yaw: 0,
+    pitch: 0,
+    c: 0,
+    t: 3_000_000 + t,
+  })
+  for (let step = 0; step * FRAME_MS < 2500; step++) {
+    local = step * FRAME_MS
+    const sent = Math.floor((local - 45) / 50) * 50
+    if (sent >= 0) interp.push(snapAt(sent))
+    if (interp.sample(position, out)) xs.push(position.x)
+  }
+  // Never past the spawn (the old code extrapolated the 30 m / 50 ms "velocity" for 100 ms).
+  expect(Math.max(...xs)).toBeLessThanOrEqual(30.001)
+  // Never in the gap between the walk (x <= ~5) and the spawn (x = 30).
+  for (const x of xs) expect(x <= 5.5 || x >= 29.999).toBe(true)
+  // Exactly one frame makes the jump.
+  let jumps = 0
+  for (let i = 1; i < xs.length; i++) if (xs[i] - xs[i - 1] > 1) jumps++
+  expect(jumps).toBe(1)
+  expect(xs[xs.length - 1]).toBeCloseTo(30, 3)
+})
+
 function wrap(a: number): number {
   let v = a
   while (v > Math.PI) v -= Math.PI * 2
