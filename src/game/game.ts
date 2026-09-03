@@ -15,6 +15,7 @@ import { createEventBus } from '../engine/events'
 import { createInput } from '../engine/input'
 import { createLoaders } from '../engine/loaders'
 import { createRenderer, type Engine } from '../engine/renderer'
+import { createGlassSystem, type GlassSystem } from '../map/glass'
 import { createNavMeshHelper } from '../map/navmesh'
 import { bindNetToRegistry, requestTeamSwap } from '../net/client'
 import {
@@ -28,6 +29,8 @@ import {
   type DoorEvent,
   type DoorStates,
   type FellEvent,
+  type GlassEvent,
+  type GlassStates,
   type TeamResult,
 } from '../net/protocol'
 import type { Room } from '../net/room'
@@ -76,6 +79,8 @@ const RESPAWN_RPC_GRACE_MS = 600
 const _hittables: Hittable[] = []
 const _damageDir = new Vector3()
 const _shotOrigin = new Vector3()
+const _glassPoint = new Vector3()
+const _glassDir = new Vector3()
 
 export async function startGame(opts: GameOptions): Promise<Game> {
   const { room, mount } = opts
@@ -131,6 +136,11 @@ export async function startGame(opts: GameOptions): Promise<Game> {
    * projectiles, doors, environment) must stop touching it in that window: a bot asking a
    * freed recast navmesh for a path hangs the main thread for good.
    */
+  /**
+   * Breakable glass belongs to the map, but `map-session.ts` is another package's file this
+   * wave, so the system lives here beside the session and is rebuilt and freed with it.
+   */
+  let glass: GlassSystem | null = null
   let session: MapSession | null = await buildSession(selection)
   const localPlayer = makeLocalPlayer(session)
 
@@ -159,7 +169,55 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       if (authority) authority.submitHit(hit)
       else if (hit.by === room.me.id) void room.rpc.call(RPCS.hit, hit, 'host')
     })
+
+    // --- glass (W4-A + W4-C) ---
+    // A pane shatters where its shot was simulated by its owner, and nowhere else. Every client
+    // simulates every paintball, but only the shooter's ball stops at players (`detectPlayers`),
+    // so a ball on somebody else's screen flies on through a body and would break windows the
+    // shooter never touched. Same rule as a hit, then: the owner (the host for its bots) breaks
+    // it and broadcasts; everyone else shatters when the `glass` RPC lands, which also covers a
+    // client that never saw the shot at all.
+    const glassSystem = createGlassSystem(built.map, engine.scene)
+    glass?.dispose()
+    glass = glassSystem
+    built.projectiles.onGlassHit((hit, shot) => {
+      const mine = shot.by === room.me.id || (!!hostSide.authority && registry.get(shot.by)?.isBot)
+      if (!mine) return
+      const id = paneIdOf(built, hit.object)
+      if (!id || glassSystem.isBroken(id)) return
+      _glassDir.set(shot.dir[0], shot.dir[1], shot.dir[2])
+      breakGlass(glassSystem, id, hit.point, _glassDir)
+      void room.rpc.call(RPCS.glass, { id, by: shot.by } as GlassEvent, 'all')
+    })
+    // Late join / map change: adopt the panes that are already gone. Ageing the shards out by a
+    // second means the house looks lived-in instead of exploding on the first frame.
+    const broken = room.getGlobal<GlassStates>(GS.glass)
+    if (Array.isArray(broken)) {
+      for (const id of broken) glassSystem.break(id)
+      glassSystem.update(1)
+    }
     return built
+  }
+
+  /** `GlassPane.id` of the pane that mesh belongs to — `HitResult.object` is the pane itself. */
+  function paneIdOf(current: MapSession, object: unknown): string | null {
+    const panes = current.map.breakables
+    if (!panes) return null
+    for (const pane of panes) if (pane.mesh === object) return pane.id
+    return null
+  }
+
+  /** Shatter one pane locally: shards, sound, and (on the host) the room state for late joiners. */
+  function breakGlass(
+    system: GlassSystem,
+    id: string,
+    point?: Vector3,
+    dir?: Vector3,
+  ): boolean {
+    if (!system.break(id, point, dir)) return false
+    audio.play('glassBreak', point, localPlayer.listener)
+    if (room.isHost()) room.setGlobal(GS.glass, system.states(), true)
+    return true
   }
 
   /** Built once and kept across map changes — `setSession` swaps the world under it. */
@@ -219,12 +277,19 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     const previous = session
     loading.show()
     loading.set(0, `Loading ${next.name}`)
-    // Door ids are per map: the previous house's state must not leak into the new one.
-    if (room.isHost()) room.setGlobal(GS.doors, {}, true)
+    // Door and pane ids are per map: the previous house's state must not leak into the new one.
+    if (room.isHost()) {
+      room.setGlobal(GS.doors, {}, true)
+      room.setGlobal(GS.glass, [], true)
+    }
     // From here until the new session exists, nothing may touch the old one. Clearing
     // `session` freezes the update/render hooks, and the bot runner — which holds the recast
     // navmesh `dispose()` is about to free — is stopped *before* that free, not after.
     session = null
+    // The panes belong to the house that is about to go; free the shards with it rather than
+    // leaving them hanging in an empty scene while the next map loads.
+    glass?.dispose()
+    glass = null
     hostSide.suspend()
     remotePlayers.clear()
     if (navHelper) {
@@ -352,6 +417,15 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     publishDoorStates()
   })
 
+  const offGlassRpc = room.rpc.register<GlassEvent>(RPCS.glass, (ev) => {
+    const system = glass
+    if (!ev?.id || !system || system.isBroken(ev.id)) return
+    // No impact point on the wire: the shards fall from the pane's own centre. Whoever
+    // simulated the shot already broke it with the real one.
+    const pane = session?.map.breakables?.find((p) => p.id === ev.id)
+    breakGlass(system, ev.id, pane ? pane.mesh.getWorldPosition(_glassPoint) : undefined)
+  })
+
   /** Runs after `frameUpdate`, so the ray uses this frame's camera pose. */
   function updateInteract(pressed: boolean): void {
     if (!session || localPlayer.dead) {
@@ -422,6 +496,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     remotePlayers.update(now, localPlayer.listener.position)
 
     session.doors.update(dt)
+    glass?.update(dt)
     updateInteract(interactPressed)
     interactPressed = false
 
@@ -641,10 +716,12 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       sender.stop()
       binding.stop()
       offDoorRpc()
+      offGlassRpc()
       hostSide.dispose()
       clock.stop()
       remotePlayers.dispose()
       localPlayer.dispose()
+      glass?.dispose()
       session?.dispose()
       loaders.dispose()
       engine.dispose()
@@ -708,6 +785,12 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       interact: () => {
         interactPressed = true
       },
+      /** Broken panes here and in the room state — the glass equivalent of `doors()`. */
+      glass: () => ({
+        panes: session?.map.breakables?.length ?? 0,
+        broken: glass?.states() ?? [],
+        global: room.getGlobal<GlassStates>(GS.glass) ?? null,
+      }),
       doors: () => ({
         states: session?.doors.openStates() ?? null,
         target: interactTarget && { id: interactTarget.id, kind: interactTarget.kind ?? 'door' },

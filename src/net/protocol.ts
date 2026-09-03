@@ -76,6 +76,12 @@ export const GS = {
    * `botsFillFrom`; a missing value (old rooms) reads as ON.
    */
   botsFill: 'botsFill',
+  /**
+   * GlassStates — the ids of every pane broken in the current map, mirrored by the host on
+   * every `glass` RPC so a late joiner walks into the house with the same windows missing.
+   * Cleared on a map change: pane ids are per map.
+   */
+  glass: 'glass',
 } as const
 
 /** What `botsFill` means when the room state has no value for it. */
@@ -121,6 +127,12 @@ export const RPCS = {
    * mirrors the result into the `doors` room state for late joiners.
    */
   door: 'door',
+  /**
+   * ALL — GlassEvent. Like doors, a pane is not host-authoritative: whoever's paintball went
+   * through it says so and everyone shatters the same id. Receivers dedupe on `isBroken`, so a
+   * client that already broke it from its own simulation does nothing.
+   */
+  glass: 'glass',
   /**
    * HOST — TeamRequest. Teams stay host-authoritative: the Esc menu asks, the host decides
    * (balance, cooldown, bot rebalance) and answers with `teamResult`.
@@ -185,6 +197,17 @@ export interface DoorEvent {
 /** Value of the `doors` room state: `{ [DoorInfo.id]: open }` for the current map. */
 export type DoorStates = Record<string, boolean>
 
+/** Somebody's paintball shattered a pane. */
+export interface GlassEvent {
+  /** `GlassPane.id` (`glass:<n>` in GLB traversal order, the same on every client). */
+  id: string
+  /** Who fired the shot that broke it. */
+  by: string
+}
+
+/** Value of the `glass` room state: the ids of the panes broken in the current map. */
+export type GlassStates = string[]
+
 /** "Move me to the other team." The host trusts the sender id, never the payload. */
 export interface TeamRequest {
   team: TeamId
@@ -209,6 +232,7 @@ export interface RpcPayloads {
   respawn: RespawnEvent
   fell: FellEvent
   door: DoorEvent
+  glass: GlassEvent
   team: TeamRequest
   teamResult: TeamResult
 }
