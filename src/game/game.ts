@@ -26,6 +26,7 @@ import {
   botsFillValue,
   GS,
   PS,
+  HOST_STABLE_MS,
   RPCS,
   teamFrom,
   type DoorEvent,
@@ -116,6 +117,10 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   if (room.isHost() && !botsFillIsSet(room.getGlobal<unknown>(GS.botsFill))) {
     room.setGlobal(GS.botsFill, botsFillValue(opts.botsFill ?? BOTS_FILL_DEFAULT), true)
   }
+
+  // Started before the renderer so the three seconds it needs to believe `isHost()` are spent
+  // loading the map rather than making the first host wait (see `createHostGate`).
+  const hostGate = createHostGate(room)
 
   const engine = await createRenderer(mount)
   const loaders = createLoaders(engine.renderer)
@@ -247,7 +252,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   ): boolean {
     if (!system.break(id, point, dir)) return false
     audio.play('glassBreak', point, localPlayer.listener)
-    if (room.isHost()) room.setGlobal(GS.glass, system.states(), true)
+    if (hostSide.authority) room.setGlobal(GS.glass, system.states(), true)
     return true
   }
 
@@ -311,7 +316,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     loading.show()
     loading.set(0, `Loading ${next.name}`)
     // Door and pane ids are per map: the previous house's state must not leak into the new one.
-    if (room.isHost()) {
+    if (hostSide.authority) {
       room.setGlobal(GS.doors, {}, true)
       room.setGlobal(GS.glass, [], true)
     }
@@ -355,9 +360,10 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   // --- host side (rules + bots), only while we are the host ----------------
   // Built after the session exists: the authority ticks once on creation and its spawn
   // provider reads `session`. The callbacks above only touch `hostSide` from later frames.
+  // It is handed the DEBOUNCED room, so nothing below it can start on a one-second blip.
 
   const hostSide = createHostSide({
-    room,
+    room: hostGate.room,
     registry,
     events,
     clock,
@@ -460,7 +466,8 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   let interactTarget: DoorInfo | null = null
 
   function publishDoorStates(): void {
-    if (!room.isHost() || !session) return
+    // The authority, not `room.isHost()`: a client whose flag flickered must not write globals.
+    if (!hostSide.authority || !session) return
     room.setGlobal(GS.doors, session.doors.openStates(), true)
   }
 
@@ -819,7 +826,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     setBotsFill: (on) => {
       // The menu only offers this to the host; the authority kicks or refills on its next tick.
       if (hostSide.authority) hostSide.authority.setBotsFill(on)
-      else if (room.isHost()) room.setGlobal(GS.botsFill, botsFillValue(on), true)
+      else if (hostGate.confirmed) room.setGlobal(GS.botsFill, botsFillValue(on), true)
     },
     onAudio: (on) => {
       muted = !on
@@ -891,7 +898,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     myTeam: myTeam(),
     teamScreen: teamScreen.mode,
     choosing: binding.spectators().map((s) => s.name),
-    hostConfirmed: !!hostSide.authority,
+    hostConfirmed: hostGate.confirmed,
   })
   const debugPanel = createDebugPanel(mount, debugMode, status)
 
@@ -914,6 +921,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       offGlassRpc()
       window.clearTimeout(lockFallbackTimer)
       hostSide.dispose()
+      hostGate.stop()
       clock.stop()
       remotePlayers.dispose()
       localPlayer.dispose()
@@ -956,7 +964,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       botsFill: (on?: boolean) => {
         if (typeof on === 'boolean') {
           if (hostSide.authority) hostSide.authority.setBotsFill(on)
-          else if (room.isHost()) room.setGlobal(GS.botsFill, botsFillValue(on), true)
+          else if (hostGate.confirmed) room.setGlobal(GS.botsFill, botsFillValue(on), true)
         }
         return botsFillFrom(room.getGlobal<unknown>(GS.botsFill))
       },
@@ -1022,6 +1030,71 @@ export async function startGame(opts: GameOptions): Promise<Game> {
 // ---------------------------------------------------------------------------
 
 const EMPTY_POSITIONS: Vector3[] = []
+
+/** How often the gate below samples `room.isHost()`. */
+const HOST_POLL_MS = 1_000
+
+interface HostGate {
+  /** Has `room.isHost()` held one value long enough to act on it? */
+  readonly confirmed: boolean
+  /** The room with a debounced `isHost()` and `onHostChange` — hand this to the host side. */
+  readonly room: Room
+  stop(): void
+}
+
+/**
+ * `room.isHost()` with the blips filtered out.
+ *
+ * A Playroom socket hiccup flipped a guest's `isHost()` true for about a second. That was enough
+ * for it to start a whole authority — adopt the match, load the bot runner, write player states —
+ * next to the real host, and for that second two clients owned the same room. Nothing downstream
+ * can tell a blip from a migration, so the filter goes here: the value has to hold for
+ * `HOST_STABLE_MS` of 1 Hz polling before anyone acts on it, in either direction. A real
+ * migration then pays three quiet seconds, which nobody notices — the authority is idempotent and
+ * adopts the published state when it does start — and a blip pays nothing at all.
+ */
+function createHostGate(room: Room): HostGate {
+  let raw = room.isHost()
+  let stableSince = Date.now()
+  let confirmed = false
+  const listeners = new Set<(isHost: boolean) => void>()
+
+  const poll = () => {
+    const now = Date.now()
+    const value = room.isHost()
+    if (value !== raw) {
+      raw = value
+      stableSince = now
+      return
+    }
+    if (value === confirmed || now - stableSince < HOST_STABLE_MS) return
+    confirmed = value
+    const held = Math.round((now - stableSince) / 1000)
+    console.info(
+      `[host] isHost() has been ${value} for ${held} s — ${value ? 'taking' : 'dropping'} the authority`,
+    )
+    for (const cb of listeners) cb(confirmed)
+  }
+  const timer = window.setInterval(poll, HOST_POLL_MS)
+
+  return {
+    get confirmed() {
+      return confirmed
+    },
+    room: {
+      ...room,
+      isHost: () => confirmed,
+      onHostChange(cb) {
+        listeners.add(cb)
+        return () => listeners.delete(cb)
+      },
+    },
+    stop() {
+      window.clearInterval(timer)
+      listeners.clear()
+    },
+  }
+}
 
 /** The host publishes the map; joiners wait for it (Playroom replays global state on join). */
 async function resolveMapSelection(
