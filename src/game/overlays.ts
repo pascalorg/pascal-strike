@@ -6,7 +6,7 @@
  * Everything here is plain DOM on the shared Pascal tokens from `ui/styles.css`; the in-match
  * HUD proper lives in `ui/hud.ts` and is not touched by this file.
  */
-import type { PerspectiveCamera } from 'three'
+import type { Mesh, PerspectiveCamera } from 'three'
 import { Box3, Vector3 } from 'three'
 import { BUILTIN_MAPS, MATCH, TEAMS } from '../config'
 import type { Room } from '../net/room'
@@ -331,58 +331,221 @@ export interface OverviewCamera {
 /** One turn per this long, and how far down the camera tilts. */
 const ORBIT_PERIOD_S = 40
 const ORBIT_PITCH_DEG = 25
-const ORBIT_MIN_RADIUS = 12
-/** Clearance between the building's corner and the camera's circle. */
-const ORBIT_MARGIN = 6
+/**
+ * How the house sits in the frame: over the turn it takes this much of the height on average
+ * (a corner-on view is taller than a face-on one) and never more than `_MAX`, never more than
+ * `ORBIT_FILL_WIDTH` of the width, and its centre lands `ORBIT_CENTRE_FROM_TOP` down from the
+ * top — the card is a bottom sheet (`.ps-screen--teams`), so the house belongs in the upper two
+ * thirds.
+ */
+const ORBIT_FILL_HEIGHT = 0.6
+const ORBIT_FILL_HEIGHT_MAX = 0.66
+const ORBIT_FILL_WIDTH = 0.92
+const ORBIT_CENTRE_FROM_TOP = 0.35
+/** The circle never tightens past this, whatever the box says (a broken export, a shed). */
+const ORBIT_MIN_RADIUS = 4
+const ORBIT_MAX_RADIUS = 200
+/** A mesh wider than this on X or Z is the lot, not the house (the loader's terrain rule). */
+const BUILDING_MAX_EXTENT = 20
+/** Angles sampled around the circle when fitting: the house is a box, and a box turns. */
+const ORBIT_FIT_SAMPLES = 12
+const ORBIT_FIT_STEPS = 20
+/**
+ * The fit measures a spread of the house's own vertices rather than its box: the box's corners
+ * stand well clear of a pitched roof, and fitting them left the house at 40 % of the frame.
+ */
+const ORBIT_FIT_POINTS = 1024
 
 const _orbitCenter = new Vector3()
 const _orbitSize = new Vector3()
 const _levelBox = new Box3()
+const _corner = new Vector3()
+const _meshSize = new Vector3()
+const _orbitTarget = new Vector3()
 
 /**
  * The BUILDING's box, not the map's. `MapData.bounds` is the collider's, and the collider
  * includes Pascal's 30 m terrain plane, which would push the circle out to 25 m and 15 m up —
- * from there the roof is the whole picture. The level nodes are the house itself.
+ * from there the roof is the whole picture. Measured from what actually renders (after batching
+ * the level nodes hold nothing but hidden originals, and the roofs live in their own batch),
+ * skipping anything lot-sized; a plain GLB with nothing else falls back to the collider's box.
  */
-function buildingBounds(map: MapData): Box3 {
+function buildingMeshes(map: MapData): Mesh[] {
+  const meshes: Mesh[] = []
+  map.root.updateMatrixWorld(true)
+  map.root.traverse((obj) => {
+    const mesh = obj as Mesh
+    if (!mesh.isMesh || !mesh.visible) return
+    const geometry = mesh.geometry
+    if (!geometry.boundingBox) geometry.computeBoundingBox()
+    if (!geometry.boundingBox) return
+    _levelBox.copy(geometry.boundingBox).applyMatrix4(mesh.matrixWorld).getSize(_meshSize)
+    if (_meshSize.x > BUILDING_MAX_EXTENT || _meshSize.z > BUILDING_MAX_EXTENT) return
+    meshes.push(mesh)
+  })
+  return meshes
+}
+
+function buildingBounds(map: MapData, meshes: Mesh[]): Box3 {
   const box = new Box3()
-  for (const level of map.levels) {
-    _levelBox.setFromObject(level.node)
-    if (!_levelBox.isEmpty()) box.union(_levelBox)
+  for (const mesh of meshes) {
+    box.union(_levelBox.copy(mesh.geometry.boundingBox!).applyMatrix4(mesh.matrixWorld))
   }
   return box.isEmpty() ? box.copy(map.bounds) : box
+}
+
+/**
+ * About `ORBIT_FIT_POINTS` of the house's vertices in world space, taken at a fixed stride
+ * across every mesh so the sample follows the geometry — where the roofs actually peak, not
+ * where their box does. Empty when the map has no building meshes (the box's corners then).
+ */
+function buildingPoints(meshes: Mesh[], box: Box3): Float32Array {
+  let total = 0
+  for (const mesh of meshes) total += mesh.geometry.getAttribute('position')?.count ?? 0
+  if (total === 0) {
+    const corners = new Float32Array(8 * 3)
+    for (let i = 0; i < 8; i++) {
+      corners[i * 3] = i & 1 ? box.max.x : box.min.x
+      corners[i * 3 + 1] = i & 2 ? box.max.y : box.min.y
+      corners[i * 3 + 2] = i & 4 ? box.max.z : box.min.z
+    }
+    return corners
+  }
+  const stride = Math.max(1, Math.floor(total / ORBIT_FIT_POINTS))
+  const points = new Float32Array(Math.ceil(total / stride) * 3)
+  let written = 0
+  let next = 0
+  let seen = 0
+  for (const mesh of meshes) {
+    const position = mesh.geometry.getAttribute('position')
+    if (!position) continue
+    for (let i = 0; i < position.count; i++, seen++) {
+      if (seen < next) continue
+      next = seen + stride
+      _corner.fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld)
+      points[written++] = _corner.x
+      points[written++] = _corner.y
+      points[written++] = _corner.z
+    }
+  }
+  return points.subarray(0, written)
 }
 
 /**
  * A slow circle around the house while the player picks a side: the match runs behind the
  * screen, so this is the only camera work the game does for a spectator.
  *
- * The radius is the spec's ~12 m, plus whatever a bigger house needs to stay in frame; the
- * height comes from that radius at 25°, so the tilt is the same on every map.
+ * The circle is fitted, not fixed: the radius is the tightest at which the house, seen from every
+ * angle of the turn, stays inside `ORBIT_FILL_HEIGHT` of the frame, and the aim point is then
+ * lowered until the house's centre sits at `ORBIT_CENTRE_FROM_TOP`. The fit is redone when the
+ * camera's aspect or field of view changes (a resize), never per frame.
  */
 export function createOverviewCamera(camera: PerspectiveCamera, map: MapData): OverviewCamera {
-  const bounds = buildingBounds(map)
+  const meshes = buildingMeshes(map)
+  const bounds = buildingBounds(map, meshes)
+  const points = buildingPoints(meshes, bounds)
   bounds.getCenter(_orbitCenter)
   bounds.getSize(_orbitSize)
   const center = _orbitCenter.clone()
-  const corner = Math.hypot(_orbitSize.x, _orbitSize.z) * 0.5
-  const radius = Math.max(ORBIT_MIN_RADIUS, corner + ORBIT_MARGIN)
-  const height = center.y + radius * Math.tan((ORBIT_PITCH_DEG * Math.PI) / 180)
-  // Aim below the middle of the house: from up here the eye wants the walls and the doorways,
-  // not the roof, and looking at the dead centre of the box puts the horizon through it.
-  const lookAt = center.clone().setY(bounds.min.y + _orbitSize.y * 0.35)
+  const tan = Math.tan((ORBIT_PITCH_DEG * Math.PI) / 180)
+  let radius = ORBIT_MIN_RADIUS
+  let aimY = bounds.min.y + _orbitSize.y * 0.35
+  let fittedAspect = 0
+  let fittedFov = 0
   let angle = 0
+
+  /** Park the camera on the circle at `a`, looking at the aim point. */
+  function place(a: number, r: number, y: number): void {
+    camera.position.set(center.x + Math.sin(a) * r, y + r * tan, center.z + Math.cos(a) * r)
+    camera.up.set(0, 1, 0)
+    _orbitTarget.set(center.x, y, center.z)
+    camera.lookAt(_orbitTarget)
+    camera.updateMatrixWorld()
+  }
+
+  // NDC extent of the house's sample points at one camera pose. Written to the four slots below.
+  let top = 0
+  let bottom = 0
+  let left = 0
+  let right = 0
+  function measure(): void {
+    top = -Infinity
+    bottom = Infinity
+    left = Infinity
+    right = -Infinity
+    for (let i = 0; i < points.length; i += 3) {
+      _corner.fromArray(points, i).project(camera)
+      if (_corner.y > top) top = _corner.y
+      if (_corner.y < bottom) bottom = _corner.y
+      if (_corner.x > right) right = _corner.x
+      if (_corner.x < left) left = _corner.x
+    }
+  }
+
+  /** The turn's fill against its three budgets, as a fraction of each: 1 means it just fits. */
+  function worstFill(r: number, y: number): number {
+    let sumY = 0
+    let maxY = 0
+    let maxX = 0
+    for (let i = 0; i < ORBIT_FIT_SAMPLES; i++) {
+      place((i / ORBIT_FIT_SAMPLES) * Math.PI * 2, r, y)
+      measure()
+      const fillY = (top - bottom) * 0.5
+      const fillX = (right - left) * 0.5
+      sumY += fillY
+      if (fillY > maxY) maxY = fillY
+      if (fillX > maxX) maxX = fillX
+    }
+    return Math.max(
+      sumY / ORBIT_FIT_SAMPLES / ORBIT_FILL_HEIGHT,
+      maxY / ORBIT_FILL_HEIGHT_MAX,
+      maxX / ORBIT_FILL_WIDTH,
+    )
+  }
+
+  /** Mean NDC y of the house's centre over the turn. */
+  function meanCentre(r: number, y: number): number {
+    let sum = 0
+    for (let i = 0; i < ORBIT_FIT_SAMPLES; i++) {
+      place((i / ORBIT_FIT_SAMPLES) * Math.PI * 2, r, y)
+      measure()
+      sum += (top + bottom) * 0.5
+    }
+    return sum / ORBIT_FIT_SAMPLES
+  }
+
+  function fit(): void {
+    fittedAspect = camera.aspect
+    fittedFov = camera.fov
+    const wantCentre = 1 - 2 * ORBIT_CENTRE_FROM_TOP
+    // Radius and aim point pull on each other (a lower aim tilts the house up the frame and
+    // changes its extent), so alternate: each pass is a bisection, three passes settle it.
+    for (let pass = 0; pass < 3; pass++) {
+      let lo = ORBIT_MIN_RADIUS
+      let hi = ORBIT_MAX_RADIUS
+      for (let step = 0; step < ORBIT_FIT_STEPS; step++) {
+        const mid = (lo + hi) * 0.5
+        if (worstFill(mid, aimY) > 1) lo = mid
+        else hi = mid
+      }
+      radius = hi
+      let yLo = bounds.min.y - _orbitSize.y * 2
+      let yHi = bounds.max.y + _orbitSize.y * 2
+      for (let step = 0; step < ORBIT_FIT_STEPS; step++) {
+        const mid = (yLo + yHi) * 0.5
+        // The house sits too low in the frame: aim lower, and it rises.
+        if (meanCentre(radius, mid) < wantCentre) yHi = mid
+        else yLo = mid
+      }
+      aimY = (yLo + yHi) * 0.5
+    }
+  }
+
   return {
     update(dt) {
+      if (camera.aspect !== fittedAspect || camera.fov !== fittedFov) fit()
       angle += (dt / ORBIT_PERIOD_S) * Math.PI * 2
-      camera.position.set(
-        center.x + Math.sin(angle) * radius,
-        height,
-        center.z + Math.cos(angle) * radius,
-      )
-      camera.up.set(0, 1, 0)
-      camera.lookAt(lookAt)
-      camera.updateMatrixWorld()
+      place(angle, radius, aimY)
     },
     reset() {
       angle = 0

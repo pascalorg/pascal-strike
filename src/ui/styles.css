@@ -285,21 +285,33 @@ canvas {
  * house — but wider, because the two rosters have to be readable side by side.
  */
 /*
- * The card sits high rather than centred: the house is what the orbit is for, and a centred
- * card lands exactly on top of it.
+ * The card is a bottom sheet: the house is what the orbit is for, so the card keeps to the lower
+ * third of the screen and the orbit frames the house in the space above it
+ * (`createOverviewCamera`). The dim and the blur stay light for the same reason.
  */
 .ps-screen--teams {
-  align-items: flex-start;
-  padding-top: clamp(28px, 9vh, 96px);
+  align-items: flex-end;
+  padding: 24px 24px clamp(16px, 4vh, 40px);
+  background: rgba(9, 9, 11, 0.3);
+  -webkit-backdrop-filter: blur(1px);
+  backdrop-filter: blur(1px);
 }
 .ps-card--teams {
-  width: min(720px, 100%);
-  background: linear-gradient(180deg, rgba(28, 28, 32, 0.9), rgba(18, 18, 21, 0.94));
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
+  width: min(760px, 100%);
+  padding: 18px 22px 14px;
+  background: linear-gradient(180deg, rgba(28, 28, 32, 0.93), rgba(18, 18, 21, 0.96));
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
 }
 .ps-card--teams .ps-title {
-  font-size: clamp(28px, 4vw, 38px);
+  font-size: clamp(22px, 2.6vw, 28px);
+}
+.ps-card--teams .ps-tagline {
+  margin: 6px 0 12px;
+}
+.ps-card--teams .ps-choosing {
+  margin-top: 12px;
+  padding-top: 10px;
 }
 .ps-picks {
   display: grid;
@@ -310,9 +322,9 @@ canvas {
   appearance: none;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  min-height: 168px;
-  padding: 14px 15px;
+  gap: 8px;
+  min-height: 128px;
+  padding: 12px 13px;
   text-align: left;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-strong);
@@ -426,13 +438,13 @@ canvas {
 }
 .ps-pick-note {
   min-height: 18px;
-  margin-top: 14px;
+  margin-top: 10px;
 }
 .ps-pick-foot {
   display: flex;
   justify-content: flex-end;
-  margin-top: 6px;
-  min-height: 32px;
+  margin-top: 4px;
+  min-height: 28px;
 }
 /* Everyone still on this screen, on every client — the counts above do not include them. */
 .ps-choosing {
