@@ -251,20 +251,16 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
     fixedUpdate(dt) {
       if (dead) return
       const source = overrideMove ? override : input.locked ? input.move : ZERO_MOVE
-      // A lighter weapon is meant to move you faster (`WEAPONS[kind].moveSpeedScale`). The
-      // controller derives its target speed from PLAYER.runSpeed alone and clamps |input| to
-      // 1, so scaling the wish vector can only ever slow the player down — the pistol's 1.05
-      // and the knife's 1.12 are inert until `CharacterController.update` takes a speed scale.
-      // TODO(W4-E, controller owner): `update(dt, input, yaw, speedScale?)`, applied to the
-      // target speed. Then this becomes `controller.update(dt, move, yaw, moveScale)`.
-      const moveScale = Math.min(1, marker.moveSpeedScale)
-      move.forward = source.forward * moveScale
-      move.right = source.right * moveScale
+      // A lighter weapon moves you faster (`WEAPONS[kind].moveSpeedScale`): the controller
+      // takes it as a target-speed multiplier, because the wish vector it would otherwise
+      // scale is clamped to 1 and could only ever slow the player down.
+      move.forward = source.forward
+      move.right = source.right
       move.jump = source.jump
       move.crouch = source.crouch
       move.walk = source.walk ?? false
       const fallSpeed = controller.state.velocity.y
-      controller.update(dt, move, yaw)
+      controller.update(dt, move, yaw, marker.moveSpeedScale)
       if (!wasGrounded && controller.state.grounded) fpsCamera.landing(fallSpeed)
       wasGrounded = controller.state.grounded
     },

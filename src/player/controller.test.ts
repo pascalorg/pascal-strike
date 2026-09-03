@@ -250,6 +250,21 @@ test('descends the 0.25 m staircase without bouncing or losing ground', () => {
   expect(maxTreadGap).toBeLessThanOrEqual(0.05)
 })
 
+test('the weapon speed scale multiplies the steady-state run speed', () => {
+  function topSpeed(scale?: number): number {
+    // Down the empty lane at x = 7.2, so nothing is hit before the speed settles.
+    const controller = spawnAt(7.2, 5)
+    const input: MoveInput = { ...idle, forward: 1 }
+    for (let index = 0; index < Math.ceil(0.8 / DT); index++) controller.update(DT, input, 0, scale)
+    return Math.hypot(controller.state.velocity.x, controller.state.velocity.z)
+  }
+  const base = topSpeed()
+  expect(base).toBeCloseTo(5.5, 3)
+  expect(topSpeed(1)).toBeCloseTo(base, 6)
+  expect(topSpeed(1.12)).toBeCloseTo(base * 1.12, 3)
+  expect(topSpeed(0.8)).toBeCloseTo(base * 0.8, 3)
+})
+
 test('never falls through the floor over 20 seconds of deterministic random input', () => {
   const controller = spawnAt(0, 4)
   let seed = 0x12345678

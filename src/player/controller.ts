@@ -160,7 +160,7 @@ class CapsuleController implements CharacterController {
     this.dynamics = buildDynamicColliders(meshes)
   }
 
-  update(dt: number, input: MoveInput, yaw: number): void {
+  update(dt: number, input: MoveInput, yaw: number, speedScale = 1): void {
     if (!(dt > 0)) return
     dt = Math.min(dt, 0.05)
 
@@ -177,7 +177,10 @@ class CapsuleController implements CharacterController {
       0,
       (-cos * input.forward - sin * input.right) * scale,
     )
-    const speed = this.state.crouching ? this.crouchSpeed : input.walk ? this.walkSpeed : this.runSpeed
+    // A lighter weapon moves you faster: the scale multiplies the target speed rather than the
+    // wish vector, which is clamped to 1 and so could only ever slow the player down.
+    const speed = (this.state.crouching ? this.crouchSpeed : input.walk ? this.walkSpeed : this.runSpeed)
+      * (speedScale > 0 ? speedScale : 0)
     const targetX = this.wish.x * speed
     const targetZ = this.wish.z * speed
     const rate = (inputLength > EPSILON ? this.accel : this.decel)
