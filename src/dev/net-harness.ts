@@ -99,7 +99,7 @@ function run(root: HTMLElement, room: Room, name: string, botsFill?: boolean): v
   const events = createEventBus()
   const registry = createEntityRegistry()
   const clock = createClock(room)
-  const binding: NetBinding = bindNetToRegistry(room, registry, events, clock)
+  const binding: NetBinding = bindNetToRegistry(room, registry, events)
 
   // --- fake locomotion -----------------------------------------------------
   const walkers = new Map<string, { x: number; z: number; yaw: number }>()
@@ -310,7 +310,7 @@ function run(root: HTMLElement, room: Room, name: string, botsFill?: boolean): v
   let optionKey = ''
   const refresh = window.setInterval(() => {
     const now = clock.now()
-    binding.update(now)
+    binding.update()
 
     const match = room.getGlobal<MatchState>(GS.match) ?? null
     const me = registry.get(room.me.id)

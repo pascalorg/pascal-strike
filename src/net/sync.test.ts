@@ -85,7 +85,7 @@ function replay(id: string, seconds: number, options: Options = {}) {
     }
     while (queue.length && queue[0].at <= local) interp.push(queue.shift()!.snap)
 
-    if (interp.sample(0, position, out)) {
+    if (interp.sample(position, out)) {
       const delta = previous ? position.distanceTo(previous) : 0
       frames.push({ local, delta, state: netStats.get(id)!.state, yaw: out.yaw, speed: out.speed })
       previous = previous ? previous.copy(position) : position.clone()
@@ -150,7 +150,7 @@ test('a dead feed coasts at most 100 ms and then holds', () => {
       const t = Math.floor(local / 50) * 50
       interp.push({ x: (speed * t) / 1000, y: 0, z: 0, yaw: 0, pitch: 0, c: 0, t: 1_000_000 + t })
     }
-    interp.sample(0, position, out)
+    interp.sample(position, out)
   }
   const lastSent = (speed * 1500) / 1000
   // Never further than the last known position plus 100 ms of coasting (eased, so ~half).
@@ -183,13 +183,13 @@ test('a teleport snaps instead of sliding across the map', () => {
     local = step * FRAME_MS
     const t = Math.floor(local / 50) * 50
     interp.push({ x: t / 1000, y: 0, z: 0, yaw: 0, pitch: 0, c: 0, t: 2_000_000 + t })
-    interp.sample(0, position, out)
+    interp.sample(position, out)
   }
   // The respawn path: reset, then one snapshot 30 m away.
   interp.reset()
   interp.push({ x: 30, y: 0, z: 30, yaw: 1, pitch: 0, c: 0, t: 2_000_000 + 1500 })
   local += FRAME_MS
-  interp.sample(0, position, out)
+  interp.sample(position, out)
   expect(position.x).toBeCloseTo(30, 3)
   expect(position.z).toBeCloseTo(30, 3)
 })

@@ -206,10 +206,10 @@ export interface Interpolator {
   push(snapshot: PlayerSnapshot): void
   /**
    * Writes the interpolated pose into `outPos`/`out`. False when nothing has arrived yet.
-   * Call it once per rendered frame: the playout clock is local and continuous, so the
-   * argument is only kept for callers that still pass the net clock — it is not read.
+   * Call it once per rendered frame: the playout clock is local (`performance.now()`) and
+   * continuous, so no caller has to hand it a time.
    */
-  sample(now: number, outPos: Vector3, out: PoseOut): boolean
+  sample(outPos: Vector3, out: PoseOut): boolean
   /** Date.now() when the newest snapshot was received locally (0 = never). */
   readonly receivedAt: number
   /** Sender timestamp of the newest snapshot. */
@@ -313,7 +313,7 @@ export function createInterpolator(
       stats.jitter = Math.round(jitter)
     },
 
-    sample(_now: number, outPos: Vector3, out: PoseOut): boolean {
+    sample(outPos: Vector3, out: PoseOut): boolean {
       const now = nowLocal()
       const dt = lastSampleAt ? Math.min(0.1, Math.max(1e-4, (now - lastSampleAt) / 1000)) : 1 / 60
       lastSampleAt = now

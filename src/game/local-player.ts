@@ -128,6 +128,8 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
   viewModel.setTeam(entity.team)
   const marker: Marker = createMarker({ ownerId: entity.id, team: entity.team, now: opts.now })
   const melee: Melee = createMelee({ ownerId: entity.id, team: entity.team, now: opts.now })
+  /** Swings are numbered on their own so a swing id can never collide with a shot id. */
+  let swingCounter = 0
   entity.weapon = marker.weapon
 
   const move: MoveInput = { forward: 0, right: 0, jump: false, crouch: false, walk: false }
@@ -304,6 +306,21 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
         if (swing.started) {
           viewModel.swing()
           audio.play('knifeSwing')
+          // Nobody else can see a swing otherwise: melee.ts sends only a `hit` to the host, and
+          // `DamageEvent` carries no weapon, so a knife that misses (or kills) leaves no trace
+          // on other screens. Ride the shot path — it is already broadcast to OTHERS and
+          // already knows to animate the swing instead of spawning a ball.
+          opts.onShot({
+            id: `${entity.id}:swing:${++swingCounter}`,
+            by: entity.id,
+            team: entity.team,
+            origin: [_eye.x, _eye.y, _eye.z],
+            dir: [_look.x, _look.y, _look.z],
+            speed: 0,
+            t: Date.now(),
+            seed: swing.seed,
+            weapon: 'knife',
+          })
         }
         for (const hit of swing.hits) {
           audio.play('knifeHit')
@@ -381,7 +398,10 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
         yaw,
         pitch,
         c: controller.state.crouching ? 1 : 0,
-        t: opts.now(),
+        // `Date.now()`, as the contract says — never the estimated host clock. Receivers play
+        // snapshots back on their own arrival timeline (`net/sync.ts`), so all this has to be
+        // is a monotonic stamp from this machine; an estimate that steps every 5 s is worse.
+        t: Date.now(),
       }
     },
 

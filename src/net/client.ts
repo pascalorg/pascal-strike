@@ -26,7 +26,7 @@ import {
   type TeamResult,
 } from './protocol'
 import { isBotPlayer, type Room } from './room'
-import { createInterpolator, type Interpolator, type NetClock, type PoseOut } from './sync'
+import { createInterpolator, type Interpolator, type PoseOut } from './sync'
 
 /** How often we re-read the reliable per-player states (Playroom has no per-key change event). */
 const STATE_POLL_MS = 100
@@ -36,7 +36,7 @@ const scratchPose: PoseOut = { yaw: 0, pitch: 0, crouching: false, speed: 0 }
 
 export interface NetBinding {
   /** Call every frame: pulls `p` snapshots and writes interpolated poses into the entities. */
-  update(now: number): void
+  update(): void
   /** Date.now() when we last received a snapshot for this player (0 = never). */
   lastSnapshotAt(id: string): number
   interpolatorFor(id: string): Interpolator | undefined
@@ -47,7 +47,6 @@ export function bindNetToRegistry(
   room: Room,
   registry: EntityRegistry,
   events: EventBus,
-  clock: NetClock,
 ): NetBinding {
   const interps = new Map<string, Interpolator>()
   const cleanups: (() => void)[] = []
@@ -228,27 +227,20 @@ export function bindNetToRegistry(
         entity.hp = PLAYER.maxHp
         entity.invincibleUntil = ev.invincibleUntil
         entity.speed = 0
-        // Teleports must not be interpolated across the map.
-        const interp = interps.get(ev.player)
-        if (interp) {
-          interp.reset()
-          interp.push({
-            x: ev.position[0],
-            y: ev.position[1],
-            z: ev.position[2],
-            yaw: ev.yaw,
-            pitch: 0,
-            c: 0,
-            t: clock.now(),
-          })
-        }
+        // Teleports must not be interpolated across the map. Dropping the buffer is the whole
+        // fix: the entity above already holds the spawn pose, and the interpolator leaves it
+        // alone until real snapshots resume (250 ms at worst, even for a player standing
+        // still). Seeding it with a synthetic snapshot is what we must NOT do — its `t` would
+        // come from our clock rather than the sender's, and the jitter buffer would anchor its
+        // arrival mapping on that stamp and spend the next half second unwinding the offset.
+        interps.get(ev.player)?.reset()
       }
       events.emit('respawn', ev)
     }),
   )
 
   return {
-    update(now) {
+    update() {
       for (const player of room.players()) {
         if (player.id === room.me.id) continue
         const entity = registry.get(player.id)
@@ -259,7 +251,7 @@ export function bindNetToRegistry(
         if (!interp) continue
         const snap = player.getState(PS.snap) as PlayerSnapshot | undefined
         if (snap) interp.push(snap)
-        if (interp.sample(now, scratchPos, scratchPose)) {
+        if (interp.sample(scratchPos, scratchPose)) {
           entity.position.copy(scratchPos)
           entity.yaw = scratchPose.yaw
           entity.pitch = scratchPose.pitch

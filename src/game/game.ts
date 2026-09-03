@@ -111,7 +111,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   const events = createEventBus()
   const registry = createEntityRegistry()
   const clock = createClock(room)
-  const binding = bindNetToRegistry(room, registry, events, clock)
+  const binding = bindNetToRegistry(room, registry, events)
 
   const hud = createHud(mount)
   const prompt = createPrompt(mount)
@@ -232,9 +232,11 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       entity: me,
       now: () => clock.now(),
       onShot: (shot) => {
-        // Always the *live* session: a shot fired on the frame a map change starts must not
-        // land in the house we just disposed.
-        session?.projectiles.spawn(shot, { detectPlayers: true })
+        // A knife swing travels this path for its animation and sound alone: melee.ts has
+        // already resolved the hit locally, and a ball at `speed: 0` would just drop out of
+        // the blade. Everything else is a paintball, in the *live* session — a shot fired on
+        // the frame a map change starts must not land in the house we just disposed.
+        if (shot.weapon !== 'knife') session?.projectiles.spawn(shot, { detectPlayers: true })
         void room.rpc.call(RPCS.shot, shot, 'others')
       },
       onFell: () => {
@@ -509,7 +511,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     // `frameUpdate` ends with `input.update()`, which clears the edge — read E before it.
     if (input.locked && input.interact) interactPressed = true
     localPlayer.frameUpdate(dt)
-    binding.update(now)
+    binding.update()
     remotePlayers.update(now, localPlayer.listener.position)
 
     session.doors.update(dt)
