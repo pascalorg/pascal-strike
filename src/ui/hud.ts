@@ -317,35 +317,13 @@ export function createHud(mount: HTMLElement = appRoot()): Hud {
   hud.setSpread(0)
   hud.setWeapon('rifle')
 
-  /**
-   * The weapon in hand is decided in `game/local-player.ts`, which has no HUD reference; the
-   * game orchestrator drives every other widget but does not know about this one yet.
-   * TODO(game owner): call `hud.setWeapon(localPlayer.weapon)` / `hud.setHopper(...)` from the
-   * HUD poll and delete this listener — both ends are W4-B files, the bridge is the interim.
-   */
-  const onWeaponEvent = (event: Event) => {
-    const detail = (event as CustomEvent<WeaponEventDetail>).detail
-    if (!detail?.weapon) return
-    hud.setWeapon(detail.weapon)
-    hud.setHopper(detail.ammo, detail.reloading)
-  }
-  window.addEventListener('ps:weapon', onWeaponEvent)
-  const disposeHud = hud.dispose
-  hud.dispose = () => {
-    window.removeEventListener('ps:weapon', onWeaponEvent)
-    disposeHud()
-  }
+  // The weapon widget is driven by `game/game.ts` (`setWeapon` on every switch, `setHopper` from
+  // the HUD poll), like every other widget here; the `ps:weapon` bridge it used meanwhile is gone.
   return hud
 }
 
 /** Slot order of the weapon dots, 1 → 3. */
 const WEAPON_SLOTS: readonly WeaponKind[] = ['rifle', 'pistol', 'knife']
-
-interface WeaponEventDetail {
-  weapon: WeaponKind
-  ammo: number
-  reloading: boolean
-}
 
 /**
  * The health bar and the paint splash are new components, and `ui/styles.css` belongs to another

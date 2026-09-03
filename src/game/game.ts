@@ -23,6 +23,7 @@ import {
   botsFillIsSet,
   botsFillValue,
   GS,
+  PS,
   RPCS,
   type DoorEvent,
   type DoorStates,
@@ -31,7 +32,7 @@ import {
 } from '../net/protocol'
 import type { Room } from '../net/room'
 import { createClock, createSnapshotSender } from '../net/sync'
-import type { DoorInfo, Hittable, MapSelection, MatchState, TeamId } from '../types'
+import type { DoorInfo, Hittable, MapSelection, MatchState, TeamId, WeaponKind } from '../types'
 import { createHud } from '../ui/hud'
 import { createPrompt } from '../ui/prompt'
 import { createScoreboard } from '../ui/scoreboard'
@@ -121,6 +122,8 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   /** Clock time of the last `respawn` RPC for us — see the alive/RPC race in `updateHud`. */
   let revivedAt = 0
   let lastTeam: TeamId | null = null
+  /** Last weapon published to the room / pushed into the HUD. */
+  let lastWeapon: WeaponKind | null = null
 
   /**
    * Null only while a map change is in flight. The frame loop keeps running between
@@ -179,6 +182,13 @@ export async function startGame(opts: GameOptions): Promise<Game> {
         if (hostSide.authority) hostSide.authority.respawnPlayer(room.me.id)
         else void room.rpc.call(RPCS.fell, { player: room.me.id } as FellEvent, 'host')
       },
+      // Two audiences for one switch: our own HUD widget, and everybody else's copy of us —
+      // `client.ts` reads `w` back into `PlayerEntity.weapon`, which is what mounts the model
+      // in a remote's hands.
+      onWeapon: (kind) => {
+        publishWeapon(kind)
+        hud.setWeapon(kind)
+      },
     })
     // Until the host's first `respawn` lands, stand somewhere sane rather than at the origin.
     if (me.position.lengthSq() > 1e-6) player.place(me.position, me.yaw)
@@ -186,6 +196,13 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     lastTeam = me.team
     player.setTeam(me.team)
     return player
+  }
+
+  /** Owner-written state, like the pose: nobody validates which weapon we claim to hold. */
+  function publishWeapon(kind: WeaponKind): void {
+    if (kind === lastWeapon) return
+    lastWeapon = kind
+    room.me.setState(PS.weapon, kind, true)
   }
 
   /** Put the local player on a spawn point of `current` (boot, and after a map change). */
@@ -465,6 +482,10 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     }
 
     const marker = localPlayer.marker
+    if (localPlayer.weapon !== lastWeapon) {
+      publishWeapon(localPlayer.weapon)
+      hud.setWeapon(localPlayer.weapon)
+    }
     if (marker.hopper !== lastHopper || marker.reloading !== lastReloading) {
       lastHopper = marker.hopper
       lastReloading = marker.reloading

@@ -47,6 +47,8 @@ export const PS = {
   deaths: 'deaths',
   /** PlayerSnapshot — owner writes unreliably at NET.snapshotHz (host writes for bots) */
   snap: 'p',
+  /** WeaponKind — the weapon in hand; owner writes on every switch. Missing = rifle. */
+  weapon: 'w',
 } as const
 
 /** Global (room) state keys — host only writes these. */

@@ -14,6 +14,7 @@ import type {
   RespawnEvent,
   ShotEvent,
   TeamId,
+  WeaponKind,
 } from '../types'
 import {
   PS,
@@ -72,6 +73,7 @@ export function bindNetToRegistry(
       invincibleUntil: numberOr(player.getState(PS.inv), 0),
       kills: numberOr(player.getState(PS.kills), 0),
       deaths: numberOr(player.getState(PS.deaths), 0),
+      weapon: weaponOr(player.getState(PS.weapon)),
     })
     if (!isLocal && !interps.has(player.id)) interps.set(player.id, createInterpolator(entity))
     // onJoin and the state poll can both discover a player; only announce them once.
@@ -140,6 +142,10 @@ export function bindNetToRegistry(
       })
       applyIfChanged(id, PS.deaths, player.getState(PS.deaths), (v) => {
         entity.deaths = numberOr(v, entity.deaths)
+      })
+      // What they are holding: the remote presentation mounts the model from this.
+      applyIfChanged(id, PS.weapon, player.getState(PS.weapon), (v) => {
+        entity.weapon = weaponOr(v)
       })
     }
     // Anyone the registry still knows but Playroom dropped (missed onQuit).
@@ -284,6 +290,11 @@ export function requestTeamSwap(
     }, timeoutMs)
     void room.rpc.call(RPCS.team, { team } satisfies TeamRequest, 'host')
   })
+}
+
+/** Anything we do not recognise (an old client, a missing state) is the rifle. */
+function weaponOr(value: unknown): WeaponKind {
+  return value === 'pistol' || value === 'knife' ? value : 'rifle'
 }
 
 function numberOr(value: unknown, fallback: number): number {
