@@ -16,6 +16,7 @@ import { loadMap } from '../map/map-loader'
 import { buildNavigation, type MapNavigation } from '../map/navmesh'
 import { resolveSpawns } from '../map/spawns'
 import type { MapData, MapSelection, SpawnLayout, SpawnPoint, TeamId, WorldQuery } from '../types'
+import { registerDynamicColliders } from '../player/dynamic-colliders'
 import { createDecals, type Decals } from '../weapons/decals'
 import { createEffects, type Effects } from '../weapons/effects'
 import { createProjectiles, type Projectiles } from '../weapons/projectiles'
@@ -43,6 +44,11 @@ export interface MapSession {
   effects: Effects
   projectiles: Projectiles
   environment: EnvironmentRig
+  /**
+   * Door leaves and window sashes: the moving obstacles a `CharacterController` collides with
+   * (`setDynamicColliders`). They are not in `map.collider`, which is baked once.
+   */
+  dynamicColliders: Mesh[]
   /** A spawn point of `team` as far as possible from everyone currently standing around. */
   leastCrowdedSpawn(team: TeamId, occupied: ArrayLike<Vector3>): SpawnPoint | null
   dispose(): void
@@ -69,6 +75,15 @@ export async function createMapSession(opts: MapSessionOptions): Promise<MapSess
   // The BULLET collider: paintballs go through an open window sash, players never do.
   const world = createWorldQuery(map.bulletCollider ?? map.collider, map.doors)
   const doors = createDoorSystem(map)
+
+  // The movement collider has no door leaves and no window sashes in it: they swing, so the
+  // controller has to meet them where they currently are. `local-player.ts` builds its
+  // controller straight from `session.map.collider` and there is no seam to pass them through,
+  // so they are registered against that collider — every controller built on it (the local
+  // player's, and the fresh one a map change makes) picks them up.
+  const dynamicColliders: Mesh[] = []
+  for (const door of map.doors) for (const leaf of door.leafMeshes) dynamicColliders.push(leaf)
+  registerDynamicColliders(map.collider.geometry, dynamicColliders)
   const environment = createEnvironment(engine, map.bounds)
   const decals = createDecals(engine.scene)
   const effects = createEffects(engine.scene)
@@ -90,6 +105,7 @@ export async function createMapSession(opts: MapSessionOptions): Promise<MapSess
     effects,
     projectiles,
     environment,
+    dynamicColliders,
     leastCrowdedSpawn(team, occupied) {
       const points = session.spawns[team]
       if (!points || points.length === 0) return null

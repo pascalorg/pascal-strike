@@ -1,4 +1,4 @@
-import { Vector3, type Box3 } from 'three'
+import { Vector3, type Box3, type Mesh } from 'three'
 import { NET } from '../config'
 import { createCharacterController } from '../player/controller'
 import type {
@@ -32,6 +32,11 @@ export function createBotRunner(opts: BotRunnerOptions): BotRunner {
   const bots: SimulatedBot[] = []
   const snapshotPeriod = 1 / NET.botSnapshotHz
   const roamTargets = createRoamTargetSet(opts.map, opts.world, opts.nav)
+  // Door leaves and window sashes are out of the movement collider, so a bot only stops at a
+  // shut door if its controller tests the leaves themselves. Bots open what is in their way
+  // (host-side.ts, DOORS.botOpenRadius), which is what keeps them moving.
+  const dynamicColliders: Mesh[] = []
+  for (const door of opts.map.doors) for (const leaf of door.leafMeshes) dynamicColliders.push(leaf)
 
   function findBot(id: string): SimulatedBot | undefined {
     for (let index = 0; index < bots.length; index++) {
@@ -114,6 +119,7 @@ export function createBotRunner(opts: BotRunnerOptions): BotRunner {
       if (findBot(entity.id)) return
 
       const controller = createCharacterController(opts.map.collider)
+      controller.setDynamicColliders?.(dynamicColliders)
       controller.setPosition(entity.position)
       const rng = mulberry32(mixSeed(opts.seed ?? 0, hashString(entity.id)))
       const botNavigation = createSeededNavigation(opts.nav, opts.map.bounds, rng)

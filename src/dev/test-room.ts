@@ -9,6 +9,7 @@ import {
   Matrix4,
   Mesh,
   MeshStandardMaterial,
+  Object3D,
   Ray,
   RepeatWrapping,
   Scene,
@@ -25,6 +26,13 @@ export interface TestRoom {
   bounds: Box3
   doors: []
   root: Group
+  /**
+   * A door leaf that is NOT in the static collider — the stand-in for a Pascal openable, which
+   * the controller collides with through `setDynamicColliders`. Rotate `doorHinge.rotation.y`
+   * (0 = closed across the doorway at z = 0, ±π/2 = swung out of it) and the collider follows.
+   */
+  doorLeaf: Mesh
+  doorHinge: Object3D
 }
 
 const ray = new Ray()
@@ -55,6 +63,12 @@ export function buildTestRoomGeometry(): TestRoom {
   // its obstacle layout and sight lines remain unchanged.
   addStaircase(root, collisionParts, 'stair-45', 10, 3, 12, 0.25, 0.25)
   addStaircase(root, collisionParts, 'stair-shallow', 13, 3.48, 12, 0.17, 0.29)
+
+  // Doorway with a swinging leaf, also outside the room (see TestRoom.doorLeaf).
+  addBox(root, collisionParts, 'floor', [4.4, 0.2, 4.4], [16, -0.1, 0])
+  addBox(root, collisionParts, 'wall', [1.5, 2.5, 0.2], [14.75, 1.25, 0])
+  addBox(root, collisionParts, 'wall', [1.5, 2.5, 0.2], [17.25, 1.25, 0])
+  const { leaf: doorLeaf, hinge: doorHinge } = addDoorLeaf(root, [15.5, 0, 0])
 
   const colliderGeometry = mergeGeometries(collisionParts, false)
   if (!colliderGeometry) throw new Error('Could not merge test room collider')
@@ -95,7 +109,7 @@ export function buildTestRoomGeometry(): TestRoom {
     },
   }
 
-  return { collider, world, bounds, doors: [], root }
+  return { collider, world, bounds, doors: [], root, doorLeaf, doorHinge }
 }
 
 /** Backwards-compatible headless entry point used by existing tests. */
@@ -114,7 +128,7 @@ export function addTestRoomToScene(scene: Scene, room: TestRoom): TestRoom {
     object.material = new MeshStandardMaterial({
       color: role === 'step' || role.startsWith('stair-')
         ? 0xd97706
-        : role === 'low-slab' ? 0x0f766e : 0x71717a,
+        : role === 'low-slab' ? 0x0f766e : role === 'door-leaf' ? 0x9f1239 : 0x71717a,
       map: role === 'floor' || role === 'wall' ? checker : null,
       roughness: 0.85,
     })
@@ -149,6 +163,28 @@ function addBox(
   mesh.updateMatrix()
   root.add(mesh)
   colliders.push(collisionGeometry(geometry, mesh.matrix))
+}
+
+/**
+ * A 1 m × 2 m leaf on a hinge, deliberately left out of the merged collider: it is the fixture
+ * for `CharacterController.setDynamicColliders`, so it has to move after the BVH is built.
+ */
+function addDoorLeaf(
+  root: Group,
+  hingePosition: [number, number, number],
+): { leaf: Mesh; hinge: Object3D } {
+  const hinge = new Object3D()
+  hinge.name = 'door-hinge'
+  hinge.position.fromArray(hingePosition)
+  const leaf = new Mesh(new BoxGeometry(1, 2, 0.06))
+  leaf.name = 'door-leaf'
+  leaf.userData.role = 'door-leaf'
+  // Hinged at its edge, so rotating the parent swings it out of the doorway.
+  leaf.position.set(0.5, 1, 0)
+  hinge.add(leaf)
+  root.add(hinge)
+  hinge.updateMatrixWorld(true)
+  return { leaf, hinge }
 }
 
 function addStaircase(

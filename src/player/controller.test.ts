@@ -44,6 +44,72 @@ function climbStairs(input: MoveInput, x = 10, z = 4.5, seconds = 4) {
   return { controller, rise: controller.state.position.y - startY, airborneFrames, maxTreadGap }
 }
 
+/**
+ * The doorway fixture at x = 16: 1 m gap in a wall at z = 0, with a leaf that is NOT part of the
+ * static collider. `openYaw` is the hinge angle (0 = shut across the gap, π/2 = swung aside).
+ */
+function doorway(openYaw: number, attach = true) {
+  const room = buildTestRoomGeometry()
+  const controller = createCharacterController(room.collider)
+  if (attach) controller.setDynamicColliders?.([room.doorLeaf])
+  room.doorHinge.rotation.y = openYaw
+  room.doorHinge.updateMatrixWorld(true)
+  controller.setPosition(new Vector3(16, 0.01, 1.2))
+  run(controller, 0.25, idle)
+  return { room, controller }
+}
+
+test('a closed door leaf blocks the doorway although it is not in the static collider', () => {
+  const { controller } = doorway(0)
+  run(controller, 1.5, { ...idle, forward: 1 })
+  // Leaf face at z = 0.03 + the 0.3 m capsule radius = 0.33; allow 1 cm of penetration.
+  expect(controller.state.position.z).toBeGreaterThan(0.32)
+  expect(controller.state.position.z).toBeLessThan(0.36)
+})
+
+test('the same doorway lets the capsule through once the leaf swings open', () => {
+  const { controller } = doorway(Math.PI / 2)
+  // Walk, not run: the fixture's floor slab ends 2.2 m past the doorway.
+  run(controller, 1, { ...idle, forward: 1, walk: true })
+  expect(controller.state.position.z).toBeLessThan(-1)
+  expect(controller.state.grounded).toBe(true)
+})
+
+test('an unregistered leaf is invisible to the controller (nothing is baked in)', () => {
+  const { controller } = doorway(0, false)
+  run(controller, 1, { ...idle, forward: 1, walk: true })
+  expect(controller.state.position.z).toBeLessThan(-1)
+})
+
+test('a leaf swinging shut pushes the capsule out of the doorway', () => {
+  const { room, controller } = doorway(Math.PI / 2)
+  controller.setPosition(new Vector3(16, 0.01, 0.12))
+  run(controller, 0.25, idle)
+  for (let step = 0; step <= 24; step++) {
+    room.doorHinge.rotation.y = Math.PI / 2 * (1 - step / 24)
+    room.doorHinge.updateMatrixWorld(true)
+    controller.update(DT, idle, 0)
+  }
+  expect(controller.state.position.z).toBeGreaterThan(0.32)
+})
+
+test('an open leaf is ground: the capsule steps onto it', () => {
+  const room = buildTestRoomGeometry()
+  const controller = createCharacterController(room.collider)
+  controller.setDynamicColliders?.([room.doorLeaf])
+  // Lay the leaf flat, 0.4 m up: a 2 m × 1 m shelf (z −0.5…1.5) in front of the doorway.
+  room.doorHinge.position.set(15.5, 0.4, 1.5)
+  room.doorHinge.rotation.x = -Math.PI / 2
+  room.doorHinge.updateMatrixWorld(true)
+  controller.setPosition(new Vector3(16, 0.01, 1.95))
+  run(controller, 0.25, idle)
+  run(controller, 0.6, { ...idle, forward: 1, walk: true })
+  expect(controller.state.grounded).toBe(true)
+  expect(controller.state.position.y).toBeGreaterThan(0.42)
+  expect(controller.state.position.y).toBeLessThan(0.45)
+  expect(controller.state.position.z).toBeLessThan(1.5)
+})
+
 test('walking into a wall stops without penetrating by more than 1 cm', () => {
   const controller = spawnAt(0, -4)
   run(controller, 1, { ...idle, forward: 1 })

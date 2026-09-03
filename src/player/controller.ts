@@ -4,6 +4,7 @@ import {
   Line3,
   Ray,
   Vector3,
+  type Mesh,
 } from 'three'
 import type { ExtendedTriangle, MeshBVH } from 'three-mesh-bvh'
 import { PLAYER } from '../config'
@@ -14,6 +15,11 @@ import type {
   StaticCollider,
 } from '../types'
 import './bvh-setup'
+import {
+  buildDynamicColliders,
+  registeredDynamicColliders,
+  type DynamicCollider,
+} from './dynamic-colliders'
 
 export type CharacterControllerOptions = Partial<typeof PLAYER> & {
   onFellOut?: () => void
@@ -61,12 +67,25 @@ class CapsuleController implements CharacterController {
   private castCorrected = false
   private castPenetrating = false
   private castPosition: Vector3 = this.state.position
+  /** Non-null while the shapecast runs in a dynamic mesh's local space. */
+  private castEntry: DynamicCollider | null = null
+  /** Capsule radius in the space of the current cast (scaled for a dynamic mesh). */
+  private castRadius: number
+
+  private dynamicMeshes: readonly Mesh[] | null = null
+  private dynamics: DynamicCollider[] = []
 
   private readonly capsule = new Line3()
   private readonly capsuleBounds = new Box3()
+  /** The same capsule in world space; the dynamic pass derives its local copy from it. */
+  private readonly castStart = new Vector3()
+  private readonly castEnd = new Vector3()
   private readonly trianglePoint = new Vector3()
   private readonly capsulePoint = new Vector3()
   private readonly correction = new Vector3()
+  private readonly worldCorrection = new Vector3()
+  private readonly worldPoint = new Vector3()
+  private readonly worldNormal = new Vector3()
   private readonly midpoint = new Vector3()
   private readonly triangleNormal = new Vector3()
   private readonly wish = new Vector3()
@@ -75,6 +94,10 @@ class CapsuleController implements CharacterController {
   private readonly regularResult = new Vector3()
   private readonly stepResult = new Vector3()
   private readonly probeResult = new Vector3()
+  private readonly probePoint = new Vector3()
+  private readonly probeNormal = new Vector3()
+  private readonly hitPoint = new Vector3()
+  private readonly hitNormal = new Vector3()
   private readonly ray = new Ray()
   private readonly groundProbeOffsets = [0, 0.5, 0.99, -0.5, -0.99]
   private readonly shapecastCallbacks = {
@@ -85,6 +108,7 @@ class CapsuleController implements CharacterController {
   constructor(collider: StaticCollider, options: CharacterControllerOptions) {
     const config = { ...PLAYER, ...options }
     this.radius = config.radius
+    this.castRadius = config.radius
     this.standingHeight = config.height
     this.crouchHeight = config.crouchHeight
     this.standingEyeHeight = config.eyeHeight
@@ -105,6 +129,9 @@ class CapsuleController implements CharacterController {
     this.bounds = collider.geometry.boundingBox?.clone() ?? new Box3()
     if (!collider.geometry.boundsTree) collider.geometry.computeBoundsTree({ targetLeafSize: 12 })
     this.bvh = collider.geometry.boundsTree as MeshBVH
+    // Whoever built this collider may have registered the map's moving leaves against it.
+    const registered = registeredDynamicColliders(collider.geometry)
+    if (registered) this.setDynamicColliders(registered)
   }
 
   get eyeHeight(): number {
@@ -122,10 +149,16 @@ class CapsuleController implements CharacterController {
     this.fellOutReported = false
   }
 
+  setDynamicColliders(meshes: readonly Mesh[]): void {
+    this.dynamicMeshes = meshes
+    this.dynamics = buildDynamicColliders(meshes)
+  }
+
   update(dt: number, input: MoveInput, yaw: number): void {
     if (!(dt > 0)) return
     dt = Math.min(dt, 0.05)
 
+    this.refreshDynamics()
     this.updateCrouch(input.crouch)
 
     const wasGrounded = this.state.grounded
@@ -205,6 +238,13 @@ class CapsuleController implements CharacterController {
     }
   }
 
+  /** Once per fixed step: a leaf that swung since the last one is a different obstacle. */
+  private refreshDynamics(): void {
+    const source = this.dynamicMeshes
+    if (source && source.length !== this.dynamics.length) this.setDynamicColliders(source)
+    for (let index = 0; index < this.dynamics.length; index++) this.dynamics[index]!.refresh()
+  }
+
   private updateCrouch(requested: boolean): void {
     if (requested) {
       this.state.crouching = true
@@ -269,42 +309,100 @@ class CapsuleController implements CharacterController {
         originY,
         position.z + directionZ * this.radius * offset,
       )
-      const hit = this.bvh.raycastFirst(this.ray, DoubleSide, 0, rayLength)
-      if (!hit?.face) continue
-      const normalY = Math.abs(hit.face.normal.y)
+      if (!this.probeDown(rayLength)) continue
+      const normalY = Math.abs(this.probeNormal.y)
       // Slopes are handled continuously by capsule push-out. Snapping to the
       // floor beside or beneath one would pull the player off the ramp.
       if (flatOnly && normalY >= this.slopeY && normalY < 0.95) return false
       if (normalY < (flatOnly ? 0.95 : this.slopeY)) continue
-      if (hit.point.y < referenceY - maxDrop - SKIN || hit.point.y > referenceY + maxRise + SKIN) continue
-      if (hit.point.y <= bestY) continue
+      if (this.probePoint.y < referenceY - maxDrop - SKIN || this.probePoint.y > referenceY + maxRise + SKIN) continue
+      if (this.probePoint.y <= bestY) continue
 
       this.probeResult.copy(position)
-      this.probeResult.y = hit.point.y + SKIN
+      this.probeResult.y = this.probePoint.y + SKIN
       if (this.hasPenetration(this.probeResult, this.currentHeight, 2e-3)) continue
-      bestY = hit.point.y
+      bestY = this.probePoint.y
     }
     if (bestY === -Infinity) return false
     position.y = bestY + SKIN
     return true
   }
 
-  private setCapsule(position: Vector3, height: number): void {
-    this.capsule.start.set(position.x, position.y + this.radius, position.z)
-    this.capsule.end.set(position.x, position.y + height - this.radius, position.z)
+  /**
+   * Nearest hit of `this.ray` (pointing down) within `rayLength`, static geometry and moving
+   * leaves together, into `probePoint` / `probeNormal`. Standing on an open sash is ground too.
+   */
+  private probeDown(rayLength: number): boolean {
+    let found = false
+    const hit = this.bvh.raycastFirst(this.ray, DoubleSide, 0, rayLength)
+    if (hit?.face) {
+      this.probePoint.copy(hit.point)
+      this.probeNormal.copy(hit.face.normal)
+      found = true
+    }
+    for (let index = 0; index < this.dynamics.length; index++) {
+      const entry = this.dynamics[index]!
+      if (!this.ray.intersectsBox(entry.worldBox)) continue
+      if (!entry.raycast(this.ray, rayLength, this.hitPoint, this.hitNormal)) continue
+      // The ray points down, so the nearest hit is the highest one.
+      if (found && this.hitPoint.y <= this.probePoint.y) continue
+      this.probePoint.copy(this.hitPoint)
+      this.probeNormal.copy(this.hitNormal)
+      found = true
+    }
+    return found
+  }
+
+  private setCapsuleSegment(position: Vector3, height: number): void {
+    this.castStart.set(position.x, position.y + this.radius, position.z)
+    this.castEnd.set(position.x, position.y + height - this.radius, position.z)
+  }
+
+  private setCapsuleBounds(radius: number): void {
     this.capsuleBounds.makeEmpty()
     this.capsuleBounds.expandByPoint(this.capsule.start)
     this.capsuleBounds.expandByPoint(this.capsule.end)
-    this.capsuleBounds.min.addScalar(-this.radius)
-    this.capsuleBounds.max.addScalar(this.radius)
+    this.capsuleBounds.min.addScalar(-radius)
+    this.capsuleBounds.max.addScalar(radius)
+  }
+
+  /**
+   * Runs the world capsule (`castStart`..`castEnd`) against the static BVH and then against
+   * every moving leaf whose world AABB it overlaps — each in that leaf's own local space, which
+   * is where its BVH lives. In `resolve` mode every push-out keeps all three capsules in step.
+   */
+  private castCapsule(mode: 'resolve' | 'test'): void {
+    this.castMode = mode
+    this.castEntry = null
+    this.castRadius = this.radius
+    this.capsule.start.copy(this.castStart)
+    this.capsule.end.copy(this.castEnd)
+    this.setCapsuleBounds(this.radius)
+    this.bvh.shapecast(this.shapecastCallbacks)
+    if (mode === 'test' && this.castPenetrating) return
+
+    for (let index = 0; index < this.dynamics.length; index++) {
+      const entry = this.dynamics[index]!
+      this.capsule.start.copy(this.castStart)
+      this.capsule.end.copy(this.castEnd)
+      this.setCapsuleBounds(this.radius)
+      if (!entry.worldBox.intersectsBox(this.capsuleBounds)) continue
+      entry.toLocalSegment(this.castStart, this.castEnd, this.capsule)
+      this.castEntry = entry
+      this.castRadius = this.radius * entry.inverseScale
+      this.setCapsuleBounds(this.castRadius)
+      entry.bvh.shapecast(this.shapecastCallbacks)
+      if (mode === 'test' && this.castPenetrating) break
+    }
+    this.castEntry = null
+    this.castRadius = this.radius
   }
 
   private hasPenetration(position: Vector3, height: number, tolerance = SKIN): boolean {
-    this.setCapsule(position, height)
-    this.castMode = 'test'
+    this.setCapsuleSegment(position, height)
     this.castTolerance = tolerance
     this.castPenetrating = false
-    this.bvh.shapecast(this.shapecastCallbacks)
+    this.castCapsule('test')
     return this.castPenetrating
   }
 
@@ -313,17 +411,11 @@ class CapsuleController implements CharacterController {
     // by an upward translation, without treating the floor or current wall
     // contacts as blockers.
     const topY = position.y + height - this.radius
-    this.capsule.start.set(position.x, topY, position.z)
-    this.capsule.end.set(position.x, topY + lift, position.z)
-    this.capsuleBounds.makeEmpty()
-    this.capsuleBounds.expandByPoint(this.capsule.start)
-    this.capsuleBounds.expandByPoint(this.capsule.end)
-    this.capsuleBounds.min.addScalar(-this.radius)
-    this.capsuleBounds.max.addScalar(this.radius)
-    this.castMode = 'test'
+    this.castStart.set(position.x, topY, position.z)
+    this.castEnd.set(position.x, topY + lift, position.z)
     this.castTolerance = 2e-3
     this.castPenetrating = false
-    this.bvh.shapecast(this.shapecastCallbacks)
+    this.castCapsule('test')
     return !this.castPenetrating
   }
 
@@ -335,21 +427,22 @@ class CapsuleController implements CharacterController {
     this.contactWall = false
     this.stepBlocked = false
     for (let pass = 0; pass < 5; pass++) {
-      this.setCapsule(position, height)
-      this.castMode = 'resolve'
+      this.setCapsuleSegment(position, height)
       this.castCorrected = false
-      this.bvh.shapecast(this.shapecastCallbacks)
+      this.castCapsule('resolve')
       if (!this.castCorrected) break
     }
   }
 
   private castTriangle(triangle: ExtendedTriangle): boolean {
+    const entry = this.castEntry
+    const toWorld = entry ? entry.scale : 1
     const distance = triangle.closestPointToSegment(
       this.capsule,
       this.trianglePoint,
       this.capsulePoint,
     )
-    if (distance >= this.radius - this.castTolerance) return false
+    if (distance >= this.castRadius - this.castTolerance / toWorld) return false
     if (this.castMode === 'test') {
       this.castPenetrating = true
       return true
@@ -364,20 +457,32 @@ class CapsuleController implements CharacterController {
     } else {
       this.correction.multiplyScalar(1 / distance)
     }
-    const depth = this.radius - distance + SKIN
-    const normalY = this.correction.y
+    this.correction.multiplyScalar(this.castRadius - distance + SKIN / toWorld)
+    if (entry) entry.toWorldVector(this.correction, this.worldCorrection)
+    else this.worldCorrection.copy(this.correction)
+
+    const depth = this.worldCorrection.length()
+    const normalY = depth > EPSILON ? this.worldCorrection.y / depth : 0
     if (normalY > this.slopeY) this.contactGround = true
     else if (normalY < -0.5) this.contactCeiling = true
     else {
       this.contactWall = true
       triangle.getNormal(this.triangleNormal)
-      if (Math.abs(this.triangleNormal.y) < 0.25
-        && this.trianglePoint.y <= this.castPosition.y + this.stepHeight + SKIN) {
+      if (entry) {
+        entry.toWorldVector(this.triangleNormal, this.worldNormal).normalize()
+        entry.toWorldPoint(this.trianglePoint, this.worldPoint)
+      } else {
+        this.worldNormal.copy(this.triangleNormal)
+        this.worldPoint.copy(this.trianglePoint)
+      }
+      if (Math.abs(this.worldNormal.y) < 0.25
+        && this.worldPoint.y <= this.castPosition.y + this.stepHeight + SKIN) {
         this.stepBlocked = true
       }
     }
-    this.correction.multiplyScalar(depth)
-    this.castPosition.add(this.correction)
+    this.castPosition.add(this.worldCorrection)
+    this.castStart.add(this.worldCorrection)
+    this.castEnd.add(this.worldCorrection)
     this.capsule.start.add(this.correction)
     this.capsule.end.add(this.correction)
     this.castCorrected = true
