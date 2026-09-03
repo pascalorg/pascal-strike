@@ -400,6 +400,30 @@ export function startHostAuthority(
     return { shooter, target }
   }
 
+  /**
+   * Was the knife planted in the victim's back? The rule is `weapons/melee.ts`'s, applied here
+   * so a client cannot claim a backstab it did not earn: with `to` the unit vector from the
+   * victim to the impact point on XZ and `forward` its facing, `dot(forward, to) < -0.3` — the
+   * blade landed on the back half, with a margin so a hit from the side is not one. The pose is
+   * the victim's own last published one (its snapshot, or the entity when nothing has landed
+   * yet), never the attacker's word.
+   */
+  const isBackstab = (target: HostPlayer, point: [number, number, number] | undefined): boolean => {
+    if (!point) return false
+    const snap = playerById(target.id)?.getState(PS.snap) as PlayerSnapshot | undefined
+    const entity = registry.get(target.id)
+    const yaw = snap?.yaw ?? entity?.yaw
+    const x = snap?.x ?? entity?.position.x
+    const z = snap?.z ?? entity?.position.z
+    if (yaw === undefined || x === undefined || z === undefined) return false
+    const dx = point[0] - x
+    const dz = point[2] - z
+    const length = Math.hypot(dx, dz)
+    if (length < 1e-4) return false
+    // yaw 0 looks toward -Z (three.js), so forward = (-sin, -cos) on XZ.
+    return (-Math.sin(yaw) * dx - Math.cos(yaw) * dz) / length < -0.3
+  }
+
   const applyHit = (hit: HitEvent, senderId?: string): boolean => {
     const valid = validate(hit, senderId)
     if (!valid) return false
@@ -410,7 +434,7 @@ export function startHostAuthority(
     const part = bodyPart(hit.part)
     const weapon = hit.weapon && hit.weapon in WEAPONS ? hit.weapon : 'rifle'
     const amount = weapon === 'knife'
-      ? WEAPONS.knife.damage
+      ? Math.round(WEAPONS.knife.damage * (isBackstab(target, hit.point) ? WEAPONS.knife.backstabScale : 1))
       : Math.round(DAMAGE[part] * WEAPONS[weapon].damageScale)
     target.hp = Math.max(0, target.hp - amount)
     write(target.id, PS.hp, target.hp)
