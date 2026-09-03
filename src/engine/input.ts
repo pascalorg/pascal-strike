@@ -6,15 +6,30 @@ export interface Input {
   readonly reload: boolean
   /** E pressed this frame (edge): open/close the door or window under the crosshair. */
   readonly interact: boolean
+  /**
+   * Weapon slot picked this frame (edge, 1 = rifle, 2 = pistol, 3 = knife), 0 = no change.
+   * Keys 1/2/3 select directly; the wheel cycles through the slots.
+   */
+  readonly weaponSlot: number
   readonly scoreboard: boolean
   readonly locked: boolean
   consumeLook(): { dx: number; dy: number }
+  /**
+   * Re-sync the wheel's idea of the held slot (the weapon is owned by the player, not by the
+   * input: a respawn or a forced switch must not leave the wheel cycling from a stale slot).
+   */
+  setWeaponSlot(slot: number): void
   requestLock(): void
   onLockChange(callback: (locked: boolean) => void): () => void
   /** Clear frame-edge inputs after the caller has consumed them. */
   update(): void
   dispose(): void
 }
+
+/** Slots the wheel cycles through, in order. */
+const SLOT_COUNT = 3
+/** Wheel notches vary wildly between mice and trackpads: integrate delta, step per notch. */
+const WHEEL_STEP = 40
 
 export function createInput(canvas: HTMLCanvasElement): Input {
   const keys = new Set<string>()
@@ -25,7 +40,16 @@ export function createInput(canvas: HTMLCanvasElement): Input {
   let fire = false
   let reload = false
   let interact = false
+  let weaponSlot = 0
+  let heldSlot = 1
+  let wheelAccumulator = 0
   let locked = document.pointerLockElement === canvas
+
+  const selectSlot = (slot: number) => {
+    if (slot < 1 || slot > SLOT_COUNT || slot === heldSlot) return
+    heldSlot = slot
+    weaponSlot = slot
+  }
 
   const syncMove = () => {
     move.forward = Number(keys.has('KeyW') || keys.has('ArrowUp'))
@@ -41,6 +65,10 @@ export function createInput(canvas: HTMLCanvasElement): Input {
     if (event.code === 'Tab') event.preventDefault()
     if (event.code === 'KeyR' && !event.repeat) reload = true
     if (event.code === 'KeyE' && !event.repeat) interact = true
+    if (!event.repeat) {
+      const digit = /^(?:Digit|Numpad)([1-9])$/.exec(event.code)
+      if (digit) selectSlot(Number(digit[1]))
+    }
     keys.add(event.code)
     syncMove()
   }
@@ -54,6 +82,18 @@ export function createInput(canvas: HTMLCanvasElement): Input {
   }
   const onMouseUp = (event: MouseEvent) => {
     if (event.button === 0) fire = false
+  }
+  const onWheel = (event: WheelEvent) => {
+    if (!locked) return
+    event.preventDefault()
+    // A direction change starts a fresh notch, or a flick back the other way feels sticky.
+    if (Math.sign(event.deltaY) !== Math.sign(wheelAccumulator)) wheelAccumulator = 0
+    wheelAccumulator += event.deltaY
+    while (Math.abs(wheelAccumulator) >= WHEEL_STEP) {
+      const step = wheelAccumulator > 0 ? 1 : -1
+      wheelAccumulator -= step * WHEEL_STEP
+      selectSlot(((heldSlot - 1 + step + SLOT_COUNT) % SLOT_COUNT) + 1)
+    }
   }
   const onMouseMove = (event: MouseEvent) => {
     if (!locked) return
@@ -80,6 +120,7 @@ export function createInput(canvas: HTMLCanvasElement): Input {
   document.addEventListener('keyup', onKeyUp)
   document.addEventListener('mousemove', onMouseMove)
   document.addEventListener('pointerlockchange', onLock)
+  window.addEventListener('wheel', onWheel, { passive: false })
   window.addEventListener('mousedown', onMouseDown)
   window.addEventListener('mouseup', onMouseUp)
   window.addEventListener('blur', onBlur)
@@ -91,6 +132,7 @@ export function createInput(canvas: HTMLCanvasElement): Input {
     get fire() { return fire },
     get reload() { return reload },
     get interact() { return interact },
+    get weaponSlot() { return weaponSlot },
     get scoreboard() { return keys.has('Tab') },
     get locked() { return locked },
     consumeLook() {
@@ -100,6 +142,10 @@ export function createInput(canvas: HTMLCanvasElement): Input {
       look.dy = 0
       return consumedLook
     },
+    setWeaponSlot(slot) {
+      if (slot >= 1 && slot <= SLOT_COUNT) heldSlot = slot
+      wheelAccumulator = 0
+    },
     requestLock,
     onLockChange(callback) {
       lockCallbacks.add(callback)
@@ -108,12 +154,14 @@ export function createInput(canvas: HTMLCanvasElement): Input {
     update() {
       reload = false
       interact = false
+      weaponSlot = 0
     },
     dispose() {
       document.removeEventListener('keydown', onKeyDown)
       document.removeEventListener('keyup', onKeyUp)
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('pointerlockchange', onLock)
+      window.removeEventListener('wheel', onWheel)
       window.removeEventListener('mousedown', onMouseDown)
       window.removeEventListener('mouseup', onMouseUp)
       window.removeEventListener('blur', onBlur)
