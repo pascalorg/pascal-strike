@@ -28,7 +28,11 @@ export interface Input {
 
 /** Slots the wheel cycles through, in order. */
 const SLOT_COUNT = 3
-/** Wheel notches vary wildly between mice and trackpads: integrate delta, step per notch. */
+/**
+ * Wheel notches vary wildly between mice and trackpads (a mouse notch is ~120 px in Chrome, a
+ * trackpad flick is dozens of events of a few px), so the delta is integrated and one event
+ * can only ever move one slot: a single notch is a single weapon.
+ */
 const WHEEL_STEP = 40
 
 export function createInput(canvas: HTMLCanvasElement): Input {
@@ -86,14 +90,15 @@ export function createInput(canvas: HTMLCanvasElement): Input {
   const onWheel = (event: WheelEvent) => {
     if (!locked) return
     event.preventDefault()
+    // deltaMode 1 = lines, 2 = pages; normalise both to pixels.
+    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 400 : 1)
     // A direction change starts a fresh notch, or a flick back the other way feels sticky.
-    if (Math.sign(event.deltaY) !== Math.sign(wheelAccumulator)) wheelAccumulator = 0
-    wheelAccumulator += event.deltaY
-    while (Math.abs(wheelAccumulator) >= WHEEL_STEP) {
-      const step = wheelAccumulator > 0 ? 1 : -1
-      wheelAccumulator -= step * WHEEL_STEP
-      selectSlot(((heldSlot - 1 + step + SLOT_COUNT) % SLOT_COUNT) + 1)
-    }
+    if (Math.sign(delta) !== Math.sign(wheelAccumulator)) wheelAccumulator = 0
+    wheelAccumulator += delta
+    if (Math.abs(wheelAccumulator) < WHEEL_STEP) return
+    const step = wheelAccumulator > 0 ? 1 : -1
+    wheelAccumulator = 0
+    selectSlot(((heldSlot - 1 + step + SLOT_COUNT) % SLOT_COUNT) + 1)
   }
   const onMouseMove = (event: MouseEvent) => {
     if (!locked) return

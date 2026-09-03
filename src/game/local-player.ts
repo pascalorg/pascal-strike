@@ -170,6 +170,9 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
    */
   function selectWeapon(kind: WeaponKind): void {
     if (!marker.setWeapon(kind)) return
+    // Drop a half-finished swing: putting the knife away has to cancel it, or its hit frame
+    // resolves the next time the knife comes up.
+    melee.reset()
     viewModel.setWeapon(kind)
     input.setWeaponSlot(weaponSpec(kind).slot)
     entity.weapon = kind

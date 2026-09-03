@@ -86,17 +86,17 @@ const POSES: Record<WeaponKind, Pose> = {
   },
   pistol: {
     // Held closer and a touch more central: a sidearm sits in the middle of the screen.
-    rest: [0.24, -0.30, -0.60],
-    rotation: [-0.04, 0.10, -0.02],
+    rest: [0.23, -0.24, -0.56],
+    rotation: [-0.03, 0.13, -0.02],
     kickBack: 0.042,
     kickPitch: Math.PI / 180 * 2.1,
     hand: [0, 0.012, -0.004],
     supportHand: false,
   },
   knife: {
-    // Blade up and inward, the way you actually carry a knife you mean to use.
-    rest: [0.28, -0.30, -0.50],
-    rotation: [-0.12, 0.26, 0.12],
+    // Blade up and across the view: pointed straight down the bore a knife is just a dot.
+    rest: [0.27, -0.29, -0.52],
+    rotation: [0.24, 0.60, 0.12],
     kickBack: 0,
     kickPitch: 0,
     hand: [0, 0.062, -0.020],
