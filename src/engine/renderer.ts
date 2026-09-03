@@ -5,16 +5,10 @@
  * physics, shared by players and host-simulated bots) and `onRender` handlers run once per
  * frame with the leftover interpolation `alpha`.
  */
-import {
-  ACESFilmicToneMapping,
-  PCFSoftShadowMap,
-  PerspectiveCamera,
-  Scene,
-  SRGBColorSpace,
-  Timer,
-} from 'three'
+import { PCFSoftShadowMap, PerspectiveCamera, Scene, SRGBColorSpace, Timer } from 'three'
 import { WebGPURenderer } from 'three/webgpu'
 import { PLAYER } from '../config'
+import { createPostFx, type PostFx } from './post'
 
 /** Fixed physics step. */
 export const FIXED_STEP = 1 / 120
@@ -55,6 +49,8 @@ export interface Engine {
   camera: PerspectiveCamera
   clock: EngineClock
   backend: RenderBackend
+  /** Tone mapping, AO, bloom, AA. See `post.ts`; `?nopost=1` starts with it switched off. */
+  post: PostFx
   /** Fixed 1/120 s steps, at most 5 per frame. Returns an unsubscribe function. */
   onUpdate(fn: (dt: number, now: number) => void): () => void
   /** Once per frame, just before the draw call. `alpha` is the fixed-step remainder in 0..1. */
@@ -69,8 +65,10 @@ export interface Engine {
 
 export async function createRenderer(container: HTMLElement): Promise<Engine> {
   let renderer: WebGPURenderer
+  // `?webgl=1` forces the fallback backend so the WebGL2 path can actually be tested.
+  const forceWebGL = new URLSearchParams(location.search).get('webgl') === '1'
   try {
-    renderer = new WebGPURenderer({ antialias: true })
+    renderer = new WebGPURenderer({ antialias: true, forceWebGL })
     await renderer.init()
   } catch (err) {
     throw new RendererInitError(
@@ -84,8 +82,7 @@ export async function createRenderer(container: HTMLElement): Promise<Engine> {
   const backend: RenderBackend = isWebGPU ? 'webgpu' : 'webgl2'
 
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
-  renderer.toneMapping = ACESFilmicToneMapping
-  renderer.toneMappingExposure = 1.0
+  // Tone mapping and exposure belong to the post chain (post.ts sets them from QUALITY).
   renderer.outputColorSpace = SRGBColorSpace
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = PCFSoftShadowMap
@@ -150,7 +147,9 @@ export async function createRenderer(container: HTMLElement): Promise<Engine> {
     const alpha = accumulator / FIXED_STEP
     for (let i = 0; i < renderList.length; i++) renderList[i](alpha, dt)
 
-    renderer.render(scene, camera)
+    // The post chain owns the draw when it is on; `render()` says so, and answers false the
+    // moment it is disabled or has thrown, so a broken effect can never black the game out.
+    if (!post.render()) renderer.render(scene, camera)
   }
 
   function resize() {
@@ -159,6 +158,9 @@ export async function createRenderer(container: HTMLElement): Promise<Engine> {
     camera.aspect = w / h
     camera.updateProjectionMatrix()
   }
+
+  const post = createPostFx({ renderer, scene, camera, backend })
+  if (new URLSearchParams(location.search).get('nopost') === '1') post.settings.enabled = false
 
   const observer = new ResizeObserver(resize)
   observer.observe(container)
@@ -172,6 +174,7 @@ export async function createRenderer(container: HTMLElement): Promise<Engine> {
     },
     clock,
     backend,
+    post,
     container,
     onUpdate(fn) {
       updateHandlers.add(fn)
@@ -209,11 +212,13 @@ export async function createRenderer(container: HTMLElement): Promise<Engine> {
       updateHandlers.clear()
       renderHandlers.clear()
       timer.dispose()
+      post.dispose()
       renderer.dispose()
       canvas.remove()
     },
     setCamera(cam) {
       camera = cam
+      post.setCamera(cam)
       resize()
     },
   }

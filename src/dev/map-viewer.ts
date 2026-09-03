@@ -5,7 +5,7 @@
  * `?nobatch=1` loads the map without static batching, to compare draw calls.
  *
  * Controls: click to capture the mouse (or drag), WASD + Space/Q up-down, Shift to sprint,
- * E toggles the door or window the camera is looking at, Esc to release.
+ * E toggles the door or window the camera is looking at, P flips the post chain, Esc to release.
  * Overlays: Z zones · S spawns · D doors · C collider (movement → bullet → off) ·
  * N navmesh · R raycast probe · G glass panes. With the R probe on, clicking a pane breaks it.
  * S and D only toggle while the cursor is free, because they double as movement keys.
@@ -206,6 +206,11 @@ export async function start(): Promise<void> {
     const key = e.key.toLowerCase()
     keys.add(key)
     if (key === 'e' && !e.repeat) interact()
+    // P flips the whole post chain, which is the only way to judge it: same frame, same light.
+    if (key === 'p' && !e.repeat) {
+      engine.post.settings.enabled = !engine.post.settings.enabled
+      console.info(`[post] ${engine.post.describe()}`)
+    }
     if (!(key in OVERLAY_LABELS)) return
     // S and D are also movement keys — only treat them as toggles with the cursor free.
     if ((key === 's' || key === 'd') && moveActive()) return
@@ -270,6 +275,7 @@ export async function start(): Promise<void> {
       `PASCAL STRIKE · map viewer`,
       `map        ${map.name}`,
       `backend    ${engine.backend}   ${fps.toFixed(0)} fps`,
+      `post (P)   ${engine.post.describe()}`,
       `load       ${loadMs.toFixed(0)} ms   batching ${batchStatic ? 'on' : 'off (?nobatch=1)'}`,
       `draws      ${draws} calls / ${drawnTris.toLocaleString()} tris drawn`,
       `tris       ${sceneTris.toLocaleString()} scene / ${colliderTris.toLocaleString()} movement` +
@@ -296,7 +302,7 @@ export async function start(): Promise<void> {
             : `${k.toUpperCase()}:${OVERLAY_LABELS[k]}${visible[k] ? '*' : ''}`,
         )
         .join(' ')}`,
-      `click to fly · WASD + Space/Q · Shift fast · E interact · Esc frees cursor`,
+      `click to fly · WASD + Space/Q · Shift fast · E interact · P post · Esc frees cursor`,
       `(S/D toggle only while the cursor is free)`,
     ].join('\n')
   }
@@ -359,6 +365,14 @@ export async function start(): Promise<void> {
   // Optional debugging handle (allowed by ARCHITECTURE.md).
   ;(window as unknown as { __ps: unknown }).__ps = {
     engine, map, world, doors, glass, spawns, nav, environment,
+    post: engine.post,
+    /** Park the fly camera for a reproducible screenshot. Angles in degrees. */
+    view(x: number, y: number, z: number, yawDeg: number, pitchDeg: number) {
+      camera.position.set(x, y, z)
+      yaw = (yawDeg * Math.PI) / 180
+      pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, (pitchDeg * Math.PI) / 180))
+      return `${fmt(camera.position)} yaw=${yawDeg} pitch=${pitchDeg}`
+    },
   }
 }
 
