@@ -57,8 +57,8 @@ export const PLAYER = {
 }
 
 export const WEAPON = {
-  /** shots per second while holding fire */
-  fireRate: 9,
+  /** shots per second while holding fire (legacy; WEAPONS.rifle.fireRate is the live value) */
+  fireRate: 12,
   /**
    * Gaussian spread sigma in degrees by motion state. Standing/walking/crouching is
    * precise; running and airborne pay a penalty. Blend by speed between walk and run.
@@ -95,7 +95,7 @@ export const WEAPONS = {
     slot: 1,
     label: 'Marker',
     auto: true,
-    fireRate: 9,
+    fireRate: 12,
     ammo: 30,
     reloadMs: 1_400,
     projectileSpeed: 95,
