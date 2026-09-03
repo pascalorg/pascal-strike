@@ -115,3 +115,44 @@ test('a shot that clips the capsule but no shape still counts as a torso hit', (
   // 1.5 m up, between the shoulders and the head: inside the coarse capsule, outside every shape.
   expect(partHitFrom([0.28, 1.5, 0], target)).toBe('torso')
 })
+
+test('a paintball crosses an unbroken pane: the pane is reported, the paint lands behind it', () => {
+  const scene = new Scene()
+  const pane = { name: 'pane' } as never
+  const wall = { name: 'wall' } as never
+  // A pane 2 m out and a wall 6 m out, both square to the shot.
+  const world: WorldQuery = {
+    raycast(origin, dir, maxDistance) {
+      for (const [z, object, kind] of [[-2, pane, 'glass'], [-6, wall, 'static']] as const) {
+        const distance = (origin.z - z) / -dir.z
+        if (distance >= 0 && distance <= maxDistance) {
+          return {
+            point: new Vector3(origin.x, origin.y, z),
+            normal: new Vector3(0, 0, 1),
+            distance,
+            object,
+            kind,
+          }
+        }
+      }
+      return null
+    },
+    lineOfSight: () => true,
+  }
+  const decalTargets: unknown[] = []
+  const projectiles = createProjectiles(
+    scene,
+    world,
+    { add(target) { decalTargets.push(target) } },
+    noEffects,
+    noAudio,
+  )
+  const glassHits: string[] = []
+  projectiles.onGlassHit((hit) => glassHits.push((hit.object as { name: string }).name))
+  projectiles.spawn(shot('local:glass', [0, 1.5, 0], [0, 0, -1]), { detectPlayers: false })
+  for (let index = 0; index < 60 && projectiles.liveCount; index++) projectiles.update(1 / 120, [])
+  expect(glassHits).toEqual(['pane'])
+  expect(decalTargets).toHaveLength(1)
+  expect((decalTargets[0] as { name: string }).name).toBe('wall')
+  projectiles.dispose()
+})

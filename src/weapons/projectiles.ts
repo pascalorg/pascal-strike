@@ -8,7 +8,16 @@ import {
   Vector3,
 } from 'three'
 import { TEAMS, WEAPON } from '../config'
-import type { BodyPart, HitEvent, HitShape, Hittable, ShotEvent, TeamId, WorldQuery } from '../types'
+import type {
+  BodyPart,
+  HitEvent,
+  HitResult,
+  HitShape,
+  Hittable,
+  ShotEvent,
+  TeamId,
+  WorldQuery,
+} from '../types'
 import type { Audio } from '../engine/audio'
 import type { Decals } from './decals'
 import type { Effects } from './effects'
@@ -17,6 +26,24 @@ export interface Projectiles {
   spawn(shot: ShotEvent, opts: { detectPlayers: boolean }): void
   update(dt: number, hittables: Hittable[]): void
   onPlayerHit(callback: (hit: HitEvent) => void): () => void
+  /**
+   * Announce a hit this module did not simulate — a knife swing (`melee.ts`). Melee is
+   * hit-scan and instantaneous, but it is still "a hit my client detected on my own target",
+   * so it must reach the host through exactly the same validated path as a paintball.
+   */
+  reportHit(hit: HitEvent): void
+  /**
+   * A paintball crossed an unbroken glass pane. Nothing is painted on the pane (it is about to
+   * shatter) and the ball flies on, so the splat lands on whatever is behind it — exactly what
+   * the raycast returns once the pane is gone. The game wires this to the glass system.
+   */
+  onGlassHit(callback: (hit: HitResult, shot: ShotEvent) => void): () => void
+  /**
+   * The hittables passed to the last `update`. Melee needs the same list the projectile sim
+   * runs against and the game builds it once per frame; caching the reference here keeps the
+   * knife from needing its own wiring through the game orchestrator.
+   */
+  readonly targets: readonly Hittable[]
   readonly liveCount: number
   dispose(): void
 }
@@ -31,7 +58,12 @@ interface Ball {
 }
 
 const MAX_LIVE = 256
+const EMPTY_TARGETS: readonly Hittable[] = []
 const MAX_STEP_DISTANCE = 0.5
+/** Step past a pane before the next query, or the same pane answers again. */
+const GLASS_SKIN = 1e-3
+/** Panes a single sub-step may cross before we stop looking for what is behind them. */
+const MAX_GLASS_PER_STEP = 4
 const direction = new Vector3()
 const nextPosition = new Vector3()
 const segmentDelta = new Vector3()
@@ -39,6 +71,7 @@ const bulletPoint = new Vector3()
 const capsulePoint = new Vector3()
 const pointDelta = new Vector3()
 const hitNormal = new Vector3()
+const glassOrigin = new Vector3()
 const instanceMatrix = new Matrix4()
 const hiddenMatrix = new Matrix4().makeScale(0, 0, 0)
 
@@ -64,8 +97,10 @@ export function createProjectiles(
     travelled: 0,
   }))
   const callbacks = new Set<(hit: HitEvent) => void>()
+  const glassCallbacks = new Set<(hit: HitResult, shot: ShotEvent) => void>()
   let cursor = 0
   let liveCount = 0
+  let lastTargets: readonly Hittable[] = EMPTY_TARGETS
   let playerHitTarget: Hittable | null = null
   let playerHitDistance = Infinity
   let playerHitPart: BodyPart = 'torso'
@@ -173,6 +208,7 @@ export function createProjectiles(
       ball.travelled = 0
     },
     update(dt, hittables) {
+      lastTargets = hittables
       for (const ball of balls) {
         if (!ball.active || !ball.shot) continue
         let remaining = Math.max(0, dt)
@@ -189,11 +225,27 @@ export function createProjectiles(
           const distance = segmentDelta.length()
           if (distance <= 1e-10) break
           direction.copy(segmentDelta).multiplyScalar(1 / distance)
-          const staticHit = world.raycast(ball.position, direction, distance)
+          // Glass is transparent to a paintball in flight: report it, then keep looking for
+          // the surface behind it inside the same sub-step.
+          let staticHit = world.raycast(ball.position, direction, distance)
+          let glassOffset = 0
+          for (let pane = 0; staticHit && staticHit.kind === 'glass' && pane < MAX_GLASS_PER_STEP; pane++) {
+            for (const callback of glassCallbacks) callback(staticHit, ball.shot)
+            glassOffset += staticHit.distance + GLASS_SKIN
+            const beyond = distance - glassOffset
+            if (beyond <= 0) {
+              staticHit = null
+              break
+            }
+            glassOrigin.copy(ball.position).addScaledVector(direction, glassOffset)
+            staticHit = world.raycast(glassOrigin, direction, beyond)
+          }
+          // Distances behind a pane are measured from the pane, not from the ball.
+          const staticDistance = staticHit ? staticHit.distance + glassOffset : Infinity
           if (ball.detectPlayers) collidePlayers(ball, hittables, distance)
           else playerHitTarget = null
 
-          if (playerHitTarget && (!staticHit || playerHitDistance < staticHit.distance)) {
+          if (playerHitTarget && playerHitDistance < staticDistance) {
             const target = playerHitTarget
             const shape = playerHitShape
             bulletPoint.copy(ball.position).addScaledVector(direction, playerHitDistance)
@@ -209,6 +261,7 @@ export function createProjectiles(
               point: [bulletPoint.x, bulletPoint.y, bulletPoint.z],
               normal: [hitNormal.x, hitNormal.y, hitNormal.z],
               part: playerHitPart,
+              weapon: ball.shot.weapon,
             }
             for (const callback of callbacks) callback(event)
             audio.play('hitConfirm')
@@ -257,13 +310,23 @@ export function createProjectiles(
       callbacks.add(callback)
       return () => callbacks.delete(callback)
     },
+    reportHit(hit) {
+      for (const callback of callbacks) callback(hit)
+    },
+    onGlassHit(callback) {
+      glassCallbacks.add(callback)
+      return () => glassCallbacks.delete(callback)
+    },
+    get targets() { return lastTargets },
     get liveCount() { return liveCount },
     dispose() {
+      lastTargets = EMPTY_TARGETS
       scene.remove(meshes.a, meshes.b)
       geometry.dispose()
       ;(meshes.a.material as MeshStandardMaterial).dispose()
       ;(meshes.b.material as MeshStandardMaterial).dispose()
       callbacks.clear()
+      glassCallbacks.clear()
     },
   }
 }
@@ -275,7 +338,12 @@ function closestPointOnSegment(a: Vector3, b: Vector3, point: Vector3, out: Vect
   return out.copy(a).addScaledVector(segmentDelta, t)
 }
 
-function rayCapsuleDistance(
+/**
+ * Distance along `rayDirection` at which the ray first touches the capsule, or null past
+ * `maxDistance`. Exported because the knife (`melee.ts`) picks its body part with the same
+ * maths the paintballs use.
+ */
+export function rayCapsuleDistance(
   origin: Vector3,
   rayDirection: Vector3,
   maxDistance: number,
