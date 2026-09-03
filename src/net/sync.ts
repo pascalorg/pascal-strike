@@ -9,9 +9,6 @@ import { GS, PS, CLOCK_SYNC_MS } from './protocol'
 import type { Room } from './room'
 
 const TWO_PI = Math.PI * 2
-/** Never guess further than this past the last snapshot; better to freeze than to teleport. */
-const MAX_EXTRAPOLATION_MS = 100
-const BUFFER_SIZE = 24
 
 /** Shortest-arc difference b - a, in (-PI, PI]. */
 export function angleDelta(a: number, b: number): number {
@@ -37,6 +34,14 @@ export interface SnapshotSender {
 
 const ROUND = 1000
 
+/**
+ * Longest silence an idle player may leave on the wire. Skipping identical poses is free
+ * bandwidth, but a receiver that hears nothing for a second has no way to tell a standing
+ * player from a stalled feed, and its jitter buffer drifts blind — so repeat the last pose
+ * this often. Four extra messages a second per idle player buys a live playout clock.
+ */
+const IDLE_RESEND_MS = 250
+
 function quantize(s: PlayerSnapshot): PlayerSnapshot {
   return {
     x: Math.round(s.x * ROUND) / ROUND,
@@ -57,7 +62,7 @@ function samePose(a: PlayerSnapshot | null, b: PlayerSnapshot): boolean {
 
 /**
  * Writes the local player's pose into the unreliable `p` state at `NET.snapshotHz`.
- * Skips sends while the pose is identical (idle players cost nothing).
+ * Repeats an unchanged pose only every `IDLE_RESEND_MS` (idle players cost almost nothing).
  */
 export function createSnapshotSender(
   room: Room,
@@ -65,12 +70,15 @@ export function createSnapshotSender(
   player = room.me,
 ): SnapshotSender {
   let last: PlayerSnapshot | null = null
+  let lastSentAt = 0
   const tick = () => {
     const raw = getLocal()
     if (!raw) return
     const snap = quantize(raw)
-    if (samePose(last, snap)) return
+    const now = Date.now()
+    if (samePose(last, snap) && now - lastSentAt < IDLE_RESEND_MS) return
     last = snap
+    lastSentAt = now
     player.setState(PS.snap, snap, false)
   }
   const timer = window.setInterval(tick, Math.round(1000 / NET.snapshotHz))
@@ -81,8 +89,63 @@ export function createSnapshotSender(
 }
 
 // ---------------------------------------------------------------------------
-// Receiving
+// Receiving — a jitter buffer on ARRIVAL time
 // ---------------------------------------------------------------------------
+
+/**
+ * Why arrival time and not `snapshot.t`.
+ *
+ * The playout point used to be `hostClock.now() - interpDelayMs` compared against the sender's
+ * `t`. Both sides only *estimate* the host clock (`createClock` below), from a value published
+ * every 5 s, and each estimate is off by roughly one network latency — in opposite directions.
+ * Measured on two browsers: a client's snapshots reached the host stamped ~60 ms in its past,
+ * which ate the whole 110 ms of buffer, so the sampler sat past the newest sample and replayed
+ * the feed as freeze-then-jump: 76 % of frames "hold", median per-frame motion 0 m, single
+ * frames stepping 3 m. Bots looked fine on the same screen only because the host writes their
+ * `t` from the clock everyone else is estimating.
+ *
+ * So the buffer is anchored on the local clock instead: every accepted snapshot is stamped with
+ * `performance.now()` on arrival, and `skew` tracks (arrival - t) with a fast-down / slow-up
+ * filter — the fastest packet is the best measurement of the mapping, the same trick as
+ * minimum-RTT in NTP. `t` is then only used to order samples and to measure the sender's
+ * interval, which is what keeps playback evenly spaced; nothing depends on the two machines
+ * agreeing on a wall clock, or on `t` being a wall clock at all.
+ */
+
+/** Never guess further than this past the last snapshot; better to freeze than to teleport. */
+const MAX_EXTRAPOLATION_MS = 100
+const BUFFER_SIZE = 24
+/** Playout delay bounds around `NET.interpDelayMs` (its floor). */
+const MAX_DELAY_MS = 320
+/** Per accepted snapshot, how fast the delay moves toward its target (~1 s to converge). */
+const DELAY_FOLLOW = 0.06
+/** Clock mapping: snap toward a faster observation, drift toward a slower one. */
+const SKEW_FAST = 0.25
+const SKEW_SLOW = 0.02
+/** A jump this big is a different clock (rejoin, host migration), not jitter: re-anchor. */
+const SKEW_RESET_MS = 400
+const JITTER_FOLLOW = 0.12
+/**
+ * Shortest sample spacing a velocity may be measured over. Two snapshots a few ms apart (an
+ * idle repeat racing the send timer) would otherwise divide a rounding error by ~0 and fling
+ * the avatar across the room.
+ */
+const MIN_VELOCITY_SPAN_MS = 20
+/**
+ * Longest pose gap worth interpolating across. A longer one is a stall or a lost burst; the
+ * avatar holds and then covers the distance over the last slice instead of creeping for a
+ * second at a fraction of walking speed.
+ */
+const MAX_SPAN_MS = 400
+/** A playout discontinuity is absorbed over this long instead of being shown as a jump. */
+const ERROR_TAU_S = 0.12
+/** Past this, a jump is a real teleport (respawn, map change): snap, never smooth. */
+const SNAP_DISTANCE = 1.5
+/** Fastest a player can plausibly move, m/s — used to tell motion from a discontinuity. */
+const MAX_SPEED = 8
+/** Follow rates for the cosmetic channels (rad/s-ish and 1/s). */
+const YAW_FOLLOW = 25
+const SPEED_FOLLOW = 7
 
 export interface PoseOut {
   yaw: number
@@ -91,9 +154,61 @@ export interface PoseOut {
   speed: number
 }
 
+/** What the sampler did on the last frame — the smoothness diagnostic. */
+export type InterpState = 'empty' | 'interp' | 'extrap' | 'hold' | 'snap'
+
+export interface InterpStats {
+  id: string
+  state: InterpState
+  /** How many `sample()` calls ended in each state. */
+  counts: Record<InterpState, number>
+  /** Snapshots accepted. */
+  pushes: number
+  buffered: number
+  /** Measured sender interval, ms. */
+  interval: number
+  /** Current playout delay, ms. */
+  delay: number
+  /** Arrival minus sender stamp, ms (absorbs latency and any clock difference). */
+  skew: number
+  /** Mean |arrival jitter| around `skew`, ms. */
+  jitter: number
+  /** Playout point minus the newest sample, ms: negative = interpolating with margin. */
+  lead: number
+}
+
+/**
+ * Live stats per entity id, for the headless smoothness harness: importing this module from
+ * the page (the same URL the app loaded) hands back this very map, so a test can read the
+ * interpolator's state histogram without a global or a hook through `game.ts`. Plain numbers
+ * only — nothing here keeps an entity alive.
+ */
+export const netStats = new Map<string, InterpStats>()
+
+function makeStats(id: string): InterpStats {
+  const stats: InterpStats = {
+    id,
+    state: 'empty',
+    counts: { empty: 0, interp: 0, extrap: 0, hold: 0, snap: 0 },
+    pushes: 0,
+    buffered: 0,
+    interval: 0,
+    delay: 0,
+    skew: 0,
+    jitter: 0,
+    lead: 0,
+  }
+  netStats.set(id, stats)
+  return stats
+}
+
 export interface Interpolator {
   push(snapshot: PlayerSnapshot): void
-  /** Writes the interpolated pose into `outPos`/`out`. False when nothing has arrived yet. */
+  /**
+   * Writes the interpolated pose into `outPos`/`out`. False when nothing has arrived yet.
+   * Call it once per rendered frame: the playout clock is local and continuous, so the
+   * argument is only kept for callers that still pass the net clock — it is not read.
+   */
   sample(now: number, outPos: Vector3, out: PoseOut): boolean
   /** Date.now() when the newest snapshot was received locally (0 = never). */
   readonly receivedAt: number
@@ -102,88 +217,250 @@ export interface Interpolator {
   reset(): void
 }
 
-export function createInterpolator(entity: PlayerEntity): Interpolator {
-  const buf: PlayerSnapshot[] = []
+/** A snapshot plus the local time it arrived. Pooled: nothing is allocated after warm-up. */
+interface Sample {
+  x: number
+  y: number
+  z: number
+  yaw: number
+  pitch: number
+  c: number
+  /** Sender stamp — ordering and spacing only. */
+  t: number
+}
+
+export function createInterpolator(
+  entity: PlayerEntity,
+  nowLocal: () => number = () => performance.now(),
+): Interpolator {
+  const buf: Sample[] = []
+  const stats = makeStats(entity.id)
   let receivedAt = 0
 
-  const state = {
+  let skew = 0
+  let hasSkew = false
+  let jitter = 0
+  let interval = 1000 / NET.snapshotHz
+  let delay = NET.interpDelayMs
+
+  // Output filter state: the raw playout position, the error being absorbed, and the pose
+  // channels that are smoothed rather than sampled.
+  let hasRaw = false
+  let rawX = 0
+  let rawY = 0
+  let rawZ = 0
+  let lastRawX = 0
+  let lastRawY = 0
+  let lastRawZ = 0
+  let errX = 0
+  let errY = 0
+  let errZ = 0
+  let outX = 0
+  let outY = 0
+  let outZ = 0
+  let yawOut = 0
+  let pitchOut = 0
+  let speedOut = 0
+  let lastSampleAt = 0
+
+  const acquire = (): Sample => {
+    if (buf.length >= BUFFER_SIZE) return buf.shift()!
+    return { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, c: 0, t: 0 }
+  }
+
+  const state: Interpolator = {
     push(snapshot: PlayerSnapshot) {
       if (!snapshot || typeof snapshot.t !== 'number') return
       const newest = buf[buf.length - 1]
       if (newest && snapshot.t <= newest.t) return // duplicate or out of order
-      buf.push(snapshot)
-      if (buf.length > BUFFER_SIZE) buf.shift()
+      const arrival = nowLocal()
+
+      // Map the sender's timeline onto ours. `obs` carries latency + any clock difference;
+      // the smallest recent value is the closest thing to the truth.
+      const obs = arrival - snapshot.t
+      if (!hasSkew || Math.abs(obs - skew) > SKEW_RESET_MS) {
+        hasSkew = true
+        skew = obs
+        jitter = 0
+      } else {
+        jitter += (Math.abs(obs - skew) - jitter) * JITTER_FOLLOW
+        skew += (obs - skew) * (obs < skew ? SKEW_FAST : SKEW_SLOW)
+      }
+
+      if (newest) {
+        const gap = snapshot.t - newest.t
+        // Idle repeats and lost bursts must not drag the interval estimate around.
+        if (gap >= 5 && gap <= 200) interval += (gap - interval) * 0.15
+      }
+      const target = Math.min(MAX_DELAY_MS, Math.max(NET.interpDelayMs, interval * 1.5 + jitter * 1.5))
+      delay += (target - delay) * DELAY_FOLLOW
+
+      const sample = acquire()
+      sample.x = snapshot.x
+      sample.y = snapshot.y
+      sample.z = snapshot.z
+      sample.yaw = snapshot.yaw
+      sample.pitch = snapshot.pitch
+      sample.c = snapshot.c
+      sample.t = snapshot.t
+      buf.push(sample)
       receivedAt = Date.now()
+      stats.pushes++
+      stats.buffered = buf.length
+      stats.interval = Math.round(interval)
+      stats.delay = Math.round(delay)
+      stats.skew = Math.round(skew)
+      stats.jitter = Math.round(jitter)
     },
-    sample(now: number, outPos: Vector3, out: PoseOut): boolean {
-      if (buf.length === 0) return false
-      const target = now - NET.interpDelayMs
+
+    sample(_now: number, outPos: Vector3, out: PoseOut): boolean {
+      const now = nowLocal()
+      const dt = lastSampleAt ? Math.min(0.1, Math.max(1e-4, (now - lastSampleAt) / 1000)) : 1 / 60
+      lastSampleAt = now
+      if (buf.length === 0) {
+        mark('empty')
+        return false
+      }
+
       const newest = buf[buf.length - 1]
       const oldest = buf[0]
+      // Playout point, in the sender's own units.
+      const target = now - skew - delay
+      stats.lead = Math.round(target - newest.t)
+      let yawRaw: number
+      let pitchRaw: number
+      let crouchingRaw: boolean
 
       if (buf.length === 1 || target <= oldest.t) {
-        outPos.set(oldest.x, oldest.y, oldest.z)
-        out.yaw = oldest.yaw
-        out.pitch = oldest.pitch
-        out.crouching = oldest.c === 1
-        out.speed = 0
-        return true
-      }
-
-      if (target >= newest.t) {
+        // Behind everything we hold (a fresh feed, or the delay just grew).
+        rawX = oldest.x
+        rawY = oldest.y
+        rawZ = oldest.z
+        yawRaw = oldest.yaw
+        pitchRaw = oldest.pitch
+        crouchingRaw = oldest.c === 1
+        mark('snap')
+      } else if (target >= newest.t) {
+        // Ahead of the feed: carry on with the last known velocity, easing off so the avatar
+        // coasts to a stop instead of overshooting and being yanked back when data resumes.
         const prev = buf[buf.length - 2]
-        const dt = newest.t - prev.t
+        const span = newest.t - prev.t
         const ahead = Math.min(target - newest.t, MAX_EXTRAPOLATION_MS)
-        const k = dt > 0 ? ahead / dt : 0
-        outPos.set(
-          newest.x + (newest.x - prev.x) * k,
-          newest.y + (newest.y - prev.y) * k,
-          newest.z + (newest.z - prev.z) * k,
-        )
-        out.yaw = lerpAngle(prev.yaw, newest.yaw, 1 + k)
-        out.pitch = newest.pitch
-        out.crouching = newest.c === 1
-        out.speed = speedBetween(prev, newest)
-        return true
+        const e = ahead / MAX_EXTRAPOLATION_MS
+        const eased = MAX_EXTRAPOLATION_MS * (e - 0.5 * e * e)
+        // A stale or too-tight pair says nothing about the current velocity: hold instead.
+        const k = span >= MIN_VELOCITY_SPAN_MS && span <= MAX_SPAN_MS ? eased / span : 0
+        rawX = newest.x + (newest.x - prev.x) * k
+        rawY = newest.y + (newest.y - prev.y) * k
+        rawZ = newest.z + (newest.z - prev.z) * k
+        yawRaw = newest.yaw + clamp(angleDelta(prev.yaw, newest.yaw) * k, -0.35, 0.35)
+        pitchRaw = newest.pitch
+        crouchingRaw = newest.c === 1
+        mark(target - newest.t > MAX_EXTRAPOLATION_MS ? 'hold' : 'extrap')
+      } else {
+        // The normal path: the pair bracketing `target` (buffers are tiny).
+        let i = buf.length - 1
+        while (i > 0 && buf[i - 1].t > target) i--
+        const a = buf[i - 1]
+        const b = buf[i]
+        const span = b.t - a.t
+        // Across a stall, hold at `a` and cover the distance over the last slice rather than
+        // crawling the whole way at a fraction of walking speed.
+        const from = span > MAX_SPAN_MS ? b.t - MAX_SPAN_MS : a.t
+        const width = b.t - from
+        const t = width > 0 ? clamp((target - from) / width, 0, 1) : 1
+        rawX = a.x + (b.x - a.x) * t
+        rawY = a.y + (b.y - a.y) * t
+        rawZ = a.z + (b.z - a.z) * t
+        yawRaw = lerpAngle(a.yaw, b.yaw, t)
+        pitchRaw = a.pitch + (b.pitch - a.pitch) * t
+        crouchingRaw = (t < 0.5 ? a.c : b.c) === 1
+        mark('interp')
       }
 
-      // Walk back to the pair bracketing `target` (buffers are tiny).
-      let i = buf.length - 1
-      while (i > 0 && buf[i - 1].t > target) i--
-      const a = buf[i - 1]
-      const b = buf[i]
-      const span = b.t - a.t
-      const t = span > 0 ? (target - a.t) / span : 1
-      outPos.set(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t)
-      out.yaw = lerpAngle(a.yaw, b.yaw, t)
-      out.pitch = a.pitch + (b.pitch - a.pitch) * t
-      out.crouching = (t < 0.5 ? a.c : b.c) === 1
-      out.speed = speedBetween(a, b)
+      // Absorb playout discontinuities (a delay change, data resuming after a hold) over
+      // ERROR_TAU_S instead of showing them as a jump. A real teleport is left alone.
+      const decay = Math.exp(-dt / ERROR_TAU_S)
+      errX *= decay
+      errY *= decay
+      errZ *= decay
+      if (hasRaw) {
+        const jx = rawX - lastRawX
+        const jy = rawY - lastRawY
+        const jz = rawZ - lastRawZ
+        const jump = Math.sqrt(jx * jx + jy * jy + jz * jz)
+        if (jump > MAX_SPEED * dt + 0.05) {
+          if (jump >= SNAP_DISTANCE) {
+            errX = errY = errZ = 0
+          } else {
+            errX = outX - rawX
+            errY = outY - rawY
+            errZ = outZ - rawZ
+          }
+        }
+      }
+      lastRawX = rawX
+      lastRawY = rawY
+      lastRawZ = rawZ
+      hasRaw = true
+
+      const prevX = outX
+      const prevZ = outZ
+      outX = rawX + errX
+      outY = rawY + errY
+      outZ = rawZ + errZ
+      outPos.set(outX, outY, outZ)
+
+      // Pose channels are cosmetic, so they are followed rather than sampled: a 20 Hz feed
+      // steps yaw in visible notches otherwise.
+      const follow = Math.min(1, dt * YAW_FOLLOW)
+      yawOut = lerpAngle(yawOut, yawRaw, follow)
+      pitchOut += (pitchRaw - pitchOut) * follow
+      // Legs are driven by what the body actually does on screen — including standing still
+      // during a hold, which the sender-derived speed used to paper over.
+      const moved = Math.sqrt((outX - prevX) ** 2 + (outZ - prevZ) ** 2) / dt
+      speedOut += (Math.min(moved, MAX_SPEED) - speedOut) * Math.min(1, dt * SPEED_FOLLOW)
+      out.yaw = yawOut
+      out.pitch = pitchOut
+      out.crouching = crouchingRaw
+      out.speed = speedOut < 0.05 ? 0 : speedOut
       return true
     },
+
     get receivedAt() {
       return receivedAt
     },
     get newestT() {
       return buf.length ? buf[buf.length - 1].t : 0
     },
+
     reset() {
       buf.length = 0
       receivedAt = 0
+      hasSkew = false
+      hasRaw = false
+      errX = errY = errZ = 0
+      speedOut = 0
+      lastSampleAt = 0
+      stats.buffered = 0
     },
   }
-  // `entity` is kept in the closure so callers can pair 1:1 with a registry entry and so we
-  // can seed the first sample from wherever the entity already is.
-  void entity
+
+  function mark(next: InterpState): void {
+    stats.state = next
+    stats.counts[next]++
+    stats.buffered = buf.length
+  }
+
+  // The first sample of a fresh remote should not swing in from wherever the avatar happened
+  // to be standing, so the smoothed channels start from the entity itself.
+  yawOut = entity.yaw
+  pitchOut = entity.pitch
   return state
 }
 
-function speedBetween(a: PlayerSnapshot, b: PlayerSnapshot): number {
-  const dt = (b.t - a.t) / 1000
-  if (dt <= 0) return 0
-  const dx = b.x - a.x
-  const dz = b.z - a.z
-  return Math.sqrt(dx * dx + dz * dz) / dt
+function clamp(value: number, min: number, max: number): number {
+  return value < min ? min : value > max ? max : value
 }
 
 // ---------------------------------------------------------------------------
@@ -211,6 +488,9 @@ const CLOCK_POLL_MS = 100
  * `hostNow - Date.now()`, which is always too negative by (network latency + detection delay).
  * The largest of the last few observations is therefore the one that travelled fastest and the
  * best estimate — the same trick as taking the minimum RTT in NTP.
+ *
+ * Remote *movement* no longer depends on this (see the jitter buffer above); match timers and
+ * invincibility windows do, and they tolerate the tens of ms this is out by.
  */
 export function createClock(room: Room): NetClock {
   let offset = 0
