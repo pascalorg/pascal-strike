@@ -334,12 +334,17 @@ export function startHostAuthority(
       return answer(false, `Wait ${wait} s before switching again`)
     }
 
-    // Balance is judged on the humans only, as they would stand after the move.
+    // Balance is judged on the humans only, as they would stand after the move — and only when
+    // there are no bots to make up the numbers. With the fill on, two friends sharing a side
+    // against a team of bots is the whole point of the button; all that matters then is that a
+    // side never holds more than three heads.
     const counts = humanCounts()
     if (hp.team) counts[hp.team]--
     counts[wanted]++
     if (counts[wanted] > MATCH.teamSize) return answer(false, `${teamName(wanted)} is full`)
-    if (Math.abs(counts.a - counts.b) > 1) return answer(false, 'Teams would be unbalanced')
+    if (!botsFill() && Math.abs(counts.a - counts.b) > 1) {
+      return answer(false, 'Teams would be unbalanced — turn bots on to share a side')
+    }
 
     lastSwap.set(id, now)
     hp.team = wanted

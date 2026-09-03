@@ -226,7 +226,7 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
     void opts
       .onTeam(team)
       .then((result) => {
-        if (!result?.ok) menu.toast(result?.reason || 'Teams would be unbalanced')
+        if (!result?.ok) menu.toast(result?.reason || 'The host turned that swap down')
       })
       .catch((err: Error) => menu.toast(err.message))
       .finally(() => {
