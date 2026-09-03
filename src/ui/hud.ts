@@ -43,6 +43,11 @@ export interface Hud {
   /** 0..1 — how far the crosshair arms are pushed out by spread + recoil. */
   setSpread(spread: number): void
   setFps(fps: number | null): void
+  /**
+   * Show or hide the whole HUD. Hidden while the team screen is up: every widget keeps being
+   * driven underneath, so the frame after `setVisible(true)` is already current.
+   */
+  setVisible(visible: boolean): void
   dispose(): void
 }
 
@@ -352,6 +357,9 @@ export function createHud(mount: HTMLElement = appRoot()): Hud {
     setFps(value) {
       fps.classList.toggle('is-on', value !== null)
       if (value !== null) fps.textContent = `${Math.round(value)} fps`
+    },
+    setVisible(visible) {
+      root.classList.toggle('is-hidden', !visible)
     },
     dispose() {
       for (const id of timers) window.clearTimeout(id)

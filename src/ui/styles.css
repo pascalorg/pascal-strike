@@ -843,6 +843,10 @@ canvas {
 .ps-hud * {
   box-sizing: border-box;
 }
+/* The team screen is up: the widgets keep updating, nobody sees them. */
+.ps-hud.is-hidden {
+  visibility: hidden;
+}
 
 /*
  * Every widget that carries text sits on the same plate: a translucent dark pill with a blurred

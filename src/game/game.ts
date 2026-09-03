@@ -771,7 +771,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   function setSpectating(on: boolean): void {
     if (localPlayer.spectating === on) return
     localPlayer.setSpectating(on)
-    hud.el.style.visibility = on ? 'hidden' : ''
+    hud.setVisible(!on)
     if (on) {
       overview?.reset()
       hud.setRespawn(0)
