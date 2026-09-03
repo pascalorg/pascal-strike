@@ -6,11 +6,40 @@ export type SoundName =
   | 'hit'
   | 'hitConfirm'
   | 'reload'
+  | 'reloadStart'
+  | 'reloadEnd'
+  | 'pistolShot'
+  | 'knifeSwing'
+  | 'knifeHit'
+  | 'weaponSwitch'
+  | 'glassBreak'
+  | 'shardTinkle'
   | 'respawn'
   | 'door'
   | 'footstep'
   | 'death'
   | 'dryFire'
+
+const SOUND_NAMES: ReadonlySet<string> = new Set<SoundName>([
+  'shot',
+  'splat',
+  'hit',
+  'hitConfirm',
+  'reload',
+  'reloadStart',
+  'reloadEnd',
+  'pistolShot',
+  'knifeSwing',
+  'knifeHit',
+  'weaponSwitch',
+  'glassBreak',
+  'shardTinkle',
+  'respawn',
+  'door',
+  'footstep',
+  'death',
+  'dryFire',
+])
 
 export interface AudioListenerPose {
   position: Vector3
@@ -80,11 +109,13 @@ export function createAudio(): Audio {
     toHz: number,
     volume: number,
     type: OscillatorType = 'sine',
+    detune = 0,
   ): void {
     const ctx = context!
     const osc = ctx.createOscillator()
     const envelope = ctx.createGain()
     osc.type = type
+    osc.detune.value = detune
     osc.frequency.setValueAtTime(fromHz, start)
     osc.frequency.exponentialRampToValueAtTime(Math.max(20, toHz), start + duration)
     envelope.gain.setValueAtTime(volume, start)
@@ -117,12 +148,63 @@ export function createAudio(): Audio {
     source.stop(start + duration)
   }
 
+  function bandNoise(
+    output: AudioNode,
+    start: number,
+    duration: number,
+    volume: number,
+    lowHz: number,
+    highHz: number,
+  ): void {
+    const ctx = context!
+    const source = ctx.createBufferSource()
+    const highpass = ctx.createBiquadFilter()
+    const lowpass = ctx.createBiquadFilter()
+    const envelope = ctx.createGain()
+    source.buffer = noise
+    highpass.type = 'highpass'
+    highpass.frequency.value = lowHz
+    lowpass.type = 'lowpass'
+    lowpass.frequency.value = highHz
+    envelope.gain.setValueAtTime(volume, start)
+    envelope.gain.exponentialRampToValueAtTime(0.0001, start + duration)
+    source.connect(highpass).connect(lowpass).connect(envelope).connect(output)
+    source.start(start)
+    source.stop(start + duration)
+  }
+
+  function sweptNoise(
+    output: AudioNode,
+    start: number,
+    duration: number,
+    volume: number,
+    fromHz: number,
+    toHz: number,
+  ): void {
+    const ctx = context!
+    const source = ctx.createBufferSource()
+    const filter = ctx.createBiquadFilter()
+    const envelope = ctx.createGain()
+    source.buffer = noise
+    filter.type = 'bandpass'
+    filter.Q.value = 1.2
+    filter.frequency.setValueAtTime(fromHz, start)
+    filter.frequency.exponentialRampToValueAtTime(toHz, start + duration)
+    envelope.gain.setValueAtTime(volume, start)
+    envelope.gain.exponentialRampToValueAtTime(0.0001, start + duration)
+    source.connect(filter).connect(envelope).connect(output)
+    source.start(start)
+    source.stop(start + duration)
+  }
+
   return {
     async resume() {
       const ctx = initialise()
       if (ctx.state !== 'running') await ctx.resume()
     },
     play(name, at, listener, gain = 1) {
+      // Runtime callers can still supply untyped input; unknown sounds are true no-ops.
+      if (!SOUND_NAMES.has(name)) return
       const ctx = initialise()
       if (ctx.state !== 'running') return
       const output = destination(at, listener, gain)
@@ -154,6 +236,58 @@ export function createAudio(): Audio {
           oscillator(output, time, 0.045, 680, 390, 0.12, 'square')
           oscillator(output, time + 0.18, 0.055, 460, 760, 0.13, 'square')
           break
+        case 'reloadStart':
+          // Two crisp magazine-release clicks, separated enough to read as distinct mechanics.
+          noiseBurst(output, time, 0.018, 0.19, 'bandpass', 1800)
+          oscillator(output, time, 0.022, 900, 760, 0.09, 'square')
+          noiseBurst(output, time + 0.06, 0.018, 0.16, 'bandpass', 1600)
+          oscillator(output, time + 0.06, 0.022, 900, 720, 0.075, 'square')
+          break
+        case 'reloadEnd':
+          // A low magazine-seat impact under a short, strictly band-limited slide scrape.
+          noiseBurst(output, time, 0.045, 0.32, 'bandpass', 900)
+          oscillator(output, time, 0.065, 170, 72, 0.2, 'triangle')
+          bandNoise(output, time + 0.025, 0.09, 0.18, 2000, 5000)
+          break
+        case 'pistolShot':
+          // Short air snap, compact 180 Hz body, then a fast metallic ping.
+          noiseBurst(output, time, 0.03, 0.38, 'highpass', 2400)
+          oscillator(output, time, 0.05, 180, 68, 0.34)
+          oscillator(output, time + 0.008, 0.11, 1200, 920, 0.1)
+          break
+        case 'knifeSwing':
+          sweptNoise(output, time, 0.14, 0.25, 400, 1200)
+          break
+        case 'knifeHit':
+          // A fixed 90 Hz thud anchors a low, loose burst that supplies the wet splat.
+          oscillator(output, time, 0.06, 90, 58, 0.34, 'triangle')
+          noiseBurst(output, time, 0.1, 0.34, 'lowpass', 1100)
+          break
+        case 'weaponSwitch':
+          // Fifteen-millisecond clicks at either end of a 40 ms handling gesture.
+          noiseBurst(output, time, 0.015, 0.1, 'bandpass', 1700)
+          oscillator(output, time, 0.015, 720, 580, 0.045, 'square')
+          noiseBurst(output, time + 0.025, 0.015, 0.085, 'bandpass', 1450)
+          oscillator(output, time + 0.025, 0.015, 620, 500, 0.04, 'square')
+          break
+        case 'glassBreak': {
+          bandNoise(output, time, 0.25, 0.42, 3000, 8000)
+          const count = 8 + Math.floor(Math.random() * 5)
+          for (let index = 0; index < count; index++) {
+            const offset = Math.random() * 0.4
+            const duration = 0.035 + Math.random() * 0.055
+            const frequency = 2000 + Math.random() * 4000
+            const detune = (Math.random() - 0.5) * 24
+            oscillator(output, time + offset, duration, frequency, frequency * 0.92, 0.035, 'sine', detune)
+          }
+          break
+        }
+        case 'shardTinkle': {
+          const frequency = 2800 + Math.random() * 2800
+          const detune = (Math.random() - 0.5) * 20
+          oscillator(output, time, 0.16, frequency, frequency * 0.94, 0.065, 'sine', detune)
+          break
+        }
         case 'respawn':
           oscillator(output, time, 0.18, 330, 440, 0.12)
           oscillator(output, time + 0.1, 0.2, 494, 660, 0.11)
