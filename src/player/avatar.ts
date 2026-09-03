@@ -623,7 +623,9 @@ function makeNameTag(name: string, team: TeamId): Sprite {
   context.fillStyle = TEAMS[team].color
   context.fillText(name, 256, 64)
   const texture = new CanvasTexture(canvas)
-  const material = new SpriteMaterial({ map: texture, transparent: true, depthTest: true })
+  // No depth write: the tag is a mostly transparent quad, and a quad in the depth buffer is a
+  // quad in the ambient occlusion — a lighter rectangle hanging on the wall behind every name.
+  const material = new SpriteMaterial({ map: texture, transparent: true, depthTest: true, depthWrite: false })
   const sprite = new Sprite(material)
   sprite.scale.set(NAME_TAG_WIDTH, NAME_TAG_HEIGHT, 1)
   return sprite
