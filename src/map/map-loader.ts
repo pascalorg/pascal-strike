@@ -6,6 +6,7 @@
  */
 import {
   Box3,
+  Color,
   FrontSide,
   Group,
   Material,
@@ -34,9 +35,17 @@ export interface LoadMapOptions {
    * calls. `?nobatch=1` in the map viewer turns it off to compare.
    */
   batchStatic?: boolean
+  /**
+   * Give the terrain a grass-like albedo (default true). Pascal exports the lot as a 30 m
+   * near-white plane, which under the sky environment reads as a snowfield; any very large, flat
+   * mesh (see `isTerrain`) gets its colour multiplied toward `GRASS_TINT`, maps left alone.
+   */
+  tintTerrain?: boolean
 }
 
 const _origin = new Vector3()
+const _box = new Box3()
+const _size = new Vector3()
 
 export async function loadMap(
   source: string | File,
@@ -67,7 +76,7 @@ export async function loadMap(
   const bounds = new Box3()
   if (collider.geometry.boundingBox) bounds.copy(collider.geometry.boundingBox)
 
-  prepareMaterials(root)
+  prepareMaterials(root, opts?.tintTerrain !== false)
 
   // Batch after the materials are final (the batches reuse the very same instances) and after
   // the colliders are baked (they read the original meshes' world matrices).
@@ -134,13 +143,27 @@ const METAL_THRESHOLD = 0.3
 /** How much of `scene.environment` a map material takes. 1 = whatever the environment says. */
 const ENV_MAP_INTENSITY = 1
 
-function prepareMaterials(root: Object3D): void {
+/** World extent on X and Z past which a flat mesh is the lot, not a floor slab. */
+const TERRAIN_MIN_EXTENT = 20
+const TERRAIN_MAX_THICKNESS = 1
+/** Dry lawn. Multiplied into the terrain's colour, so a textured lot keeps its map. */
+const GRASS_TINT = new Color(0x7f8f5a)
+
+function prepareMaterials(root: Object3D, tintTerrain: boolean): void {
+  const grass = new Map<Material, Material>()
   root.traverse((obj) => {
     const mesh = obj as Mesh
     if (!mesh.isMesh) return
     mesh.castShadow = true
     mesh.receiveShadow = true
     mesh.frustumCulled = true
+
+    // The lot gets its own material instance: the export may share the plain one with a slab.
+    if (tintTerrain && isTerrain(mesh)) {
+      mesh.material = Array.isArray(mesh.material)
+        ? mesh.material.map((m) => grassMaterial(m, grass))
+        : grassMaterial(mesh.material, grass)
+    }
 
     const material = mesh.material
     if (Array.isArray(material)) {
@@ -161,6 +184,29 @@ function prepareMaterial(material: Material): void {
   if (!standard.transparent && (standard.metalness ?? 0) < METAL_THRESHOLD) {
     standard.roughness = Math.max(standard.roughness ?? 1, MIN_ROUGHNESS)
   }
+}
+
+/** A very large, flat mesh in world space: Pascal's 30 m lot, not a floor slab or a wall. */
+function isTerrain(mesh: Mesh): boolean {
+  const geometry = mesh.geometry
+  if (!geometry.boundingBox) geometry.computeBoundingBox()
+  if (!geometry.boundingBox) return false
+  _box.copy(geometry.boundingBox).applyMatrix4(mesh.matrixWorld).getSize(_size)
+  return _size.x > TERRAIN_MIN_EXTENT && _size.z > TERRAIN_MIN_EXTENT && _size.y < TERRAIN_MAX_THICKNESS
+}
+
+function grassMaterial(source: Material, cache: Map<Material, Material>): Material {
+  const cached = cache.get(source)
+  if (cached) return cached
+  const standard = source as MeshStandardMaterial
+  if (!standard.isMeshStandardMaterial) return source
+  const tinted = standard.clone()
+  tinted.name = `${standard.name || 'terrain'} (grass)`
+  tinted.color.multiply(GRASS_TINT)
+  tinted.roughness = 1
+  tinted.metalness = 0
+  cache.set(source, tinted)
+  return tinted
 }
 
 function applySide(material: Material): void {
