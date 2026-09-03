@@ -82,6 +82,16 @@ export const GS = {
    * Cleared on a map change: pane ids are per map.
    */
   glass: 'glass',
+  /**
+   * BotStats — `{ team, kills, deaths }` per bot, republished by the host whenever one changes
+   * (at most every `BOT_STATS_MS`).
+   *
+   * A bot is a real participant with its own state, but playroomkit 0.0.97 only ever delivers
+   * that state to the other clients when the bot JOINS: every later `setState` on a bot stays on
+   * the host, so a joiner's scoreboard showed bots frozen at the kills they had when it walked
+   * in. Globals do sync, so the host mirrors the three fields that change.
+   */
+  botStats: 'botStats',
 } as const
 
 /** What `botsFill` means when the room state has no value for it. */
@@ -160,6 +170,9 @@ export const HIT_MAX_DESYNC_M = 3
 /** How many recent shot ids the host remembers to reject replays. */
 export const SEEN_SHOTS = 512
 
+/** How often the host may republish `botStats` (2 Hz — scoreboard numbers, not gameplay). */
+export const BOT_STATS_MS = 500
+
 /** One accepted team swap per player per this long (host-enforced). */
 export const TEAM_SWAP_COOLDOWN_MS = 10_000
 
@@ -196,6 +209,16 @@ export interface DoorEvent {
 
 /** Value of the `doors` room state: `{ [DoorInfo.id]: open }` for the current map. */
 export type DoorStates = Record<string, boolean>
+
+/** What the host publishes about one bot (see `GS.botStats`). */
+export interface BotStat {
+  team: TeamId
+  kills: number
+  deaths: number
+}
+
+/** Value of the `botStats` room state: bot player id → its stats. */
+export type BotStats = Record<string, BotStat>
 
 /** Somebody's paintball shattered a pane. */
 export interface GlassEvent {

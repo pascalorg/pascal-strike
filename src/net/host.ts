@@ -20,6 +20,7 @@ import type {
   TeamId,
 } from '../types'
 import {
+  BOT_STATS_MS,
   botsFillFrom,
   botsFillValue,
   GS,
@@ -28,6 +29,7 @@ import {
   RPCS,
   SEEN_SHOTS,
   TEAM_SWAP_COOLDOWN_MS,
+  type BotStats,
   type TeamRequest,
   type TeamResult,
 } from './protocol'
@@ -298,6 +300,29 @@ export function startHostAuthority(
     }
   }
 
+  // --- bot stats -----------------------------------------------------------
+  // Everything else about a bot reaches the other clients through the bot's own player state —
+  // except that playroomkit only sends that state when the bot joins (see `GS.botStats`). So the
+  // three fields that move afterwards go out as a global instead, which does sync, at 2 Hz.
+
+  let publishedBotStats = ''
+  let lastBotStatsAt = 0
+
+  const publishBotStats = (now: number) => {
+    if (now - lastBotStatsAt < BOT_STATS_MS) return
+    const stats: BotStats = {}
+    for (const hp of players.values()) {
+      if (!hp.isBot || !hp.team) continue
+      stats[hp.id] = { team: hp.team, kills: hp.kills, deaths: hp.deaths }
+    }
+    // Cheap deep compare: the object is six ids at most, and this runs 20 times a second.
+    const encoded = JSON.stringify(stats)
+    if (encoded === publishedBotStats) return
+    publishedBotStats = encoded
+    lastBotStatsAt = now
+    room.setGlobal(GS.botStats, stats, true)
+  }
+
   // --- team swaps ----------------------------------------------------------
 
   /** Host clock ms of the last ACCEPTED swap per player (the rate limit). */
@@ -517,6 +542,8 @@ export function startHostAuthority(
       if (!hp.alive && hp.respawnAt && now >= hp.respawnAt) respawn(hp, now)
       else if (hp.alive && !hp.spawned && hp.team) respawn(hp, now)
     }
+
+    publishBotStats(now)
 
     const previousRound = match.state.round
     const changed = match.update(now, scores)

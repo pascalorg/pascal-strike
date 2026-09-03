@@ -17,9 +17,11 @@ import type {
   WeaponKind,
 } from '../types'
 import {
+  GS,
   PS,
   RPCS,
   TEAM_SWAP_TIMEOUT_MS,
+  type BotStats,
   type TeamRequest,
   type TeamResult,
 } from './protocol'
@@ -148,6 +150,7 @@ export function bindNetToRegistry(
         entity.weapon = weaponOr(v)
       })
     }
+    applyBotStats()
     // Anyone the registry still knows but Playroom dropped (missed onQuit).
     if (registry.size > players.length) {
       const live = new Set(players.map((p) => p.id))
@@ -161,6 +164,26 @@ export function bindNetToRegistry(
       }
     }
   }
+  /**
+   * A bot's own player state is delivered to us once, when it joins, and never again (see
+   * `GS.botStats`) — so its kills, deaths and team would sit frozen at whatever they were when
+   * we walked in. The host mirrors those three into a global, which does sync; on the host they
+   * are already right, so it reads its own writes instead.
+   */
+  const applyBotStats = () => {
+    if (room.isHost()) return
+    const stats = room.getGlobal<BotStats>(GS.botStats)
+    if (!stats) return
+    for (const id of Object.keys(stats)) {
+      const stat = stats[id]
+      const entity = registry.get(id)
+      if (!stat || !entity || !entity.isBot) continue
+      if (stat.team === 'a' || stat.team === 'b') entity.team = stat.team
+      entity.kills = numberOr(stat.kills, entity.kills)
+      entity.deaths = numberOr(stat.deaths, entity.deaths)
+    }
+  }
+
   poll()
   const pollTimer = window.setInterval(poll, STATE_POLL_MS)
   cleanups.push(() => window.clearInterval(pollTimer))
