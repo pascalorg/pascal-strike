@@ -47,7 +47,9 @@ export async function start(): Promise<void> {
   const t0 = Date.now()
   const match: MatchState = createInitialMatch(t0)
   match.phase = 'live'
-  match.endsAt = t0 + MATCH.durationMs
+  // Start inside the last minute: the showcase only runs for 40 s, and the clock's warning
+  // states (orange under a minute, pulsing under ten seconds) are the ones worth reviewing.
+  match.endsAt = t0 + Math.min(MATCH.durationMs, 52_000)
   hud.setPhase('live')
 
   let hp = PLAYER.maxHp

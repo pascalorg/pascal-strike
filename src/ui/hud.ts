@@ -51,6 +51,11 @@ const FEED_MS = 6000
 /** Health bar colour thresholds (hp). Above `HP_WARN` the bar is team-neutral white. */
 const HP_WARN = 40
 const HP_CRIT = 20
+/** Clock warnings: orange under a minute, breathing under ten seconds. */
+const CLOCK_LOW_MS = 60_000
+const CLOCK_URGENT_MS = 10_000
+/** Below this fraction of the magazine the ammo number turns orange. */
+const LOW_AMMO = 0.25
 /** How long a paint splash lives on screen. Must match the CSS animation below. */
 const PAINT_MS = 1200
 
@@ -75,40 +80,51 @@ export function createHud(mount: HTMLElement = appRoot()): Hud {
     ]),
   ])
 
+  // Scores and clock ride the same pill. A bare grey clock disappeared into the shadows of the
+  // house; a translucent plate under it is the only thing that holds its contrast on *any*
+  // backdrop, black corridor or white plaster wall.
   const scoreA = el('b', { class: 'ps-a', text: '0' })
   const scoreB = el('b', { class: 'ps-b', text: '0' })
-  const timer = el('div', { class: 'ps-timer', text: '5:00' })
+  const timer = el('div', { class: 'ps-timer', text: formatClock(MATCH.durationMs) })
   const phase = el('div', { class: 'ps-phase', text: '' })
   const topbar = el('div', { class: 'ps-topbar' }, [
-    el('div', { class: 'ps-score' }, [scoreA, el('span', { class: 'ps-sep' }), scoreB]),
-    timer,
+    el('div', { class: 'ps-score' }, [
+      scoreA,
+      el('span', { class: 'ps-sep' }),
+      timer,
+      el('span', { class: 'ps-sep' }),
+      scoreB,
+    ]),
     phase,
   ])
 
   // One continuous bar, not three segments: paintball damage comes in 20/34/50 chunks that no
-  // segmentation lines up with. The ghost bar behind it shows the hit that just landed.
+  // segmentation lines up with. The ghost bar behind it shows the hit that just landed. The
+  // heart and the "HP" caps are what make the widget read as health rather than as a paint gauge.
   const hpGhost = el('i', { class: 'ps-hp-ghost' })
   const hpFill = el('i', { class: 'ps-hp-fill' })
   const meter = el('div', { class: 'ps-hpbar' }, [hpGhost, hpFill])
-  const hpNum = el('div', { class: 'ps-hp-num' }, [
-    el('span', { text: String(PLAYER.maxHp) }),
-    el('small', { text: 'HP' }),
+  const hpValue = el('b', { text: String(PLAYER.maxHp) })
+  const hpNum = el('div', { class: 'ps-hp-num' }, [hpValue, el('small', { text: 'HP' })])
+  const health = el('div', { class: 'ps-health' }, [
+    heartSvg(),
+    el('div', { class: 'ps-hp-col' }, [hpNum, meter]),
   ])
-  const hpValue = hpNum.firstElementChild as HTMLElement
-  const health = el('div', { class: 'ps-health' }, [hpNum, meter])
 
-  // Weapon widget: name, the three slot dots, then the magazine. `∞` is the reserve — you
-  // never run out of paint, only out of what is in the gun.
+  // Weapon widget: name, the three slot chips, then the magazine. `∞` is the reserve — you
+  // never run out of paint, only out of what is in the gun. The hairline under the number is
+  // the reload, timed from the weapon's own `reloadMs`.
   const weaponName = el('i', { class: 'ps-weapon-name', text: WEAPONS.rifle.label })
   const slotDots = WEAPON_SLOTS.map((kind, index) =>
     el('i', { class: index === 0 ? 'is-on' : '', text: String(WEAPONS[kind].slot) }))
   const slots = el('div', { class: 'ps-slots' }, slotDots)
   const ammoCount = el('b', { text: String(WEAPONS.rifle.ammo) })
-  const ammoSuffix = el('span', { text: '/∞' })
+  const ammoSuffix = el('span', { text: '/ ∞' })
+  const reloadFill = el('i')
   const ammo = el('div', { class: 'ps-ammo' }, [
     el('div', { class: 'ps-weapon' }, [weaponName, slots]),
-    el('div', {}, [ammoCount, ammoSuffix]),
-    el('em', { text: 'Reloading' }),
+    el('div', { class: 'ps-ammo-num' }, [ammoCount, ammoSuffix]),
+    el('div', { class: 'ps-reload' }, [reloadFill]),
   ])
 
   const feed = el('div', { class: 'ps-feed' })
@@ -158,6 +174,13 @@ export function createHud(mount: HTMLElement = appRoot()): Hud {
   let lastA = 0
   let lastB = 0
   let shownHp = PLAYER.maxHp
+  /** Magazine size and reload time of the weapon in hand: `setHopper` only gets a count and a
+   * boolean, so the low-ammo tint and the reload line are timed from what `setWeapon` last saw. */
+  let ammoMax: number = WEAPONS.rifle.ammo
+  let reloadMs: number = WEAPONS.rifle.reloadMs
+  let reloadShown = false
+  /** The clock only warns during `live`: a 5 s warmup would otherwise spend all of it flashing. */
+  let shownPhase: MatchPhase = 'live'
   const timers = new Set<number>()
   const later = (fn: () => void, ms: number) => {
     const id = window.setTimeout(() => {
@@ -168,6 +191,15 @@ export function createHud(mount: HTMLElement = appRoot()): Hud {
     return id
   }
 
+  /** Run the reload line from empty to full over the weapon's own reload time. */
+  const startReloadLine = () => {
+    reloadFill.style.transition = 'none'
+    reloadFill.style.transform = 'scaleX(0)'
+    void reloadFill.offsetWidth
+    reloadFill.style.transition = `transform ${Math.max(1, reloadMs)}ms linear`
+    reloadFill.style.transform = 'scaleX(1)'
+  }
+
   const hud: Hud = {
     el: root,
     setHp(hp) {
@@ -175,9 +207,13 @@ export function createHud(mount: HTMLElement = appRoot()): Hud {
       const fraction = value / PLAYER.maxHp
       hpValue.textContent = String(Math.round(value))
       hpFill.style.transform = `scaleX(${fraction.toFixed(4)})`
-      hpFill.classList.toggle('is-warn', value < HP_WARN && value >= HP_CRIT)
-      hpFill.classList.toggle('is-crit', value < HP_CRIT)
-      hpNum.classList.toggle('is-crit', value < HP_CRIT)
+      const warn = value < HP_WARN && value >= HP_CRIT
+      const crit = value < HP_CRIT
+      hpFill.classList.toggle('is-warn', warn)
+      hpFill.classList.toggle('is-crit', crit)
+      // On the pill, so the heart, the number and the bar all say the same thing at a glance.
+      health.classList.toggle('is-warn', warn)
+      health.classList.toggle('is-crit', crit)
       if (value > shownHp) {
         // Healing (respawn): the ghost has nothing to trail, so snap it to the new value.
         hpGhost.style.transition = 'none'
@@ -191,18 +227,27 @@ export function createHud(mount: HTMLElement = appRoot()): Hud {
     },
     setHopper(count, reloading = false) {
       // The knife has no magazine: `Infinity` reads as a dash, not as "Infinity".
-      ammoCount.textContent = Number.isFinite(count) ? String(Math.max(0, Math.round(count))) : '—'
-      ammoSuffix.hidden = !Number.isFinite(count)
+      const finite = Number.isFinite(count)
+      ammoCount.textContent = finite ? String(Math.max(0, Math.round(count))) : '—'
+      ammoSuffix.hidden = !finite
+      ammoCount.classList.toggle('is-low', finite && ammoMax > 0 && count / ammoMax < LOW_AMMO)
       ammo.classList.toggle('is-reloading', reloading)
+      if (reloading !== reloadShown) {
+        reloadShown = reloading
+        if (reloading) startReloadLine()
+      }
     },
     setWeapon(kind) {
       const spec = WEAPONS[kind]
       weaponName.textContent = spec.label
+      ammoMax = spec.ammo
+      reloadMs = spec.reloadMs
       for (let index = 0; index < slotDots.length; index++) {
         slotDots[index].classList.toggle('is-on', WEAPON_SLOTS[index] === kind)
       }
       if (!Number.isFinite(spec.ammo)) {
         ammoCount.textContent = '—'
+        ammoCount.classList.remove('is-low')
         ammoSuffix.hidden = true
       } else {
         ammoSuffix.hidden = false
@@ -214,9 +259,12 @@ export function createHud(mount: HTMLElement = appRoot()): Hud {
       lastA = a
       lastB = b
       timer.textContent = formatClock(msLeft)
-      timer.classList.toggle('is-low', msLeft < 30_000)
+      const live = shownPhase === 'live'
+      timer.classList.toggle('is-low', live && msLeft < CLOCK_LOW_MS)
+      timer.classList.toggle('is-urgent', live && msLeft < CLOCK_URGENT_MS)
     },
     setPhase(p, round) {
+      shownPhase = p
       phase.textContent =
         p === 'warmup'
           ? `Warmup${round ? ` · Round ${round}` : ''}`
@@ -326,9 +374,9 @@ export function createHud(mount: HTMLElement = appRoot()): Hud {
 const WEAPON_SLOTS: readonly WeaponKind[] = ['rifle', 'pistol', 'knife']
 
 /**
- * The health bar and the paint splash are new components, and `ui/styles.css` belongs to another
- * package — so this module ships its own rules and injects them once. Everything is prefixed
- * `ps-hp*` / `ps-paint*`, nothing overrides an existing rule.
+ * The paint splash is generated markup (blobs with per-hit geometry), so its rules travel with
+ * the code that builds them instead of living in `ui/styles.css` next to the static widgets.
+ * Everything here is prefixed `ps-paint*` / `ps-hitmark*`.
  */
 const STYLE_ID = 'ps-hud-paint-css'
 
@@ -337,34 +385,6 @@ function injectStyles(): void {
   const style = document.createElement('style')
   style.id = STYLE_ID
   style.textContent = `
-.ps-hpbar {
-  position: relative;
-  width: 176px;
-  height: 13px;
-  border-radius: 4px;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.07);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
-}
-.ps-hpbar i {
-  position: absolute;
-  inset: 0;
-  transform-origin: left center;
-  border-radius: 4px;
-}
-.ps-hp-ghost {
-  background: rgba(248, 113, 113, 0.55);
-  transition: transform 420ms cubic-bezier(0.4, 0, 0.2, 1) 160ms;
-}
-.ps-hp-fill {
-  background: linear-gradient(180deg, #ffffff, #d4d4d8);
-  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), background 200ms linear;
-}
-.ps-hp-fill.is-warn { background: linear-gradient(180deg, #fdba74, #f97316); }
-.ps-hp-fill.is-crit { background: linear-gradient(180deg, #fca5a5, #ef4444); }
-.ps-hp-num.is-crit { color: #fca5a5; animation: ps-hp-pulse 900ms ease-in-out infinite; }
-@keyframes ps-hp-pulse { 50% { opacity: 0.55; } }
-
 .ps-paint {
   position: absolute;
   inset: 0;
@@ -395,39 +415,6 @@ function injectStyles(): void {
 }
 @keyframes ps-drip { from { transform: scaleY(0.15); } to { transform: scaleY(1); } }
 
-.ps-weapon {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-bottom: 2px;
-}
-.ps-weapon-name {
-  font-style: normal;
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: rgba(250, 250, 250, 0.72);
-}
-.ps-slots { display: flex; gap: 3px; }
-.ps-slots i {
-  font-style: normal;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10px;
-  line-height: 16px;
-  width: 16px;
-  text-align: center;
-  border-radius: 4px;
-  color: rgba(250, 250, 250, 0.38);
-  background: rgba(255, 255, 255, 0.06);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-}
-.ps-slots i.is-on {
-  color: #09090b;
-  background: #fafafa;
-  box-shadow: 0 0 10px rgba(250, 250, 250, 0.35);
-}
-
 .ps-hitmark line { stroke: var(--hit, #fafafa); }
 .ps-hitmark.is-on.is-head { animation: ps-hit-head 320ms ease-out; }
 @keyframes ps-hit-head {
@@ -436,7 +423,7 @@ function injectStyles(): void {
 }
 @media (prefers-reduced-motion: reduce) {
   .ps-paint-blob, .ps-paint-drip { animation-duration: 1ms; }
-  .ps-hp-fill, .ps-hp-ghost { transition: none; }
+  .ps-hitmark.is-on, .ps-hitmark.is-on.is-head { animation-duration: 1ms; }
 }
 `
   document.head.appendChild(style)
@@ -488,6 +475,19 @@ function blobSvg(color: string, random: () => number, scale: number): SVGElement
     )
   }
   return svg('svg', { viewBox: '0 0 100 100', width: '100%', height: '100%' }, children)
+}
+
+/**
+ * The health pill's glyph. A heart is the one shape nobody has to be taught: without it the bar
+ * read as another paint gauge next to the hopper.
+ */
+function heartSvg(): SVGElement {
+  return svg('svg', { class: 'ps-hp-icon', viewBox: '0 0 24 24', width: '19', height: '19' }, [
+    svg('path', {
+      d: 'M12 21.05 10.6 19.8C5.5 15.2 2.1 12.1 2.1 8.35 2.1 5.28 4.5 2.9 7.55 2.9c1.72 0 3.38.8 4.45 2.07A5.9 5.9 0 0 1 16.45 2.9c3.05 0 5.45 2.38 5.45 5.45 0 3.75-3.4 6.85-8.5 11.46L12 21.05Z',
+      fill: 'currentColor',
+    }),
+  ])
 }
 
 function line(x1: number, y1: number, x2: number, y2: number): SVGElement {
