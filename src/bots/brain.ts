@@ -20,6 +20,14 @@ const FIRE_TOLERANCE_COS = Math.cos(6 * DEG_TO_RAD)
 const ALLY_TOLERANCE_COS = Math.cos(1.5 * DEG_TO_RAD)
 const ROAM_ARRIVAL_DISTANCE_SQ = 0.6 * 0.6
 const ROAM_TIMEOUT_MS = 12_000
+/** How long an abandoned roam goal stays off the menu. */
+const BLACKLIST_MS = 20_000
+/** A new goal this close to an abandoned one leads back to the same obstacle. */
+const BLACKLIST_RADIUS_SQ = 1.5 * 1.5
+/** Only a handful of spots are ever blacklisted at once; oldest out. */
+const MAX_BLACKLIST = 8
+/** How many candidates to draw before accepting one the blacklist covers. */
+const ROAM_BLACKLIST_TRIES = 6
 const RETREAT_MS = 3_000
 const RETREAT_RADIUS = 6
 const OUTDOOR_RETURN_MS = 6_000
@@ -113,6 +121,29 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
   let nextBurstAt = -Infinity
   let outdoorWithoutEnemySince = -Infinity
   let returningIndoors = false
+  /**
+   * Roam goals the follower gave up on, and when they become choosable again. A goal is
+   * abandoned because something the navmesh cannot see is in the way (an open leaf, furniture),
+   * and that will still be true in a second — so the bot has to be stopped from walking straight
+   * back into it, which is what turns one stall into a bot standing in a doorway for a minute.
+   */
+  const blacklist: Array<{ point: Vector3; until: number }> = []
+
+  function isBlacklisted(point: Vector3, now: number): boolean {
+    for (let index = blacklist.length - 1; index >= 0; index--) {
+      if (blacklist[index].until <= now) { blacklist.splice(index, 1); continue }
+      if (blacklist[index].point.distanceToSquared(point) < BLACKLIST_RADIUS_SQ) return true
+    }
+    return false
+  }
+
+  /** The follower could not get there: remember the spot and let the caller choose again. */
+  function blacklistNavigationGoal(now: number): void {
+    if (!hasNavGoal) return
+    blacklist.push({ point: navGoal.clone(), until: now + BLACKLIST_MS })
+    if (blacklist.length > MAX_BLACKLIST) blacklist.shift()
+    hasNavGoal = false
+  }
 
   function setEye(): void {
     eye.copy(opts.self.position)
@@ -274,8 +305,11 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
   }
 
   function pickRoamGoal(now: number, spawns: SpawnLayout): void {
-    const buildingTarget = opts.roamTargets?.sample(opts.rng)
-    if (buildingTarget) {
+    // A few tries: the blacklist is small and short-lived, so a clear point turns up fast.
+    for (let attempt = 0; attempt < ROAM_BLACKLIST_TRIES; attempt++) {
+      const buildingTarget = opts.roamTargets?.sample(opts.rng)
+      if (!buildingTarget) break
+      if (isBlacklisted(buildingTarget, now)) continue
       setNavigationGoal(buildingTarget)
       roamPickedAt = now
       return
@@ -294,6 +328,9 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
           attempt++) {
           candidate = opts.nav.randomPoint()
         }
+      }
+      for (let attempt = 0; attempt < ROAM_BLACKLIST_TRIES && isBlacklisted(candidate, now); attempt++) {
+        candidate = opts.nav.randomPoint()
       }
       setNavigationGoal(candidate)
     } else if (enemySpawns.length > 0) {
@@ -355,6 +392,13 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
     }
 
     const path = follower.update(opts.self.position, dt)
+    if (path.abandoned) {
+      // Twice stuck in the same spot: whatever is in the way is not on the navmesh, so a replan
+      // would send us straight back into it. Put the goal away and pick somewhere else.
+      blacklistNavigationGoal(now)
+      if (state === 'roam') pickRoamGoal(now, spawns)
+      else enterState('roam')
+    }
     if (state === 'hunt' && path.arrived) enterState('roam')
     if (state === 'roam' && path.arrived) {
       returningIndoors = false
@@ -507,6 +551,7 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
 
   function reset(now = 0): void {
     state = 'roam'
+    blacklist.length = 0
     decision.yaw = opts.self.yaw
     decision.pitch = opts.self.pitch
     decision.fire = false

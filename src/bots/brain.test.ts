@@ -134,3 +134,43 @@ test('never fires through an ally standing between the bot and its enemy', () =>
   expect(brain.state).toBe('engage')
   expect(fired).toBe(false)
 })
+
+test('a goal the follower gives up on is not chosen again while it is blacklisted', () => {
+  const self = entity('bot', 'a', 0, 0)
+  // The navmesh offers the same dead end twice and somewhere else afterwards. Without the
+  // blacklist the brain takes the second draw and walks straight back into the door leaf.
+  const deadEnd = new Vector3(4, 0.01, -2)
+  const escape = new Vector3(-9, 0.01, 9)
+  let draws = 0
+  const nav: Navigation = {
+    ready: true,
+    findPath: (from, to) => [from.clone(), to.clone()],
+    randomPoint: () => (draws++ < 2 ? deadEnd.clone() : escape.clone()),
+    randomPointAround: (center) => center.clone(),
+    closestPoint: (point) => point.clone(),
+  }
+  const follower = createPathFollower(nav)
+  const brain = createBotBrain({
+    self,
+    world: createTestRoom().world,
+    nav,
+    rng: () => 0.5,
+    pathFollower: follower,
+  })
+
+  // The bot never moves: the follower stalls twice in the same spot and gives up on the goal.
+  for (let step = 0; step < Math.round(8 / DT); step++) {
+    brain.update(DT, step * DT * 1000, [], [], EMPTY_SPAWNS)
+    if (follower.debug.abandonedCount > 0) break
+  }
+  expect(follower.debug.abandonedCount).toBeGreaterThan(0)
+
+  // Whatever it picks next, it must not be the spot it just failed to reach.
+  for (let step = 0; step < 30; step++) brain.update(DT, 9000 + step * DT * 1000, [], [], EMPTY_SPAWNS)
+  const goal = follower.debug.goal
+  expect(goal).not.toBeNull()
+  expect(goal!.distanceTo(deadEnd)).toBeGreaterThan(1.5)
+  expect(goal!.distanceTo(escape)).toBeLessThan(0.01)
+  // It refused a draw, rather than simply running out of dead ends to be offered.
+  expect(draws).toBeGreaterThan(2)
+})

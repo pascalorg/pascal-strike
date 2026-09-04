@@ -34,7 +34,9 @@ export function createBotRunner(opts: BotRunnerOptions): BotRunner {
   const roamTargets = createRoamTargetSet(opts.map, opts.world, opts.nav)
   // Door leaves and window sashes are out of the movement collider, so a bot only stops at a
   // shut door if its controller tests the leaves themselves. Bots open what is in their way
-  // (host-side.ts, DOORS.botOpenRadius), which is what keeps them moving.
+  // (host-side.ts, DOORS.botOpenRadius), which is what keeps them moving. A leaf blocks a bot
+  // exactly as it blocks a player, open or shut — the navmesh is what keeps them from walking
+  // into an open one (`buildOpenDoorObstacles` in map/navmesh.ts).
   const dynamicColliders: Mesh[] = []
   for (const door of opts.map.doors) for (const leaf of door.leafMeshes) dynamicColliders.push(leaf)
 
@@ -45,7 +47,24 @@ export function createBotRunner(opts: BotRunnerOptions): BotRunner {
     return undefined
   }
 
+  const toTriple = (v: Vector3 | null): [number, number, number] | null =>
+    v ? [v.x, v.y, v.z] : null
+
   return {
+    debug() {
+      return bots.map((bot) => ({
+        id: bot.entity.id,
+        name: bot.entity.name,
+        state: bot.brain.state,
+        alive: bot.entity.alive,
+        position: [bot.entity.position.x, bot.entity.position.y, bot.entity.position.z] as [number, number, number],
+        goal: toTriple(bot.brain.pathFollower.debug.goal),
+        corner: toTriple(bot.brain.pathFollower.debug.corner),
+        stuck: bot.brain.pathFollower.debug.stuckCount,
+        abandoned: bot.brain.pathFollower.debug.abandonedCount,
+      }))
+    },
+
     update(dt) {
       if (!(dt > 0)) return
       const now = opts.now()

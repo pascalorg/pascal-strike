@@ -468,7 +468,30 @@ export interface BotRunnerOptions {
   doorOpenness?: (id: string) => number
 }
 
+/** One bot's live state, for `?debug=1` and the headless playtests. Read-only snapshot. */
+export interface BotDebugInfo {
+  id: string
+  name: string
+  state: string
+  alive: boolean
+  /** Feet position. */
+  position: [number, number, number]
+  /** Where the brain is sending it, or null when it has no goal. */
+  goal: [number, number, number] | null
+  /** The path corner it is walking at right now, or null when it has no path. */
+  corner: [number, number, number] | null
+  /** Monotonic count of "made no progress for a second" events. */
+  stuck: number
+  /** Monotonic count of goals given up on and blacklisted. */
+  abandoned: number
+}
+
 export interface BotRunner {
+  /**
+   * What every bot is doing, for the debug HUD and the playtests. Allocates: call it from a
+   * debug path, never from the simulation.
+   */
+  debug(): BotDebugInfo[]
   /** Step every simulated bot (call from the fixed update). */
   update(dt: number): void
   /** Start simulating an entity (isBot must be true). Places it at `entity.position`. */
