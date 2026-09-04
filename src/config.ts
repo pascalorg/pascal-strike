@@ -48,8 +48,8 @@ export const PLAYER = {
   decel: 55,
   jumpVelocity: 4.8,
   gravity: 20,
-  /** Max step height the controller can climb without jumping. */
-  stepHeight: 0.45,
+  /** Max step height the controller can climb without jumping. Pascal's v7 stair ends with a 0.50 m riser. */
+  stepHeight: 0.52,
   /** Max slope angle (degrees) considered walkable ground. */
   maxSlopeDeg: 55,
   lookSensitivity: 0.0022,
@@ -186,9 +186,10 @@ export const BOTS = {
 export const NAVMESH = {
   cs: 0.08, // 0.15 severed 0.25 m stair treads; 0.08 connects floors (+15 ms gen)
   ch: 0.1,
-  walkableRadius: 0.3,
+  /** Below the 0.3 m capsule on purpose: curved treads are only ~0.25 m² and 0.3 m erosion severs them. */
+  walkableRadius: 0.22,
   walkableHeight: 1.7,
-  walkableClimb: 0.45,
+  walkableClimb: 0.52,
   walkableSlopeAngle: 50,
 }
 
