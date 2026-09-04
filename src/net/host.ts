@@ -44,8 +44,13 @@ export type SpawnsProvider = (team: TeamId, registry?: EntityRegistry) => SpawnP
 
 export interface HostAuthority {
   stop(): void
-  /** Feed a hit produced locally (host-simulated bots) through the same validation. */
-  submitHit(hit: HitEvent): boolean
+  /**
+   * Feed a hit this tab produced through the same validation the `hit` RPC goes through.
+   * Two callers: our own projectile sim (us and our bots), and `host-side.ts` replaying a hit
+   * that reached the room before this authority existed — hence `senderId`, which is who
+   * actually claimed it. It defaults to us, because normally we are the claimant.
+   */
+  submitHit(hit: HitEvent, senderId?: string): boolean
   /** Host-only map change; everyone reloads from the `map` global. */
   setMap(map: MapSelection): void
   /** Room state: are empty slots filled with bots? */
@@ -620,6 +625,19 @@ export function startHostAuthority(
       else if (hp.alive && !hp.spawned && hp.team) respawn(hp, now)
     }
 
+    // A bot's entry in the registry is ours to keep honest. Nothing else can: a bot has no
+    // client writing its state, and the state Playroom replayed for it when it joined can be
+    // arbitrarily old (see `GS.botStats`). A stale `alive: false` reaching the registry is not
+    // a cosmetic problem — `remote-players.ts` builds no capsule for a corpse, so the bot would
+    // stand there on the host's own screen with every paintball passing through it.
+    for (const hp of players.values()) {
+      if (!hp.isBot) continue
+      const entity = registry.get(hp.id)
+      if (!entity) continue
+      entity.alive = hp.alive
+      entity.hp = hp.hp
+    }
+
     publishBotStats(now)
 
     const previousRound = match.state.round
@@ -657,7 +675,7 @@ export function startHostAuthority(
       lastSwap.clear()
       active = null
     },
-    submitHit: (hit) => applyHit(hit, room.me.id),
+    submitHit: (hit, senderId) => applyHit(hit, senderId ?? room.me.id),
     setMap(map) {
       room.setGlobal(GS.map, map, true)
       events.emit('map-changed', map)

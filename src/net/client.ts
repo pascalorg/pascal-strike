@@ -86,19 +86,32 @@ export function bindNetToRegistry(
   const isSpectator = (player: ReturnType<Room['players']>[number]): boolean =>
     player.id !== room.me.id && !isBotPlayer(player) && teamFrom(player.getState(PS.team)) === null
 
+  /**
+   * A bot's `alive`/`hp` here, on the host, must come from `net/host.ts` and nowhere else.
+   *
+   * Playroom hands us a bot's player state exactly once, when it joins, and that snapshot can
+   * predate the match (it survives a host migration, and a bot that joined mid-death carries
+   * `alive: false` in it forever). Letting a replay like that into the registry does not just
+   * spoil a scoreboard: `remote-players.ts` builds no capsule for a corpse, so the bot would
+   * stand there with every paintball passing straight through it. The authority overwrites both
+   * fields on its 50 ms tick, so the safe default until it does is a live bot at full health.
+   */
+  const authorityOwnsLife = (isBot: boolean) => isBot && room.isHost()
+
   const addPlayer = (player: ReturnType<Room['players']>[number]): PlayerEntity | undefined => {
     if (isSpectator(player)) return registry.get(player.id)
     const isLocal = player.id === room.me.id
     const isBot = isBotPlayer(player)
     const isNew = !registry.get(player.id)
+    const ours = authorityOwnsLife(isBot)
     const entity = registry.upsert({
       id: player.id,
       name: readName(player, isBot),
       team: teamFrom(player.getState(PS.team)) ?? 'a',
       isBot,
       isLocal,
-      hp: numberOr(player.getState(PS.hp), PLAYER.maxHp),
-      alive: player.getState(PS.alive) !== false,
+      hp: ours ? PLAYER.maxHp : numberOr(player.getState(PS.hp), PLAYER.maxHp),
+      alive: ours ? true : player.getState(PS.alive) !== false,
       invincibleUntil: numberOr(player.getState(PS.inv), 0),
       kills: numberOr(player.getState(PS.kills), 0),
       deaths: numberOr(player.getState(PS.deaths), 0),
@@ -177,12 +190,15 @@ export function bindNetToRegistry(
       applyIfChanged(id, PS.team, player.getState(PS.team), (v) => {
         if (v === 'a' || v === 'b') entity.team = v
       })
-      applyIfChanged(id, PS.hp, player.getState(PS.hp), (v) => {
-        entity.hp = numberOr(v, entity.hp)
-      })
-      applyIfChanged(id, PS.alive, player.getState(PS.alive), (v) => {
-        entity.alive = v !== false
-      })
+      // ...except a bot's life on the host, which the authority writes directly (see above).
+      if (!authorityOwnsLife(isBot)) {
+        applyIfChanged(id, PS.hp, player.getState(PS.hp), (v) => {
+          entity.hp = numberOr(v, entity.hp)
+        })
+        applyIfChanged(id, PS.alive, player.getState(PS.alive), (v) => {
+          entity.alive = v !== false
+        })
+      }
       applyIfChanged(id, PS.inv, player.getState(PS.inv), (v) => {
         entity.invincibleUntil = numberOr(v, 0)
       })

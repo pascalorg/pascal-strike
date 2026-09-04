@@ -8,7 +8,7 @@
 import { Vector3 } from 'three'
 import { DOORS } from '../config'
 import { startHostAuthority, type HostAuthority } from '../net/host'
-import { PS, RPCS, type DoorEvent, type FellEvent } from '../net/protocol'
+import { PS, RPCS, type DoorEvent, type FellEvent, type HitEvent } from '../net/protocol'
 import type { Room } from '../net/room'
 import type { NetClock } from '../net/sync'
 import type { BotRunner, EventBus, ShotEvent, SpawnPoint, TeamId } from '../types'
@@ -72,6 +72,64 @@ const BOT_DOOR_PLAYER_CLOSE_MS = 6_000
 /** A bot only opens doors on its own floor (door centres sit ~1 m above the slab). */
 const BOT_DOOR_MAX_VERTICAL = 2
 const BOT_DOOR_RADIUS_SQ = DOORS.botOpenRadius * DOORS.botOpenRadius
+/**
+ * How long a hit queued during the gate window is still worth applying. Past this the shot is
+ * ancient history: the victim has moved metres and may have died and respawned twice.
+ */
+export const PENDING_HIT_TTL_MS = 5_000
+/** Cap on the queue, so a client whose `isHost()` only flickers cannot grow one without bound. */
+const MAX_PENDING_HITS = 64
+
+/** A `hit` that reached this tab before there was an authority to judge it. */
+export interface PendingHit {
+  hit: HitEvent
+  /** Who claimed it — the RPC's sender, which is what `submitHit` validates the claim against. */
+  senderId: string
+  /** `Date.now()` on arrival. */
+  at: number
+}
+
+/**
+ * The waiting room for hits that arrive during the host gate.
+ *
+ * `isHost()` is only believed once it has held for `HOST_STABLE_MS`, and for those three seconds
+ * no authority exists, so nothing is registered for the `hit` RPC — while Playroom, whose own
+ * `isHost` flipped immediately, routes every hit in the room to us. They landed nowhere: three
+ * seconds of everybody's paint doing nothing, at the exact moment (a migration) when the game can
+ * least afford to look broken.
+ *
+ * Split out of `createHostSide` so the replay rules can be tested without a room or a map.
+ */
+export function createHitQueue(ttlMs = PENDING_HIT_TTL_MS, max = MAX_PENDING_HITS) {
+  const pending: PendingHit[] = []
+  const prune = (now: number) => {
+    for (let index = pending.length - 1; index >= 0; index--) {
+      if (now - pending[index].at > ttlMs) pending.splice(index, 1)
+    }
+  }
+  return {
+    get size(): number {
+      return pending.length
+    },
+    push(hit: HitEvent, senderId: string, now: number): void {
+      // Age out before the cap bites, or a long window would let stale hits evict fresh ones.
+      prune(now)
+      if (pending.length >= max) pending.shift()
+      pending.push({ hit, senderId, at: now })
+    },
+    /** Everything still worth applying, oldest first. The queue is emptied either way. */
+    drain(now: number): PendingHit[] {
+      prune(now)
+      return pending.splice(0, pending.length)
+    },
+    clear(): void {
+      pending.length = 0
+    },
+  }
+}
+
+export type HitQueue = ReturnType<typeof createHitQueue>
+
 const _spawnScratch: Vector3[] = []
 const _respawnPoint = new Vector3()
 
@@ -80,6 +138,15 @@ export function createHostSide(opts: HostSideOptions): HostSide {
   let authority: HostAuthority | null = null
   let bots: BotRunner | null = null
   let disposed = false
+  const pendingHits = createHitQueue()
+
+  // Registered for the whole life of the game, not only while we host: the point is to be
+  // listening in the window where the authority is not. Playroom fans a `hit` out to every
+  // registered handler, so once the authority opens its own, this one steps aside.
+  const offPendingHits = room.rpc.register<HitEvent>(RPCS.hit, (hit, sender) => {
+    if (authority || !hit?.by || !hit.shotId) return
+    pendingHits.push(hit, sender?.id ?? hit.by, Date.now())
+  })
 
   // --- spawns --------------------------------------------------------------
 
@@ -141,13 +208,27 @@ export function createHostSide(opts: HostSideOptions): HostSide {
   function start(): void {
     if (authority || !room.isHost()) return
     authority = startHostAuthority(room, registry, spawnProvider, events, clock)
+    replayPendingHits(authority)
     void startBots()
+  }
+
+  /** The gate window is over: judge what was fired during it, before anything else happens. */
+  function replayPendingHits(current: HostAuthority): void {
+    const queued = pendingHits.drain(Date.now())
+    if (queued.length === 0) return
+    let applied = 0
+    for (const pending of queued) if (current.submitHit(pending.hit, pending.senderId)) applied++
+    console.info(
+      `[host] ${applied}/${queued.length} hit(s) fired while the authority was starting counted after all`,
+    )
   }
 
   function stop(): void {
     stopBots()
     authority?.stop()
     authority = null
+    // Whatever is waiting was aimed at a match this tab no longer referees.
+    pendingHits.clear()
   }
 
   start()
@@ -251,6 +332,7 @@ export function createHostSide(opts: HostSideOptions): HostSide {
       doorCooldown.clear()
       playerClosedAt.clear()
       offHostChange()
+      offPendingHits()
       offFell()
       offChange()
       offRespawn()
