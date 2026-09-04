@@ -139,14 +139,25 @@ export function createHostSide(opts: HostSideOptions): HostSide {
   let bots: BotRunner | null = null
   let disposed = false
   const pendingHits = createHitQueue()
+  let offPendingHits: (() => void) | null = null
 
-  // Registered for the whole life of the game, not only while we host: the point is to be
-  // listening in the window where the authority is not. Playroom fans a `hit` out to every
-  // registered handler, so once the authority opens its own, this one steps aside.
-  const offPendingHits = room.rpc.register<HitEvent>(RPCS.hit, (hit, sender) => {
-    if (authority || !hit?.by || !hit.shotId) return
-    pendingHits.push(hit, sender?.id ?? hit.by, Date.now())
-  })
+  /**
+   * Catch `hit` RPCs while there is no authority to hear them, and only then: the authority
+   * registers its own handler, and Playroom's RPC bus warns past ten listeners on one room —
+   * a limit this game sits exactly on. So the two take turns rather than overlapping.
+   */
+  const listenForPendingHits = () => {
+    if (offPendingHits) return
+    offPendingHits = room.rpc.register<HitEvent>(RPCS.hit, (hit, sender) => {
+      if (authority || !hit?.by || !hit.shotId) return
+      pendingHits.push(hit, sender?.id ?? hit.by, Date.now())
+    })
+  }
+
+  const stopListeningForPendingHits = () => {
+    offPendingHits?.()
+    offPendingHits = null
+  }
 
   // --- spawns --------------------------------------------------------------
 
@@ -207,6 +218,11 @@ export function createHostSide(opts: HostSideOptions): HostSide {
 
   function start(): void {
     if (authority || !room.isHost()) return
+    // Off the bus *before* the authority registers its own `hit` handler, not after: Playroom
+    // warns past ten listeners on a room and this game sits exactly on ten, so overlapping for
+    // even one statement is a console warning on every host. Nothing can arrive in the gap —
+    // the two lines are one synchronous step.
+    stopListeningForPendingHits()
     authority = startHostAuthority(room, registry, spawnProvider, events, clock)
     replayPendingHits(authority)
     void startBots()
@@ -227,10 +243,13 @@ export function createHostSide(opts: HostSideOptions): HostSide {
     stopBots()
     authority?.stop()
     authority = null
-    // Whatever is waiting was aimed at a match this tab no longer referees.
+    // Whatever is waiting was aimed at a match this tab no longer referees — but we may well
+    // be handed the room again, so go back to listening for the next window.
     pendingHits.clear()
+    listenForPendingHits()
   }
 
+  listenForPendingHits()
   start()
   const offHostChange = room.onHostChange((isHost) => (isHost ? start() : stop()))
 
@@ -332,7 +351,7 @@ export function createHostSide(opts: HostSideOptions): HostSide {
       doorCooldown.clear()
       playerClosedAt.clear()
       offHostChange()
-      offPendingHits()
+      stopListeningForPendingHits()
       offFell()
       offChange()
       offRespawn()
