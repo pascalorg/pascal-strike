@@ -22,8 +22,23 @@ import type { Audio } from '../engine/audio'
 import type { Decals } from './decals'
 import type { Effects } from './effects'
 
+export interface SpawnOptions {
+  /** Test this ball against `hittables`. True only where the shot's owner simulates it. */
+  detectPlayers: boolean
+  /**
+   * Where the ball is *drawn* leaving from, when that is not where it is simulated from.
+   *
+   * A shot is aimed and resolved from the shooter's eye, but on every other screen it has to
+   * come out of the barrel of the gun we can see — paint leaving someone's head reads as a bug.
+   * The ball therefore flies the owner's trajectory and is only rendered offset onto the muzzle,
+   * converging back onto the real line over the first `VISUAL_CONVERGE_M`. Nothing about the
+   * simulation, the hits or the decal moves with it.
+   */
+  visualOrigin?: Vector3
+}
+
 export interface Projectiles {
-  spawn(shot: ShotEvent, opts: { detectPlayers: boolean }): void
+  spawn(shot: ShotEvent, opts: SpawnOptions): void
   update(dt: number, hittables: Hittable[]): void
   onPlayerHit(callback: (hit: HitEvent) => void): () => void
   /**
@@ -54,12 +69,22 @@ interface Ball {
   detectPlayers: boolean
   position: Vector3
   velocity: Vector3
+  /** Render-only displacement toward the muzzle; see `SpawnOptions.visualOrigin`. */
+  visualOffset: Vector3
   travelled: number
 }
 
 const MAX_LIVE = 256
 const EMPTY_TARGETS: readonly Hittable[] = []
 const MAX_STEP_DISTANCE = 0.5
+/** Metres of flight over which a `visualOrigin` ball slides back onto its real trajectory. */
+const VISUAL_CONVERGE_M = 2.5
+/**
+ * Cap on that displacement. The eye-to-muzzle offset is about a metre; anything larger means the
+ * avatar we read the muzzle off is stale or the wrong one, and a ball drawn metres off its own
+ * path is worse than one drawn at the eye.
+ */
+const MAX_VISUAL_OFFSET_M = 2
 /** Step past a pane before the next query, or the same pane answers again. */
 const GLASS_SKIN = 1e-3
 /** Panes a single sub-step may cross before we stop looking for what is behind them. */
@@ -94,6 +119,7 @@ export function createProjectiles(
     detectPlayers: false,
     position: new Vector3(),
     velocity: new Vector3(),
+    visualOffset: new Vector3(),
     travelled: 0,
   }))
   const callbacks = new Set<(hit: HitEvent) => void>()
@@ -206,6 +232,13 @@ export function createProjectiles(
       ball.position.fromArray(shot.origin)
       ball.velocity.fromArray(shot.dir).normalize().multiplyScalar(shot.speed)
       ball.travelled = 0
+      if (opts.visualOrigin) {
+        ball.visualOffset.subVectors(opts.visualOrigin, ball.position)
+        const offset = ball.visualOffset.length()
+        if (offset > MAX_VISUAL_OFFSET_M) ball.visualOffset.multiplyScalar(MAX_VISUAL_OFFSET_M / offset)
+      } else {
+        ball.visualOffset.set(0, 0, 0)
+      }
     },
     update(dt, hittables) {
       lastTargets = hittables
@@ -295,7 +328,13 @@ export function createProjectiles(
       let indexB = 0
       for (const ball of balls) {
         if (!ball.active || !ball.shot) continue
-        instanceMatrix.makeTranslation(ball.position.x, ball.position.y, ball.position.z)
+        // Drawn out of the barrel for the first couple of metres, then back on its own line.
+        const lean = ball.travelled < VISUAL_CONVERGE_M ? 1 - ball.travelled / VISUAL_CONVERGE_M : 0
+        instanceMatrix.makeTranslation(
+          ball.position.x + ball.visualOffset.x * lean,
+          ball.position.y + ball.visualOffset.y * lean,
+          ball.position.z + ball.visualOffset.z * lean,
+        )
         if (ball.shot.team === 'a') meshes.a.setMatrixAt(indexA++, instanceMatrix)
         else meshes.b.setMatrixAt(indexB++, instanceMatrix)
       }
