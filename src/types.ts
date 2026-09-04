@@ -464,8 +464,6 @@ export interface BotRunnerOptions {
   now: () => number
   /** Per-map seed so behaviour is reproducible. */
   seed?: number
-  /** Openness of a door/window (0 closed … 1 open) by DoorInfo id; missing = treat every leaf as solid. */
-  doorOpenness?: (id: string) => number
 }
 
 /** One bot's live state, for `?debug=1` and the headless playtests. Read-only snapshot. */
