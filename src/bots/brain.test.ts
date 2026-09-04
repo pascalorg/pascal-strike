@@ -6,7 +6,7 @@ import { createTestRoom } from '../dev/test-room'
 import { createCharacterController } from '../player/controller'
 import type { Navigation, PlayerEntity, SpawnLayout } from '../types'
 import { createBotBrain } from './brain'
-import { createPathFollower } from './navigation'
+import { createPathFollower, type PathFollower } from './navigation'
 
 const DT = 1 / 60
 const EMPTY_SPAWNS: SpawnLayout = { a: [], b: [], source: 'auto' }
@@ -133,4 +133,47 @@ test('never fires through an ally standing between the bot and its enemy', () =>
 
   expect(brain.state).toBe('engage')
   expect(fired).toBe(false)
+})
+
+test('an abandoned navigation goal is blacklisted while the brain picks another roam target', () => {
+  const room = createTestRoom()
+  const self = entity('bot', 'a', 0, 0)
+  const failed = new Vector3(4, 0.01, 0)
+  const replacement = new Vector3(-4, 0.01, 0)
+  const samples = [failed, failed, replacement]
+  let sampleIndex = 0
+  const nav = straightNavigation()
+  nav.randomPoint = () => samples[Math.min(sampleIndex++, samples.length - 1)].clone()
+
+  const assignedGoals: Vector3[] = []
+  let abandonNextUpdate = true
+  const follower: PathFollower = {
+    giveUp: 1,
+    setGoal(point) { assignedGoals.push(point.clone()) },
+    update() {
+      const abandoned = abandonNextUpdate
+      abandonNextUpdate = false
+      return {
+        move: { forward: 0, right: 0, jump: false, crouch: false },
+        yaw: 0,
+        arrived: false,
+        stuck: abandoned,
+        abandoned,
+      }
+    },
+  }
+  const brain = createBotBrain({
+    self,
+    world: room.world,
+    nav,
+    rng: () => 0.5,
+    pathFollower: follower,
+  })
+
+  brain.update(DT, 0, [], [], EMPTY_SPAWNS)
+
+  expect(assignedGoals).toHaveLength(2)
+  expect(assignedGoals[0].distanceToSquared(failed)).toBeLessThan(1e-8)
+  expect(assignedGoals[1].distanceToSquared(replacement)).toBeLessThan(1e-8)
+  expect(brain.state).toBe('roam')
 })
