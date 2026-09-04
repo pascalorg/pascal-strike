@@ -1,10 +1,25 @@
 // @ts-ignore Bun provides this runtime module; the project intentionally has no @types/bun dependency.
 import { expect, test } from 'bun:test'
-import { Scene, Vector3 } from 'three'
+import { InstancedMesh, Matrix4, Scene, Vector3 } from 'three'
 import type { BodyPart, HitEvent, Hittable, ShotEvent, WorldQuery } from '../types'
 import { createTestRoom } from '../dev/test-room'
 import { computeHitShapes, createHitShapes } from '../player/hitshapes'
 import { createProjectiles } from './projectiles'
+
+// Avatars draw their name tag on a canvas. Same stand-in as `player/avatar.test.ts`: the drawing
+// calls are no-ops, so the real avatar can be built (and posed) with no DOM.
+if (typeof document === 'undefined') {
+  const context = {
+    beginPath() {}, moveTo() {}, lineTo() {}, closePath() {},
+    fill() {}, strokeText() {}, fillText() {}, ellipse() {}, arc() {},
+  }
+  ;(globalThis as unknown as { document: Document }).document = {
+    createElement() {
+      return { width: 0, height: 0, getContext: () => context }
+    },
+  } as unknown as Document
+}
+const { createAvatar } = await import('../player/avatar')
 
 const noDecals = { add() {} }
 const noEffects = { splat() {} }
@@ -82,14 +97,20 @@ function standingTarget(crouching = false): Hittable {
   }
 }
 
-/** Fires one flat shot from `origin` at the target and returns the body part it reported. */
-function partHitFrom(origin: [number, number, number], target: Hittable): BodyPart | undefined {
+/** Fires one flat shot from `origin` at the target and returns every hit it reported. */
+function hitsFrom(origin: [number, number, number], target: Hittable, id = origin.join(',')): HitEvent[] {
   const hits: HitEvent[] = []
   const projectiles = createProjectiles(new Scene(), emptyWorld, noDecals, noEffects, noAudio)
   projectiles.onPlayerHit((hit) => hits.push(hit))
-  projectiles.spawn(shot(`local:${origin.join(',')}`, origin, [0, 0, -1]), { detectPlayers: true })
+  projectiles.spawn(shot(`local:${id}`, origin, [0, 0, -1]), { detectPlayers: true })
   for (let index = 0; index < 20 && projectiles.liveCount; index++) projectiles.update(1 / 120, [target])
   projectiles.dispose()
+  return hits
+}
+
+/** Fires one flat shot from `origin` at the target and returns the body part it reported. */
+function partHitFrom(origin: [number, number, number], target: Hittable): BodyPart | undefined {
+  const hits = hitsFrom(origin, target)
   expect(hits).toHaveLength(1)
   return hits[0].part
 }
@@ -155,4 +176,88 @@ test('a paintball crosses an unbroken pane: the pane is reported, the paint land
   expect(decalTargets).toHaveLength(1)
   expect((decalTargets[0] as { name: string }).name).toBe('wall')
   projectiles.dispose()
+})
+
+// ---------------------------------------------------------------------------
+// The real thing: a remote player is only ever hittable through `Avatar.hittable()`, and the
+// game feeds the sim exactly what `remote-players.ts` collects from the avatars in the scene.
+// The hand-built `Hittable`s above cannot catch an avatar that stops updating its capsule (a
+// batching or pivot change is all it takes), so one test drives the actual class.
+// ---------------------------------------------------------------------------
+
+test('an avatar posed by set() is hittable where it stands, part by part', () => {
+  const avatar = createAvatar('b', 'Enemy', 'enemy')
+  avatar.set(new Vector3(0, 0, -5), 0, 0, false, 0)
+  const target = avatar.hittable()
+
+  expect(target.id).toBe('enemy')
+  expect(target.team).toBe('b')
+  expect(target.alive).toBe(true)
+  expect(target.shapes).toHaveLength(6)
+  expect(partHitFrom([0, 1.66, 0], target)).toBe('head')
+  expect(partHitFrom([0, 0.95, 0], target)).toBe('torso')
+  expect(partHitFrom([0.12, 0.5, 0], target)).toBe('leg')
+  avatar.dispose()
+})
+
+test('the capsule follows the avatar: it moves, and the old spot stops being a target', () => {
+  const avatar = createAvatar('b', 'Enemy', 'enemy')
+  avatar.set(new Vector3(0, 0, -5), 0, 0, false, 0)
+  expect(hitsFrom([0, 0.95, 0], avatar.hittable(), 'a')).toHaveLength(1)
+
+  // Two metres to the right. `hittable()` is what the game calls every frame, so the capsule
+  // and the six shapes have to be where the body now is — and nowhere else.
+  avatar.set(new Vector3(2, 0, -5), 0, 0, false, 0)
+  expect(hitsFrom([0, 0.95, 0], avatar.hittable(), 'b')).toHaveLength(0)
+  expect(hitsFrom([2, 0.95, 0], avatar.hittable(), 'c')).toHaveLength(1)
+
+  // Crouching drops the head into what was chest height, through the same call.
+  avatar.set(new Vector3(2, 0, -5), 0, 0, true, 0)
+  expect(hitsFrom([2, 1.08, 0], avatar.hittable(), 'd')[0]?.part).toBe('head')
+
+  // Dead bodies are not targets.
+  avatar.die()
+  expect(hitsFrom([2, 0.95, 0], avatar.hittable(), 'e')).toHaveLength(0)
+  avatar.spawn()
+  expect(hitsFrom([2, 0.95, 0], avatar.hittable(), 'f')).toHaveLength(1)
+  avatar.dispose()
+})
+
+test("a shot spawned at somebody's muzzle is drawn there but still resolved from their eye", () => {
+  const avatar = createAvatar('b', 'Enemy', 'enemy')
+  avatar.set(new Vector3(0, 0, -5), 0, 0, false, 0)
+  const target = avatar.hittable()
+
+  const shooterMuzzle = new Vector3()
+  const shooter = createAvatar('a', 'Shooter', 'shooter')
+  shooter.set(new Vector3(0, 0, 0), 0, 0, false, 0)
+  shooter.muzzleWorld(shooterMuzzle)
+  // The muzzle is on the gun: about a metre up and a stride in front of the feet, well below
+  // the 1.55 m eye the shot was aimed from. That gap is the whole point of `visualOrigin`.
+  expect(shooterMuzzle.y).toBeGreaterThan(0.8)
+  expect(shooterMuzzle.y).toBeLessThan(1.25)
+  expect(shooterMuzzle.z).toBeLessThan(-0.5)
+
+  const scene = new Scene()
+  const hits: HitEvent[] = []
+  const projectiles = createProjectiles(scene, emptyWorld, noDecals, noEffects, noAudio)
+  projectiles.onPlayerHit((hit) => hits.push(hit))
+  projectiles.spawn(shot('remote:muzzle', [0, 1.66, 0], [0, 0, -1]), {
+    detectPlayers: true,
+    visualOrigin: shooterMuzzle,
+  })
+
+  // One tick: the ball has barely left the barrel, so that is where it must be drawn.
+  projectiles.update(1 / 240, [target])
+  const balls = scene.children.find((child): child is InstancedMesh => child instanceof InstancedMesh)!
+  const drawn = new Vector3().setFromMatrixPosition(new Matrix4().fromArray(balls.instanceMatrix.array, 0))
+  expect(drawn.distanceTo(shooterMuzzle)).toBeLessThan(0.35)
+
+  // ...and the shot still lands where it was aimed: a headshot, not half a metre of drop.
+  for (let index = 0; index < 20 && projectiles.liveCount; index++) projectiles.update(1 / 120, [target])
+  expect(hits).toHaveLength(1)
+  expect(hits[0].part).toBe('head')
+  projectiles.dispose()
+  shooter.dispose()
+  avatar.dispose()
 })
