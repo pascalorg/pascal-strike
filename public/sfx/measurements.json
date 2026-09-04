@@ -1261,100 +1261,6 @@
       },
       "sound": "deny"
     },
-    "announcer-headshot": {
-      "layers": [
-        {
-          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Shooter Game Announcer Voice/VOXMale_Announcer Vocal Male Dry Special Kill Headshot 01_ESM_SGAV.wav",
-          "start": 0.004943,
-          "duration": 0.768345,
-          "pitch": 1,
-          "gain_db": 0,
-          "presence": false,
-          "library": "Sonniss GDC 2026"
-        }
-      ],
-      "duration": 0.7683446712018142,
-      "fade": 0.025,
-      "note": "Whole phrase; manifest gain 0.7 supplies approximately -3 dB playback attenuation.",
-      "master": {
-        "peak_dbfs": -1.0,
-        "rms_dbfs": -14.111,
-        "high_rms_dbfs": -22.435,
-        "duration": 0.768345,
-        "channels": 1,
-        "sample_rate": 44100
-      },
-      "encoded": {
-        "ogg": {
-          "peak_dbfs": -1.074,
-          "rms_dbfs": -14.694,
-          "high_rms_dbfs": -23.132,
-          "duration": 0.765442,
-          "channels": 1,
-          "sample_rate": 44100,
-          "bytes": 11578,
-          "sha256": "ec6bb4a0ea15be51d60f1a8ee43cf012ccf9618d41eeee2b7d783c39eeb57d8f"
-        },
-        "m4a": {
-          "peak_dbfs": -1.077,
-          "rms_dbfs": -14.569,
-          "high_rms_dbfs": -23.0,
-          "duration": 0.789478,
-          "channels": 1,
-          "sample_rate": 44100,
-          "bytes": 13376,
-          "sha256": "5b23f8f70842256e7e0a282a3ba18258e55c4d4dfc507902bb73f2dc0e4a2f05"
-        }
-      },
-      "sound": "announcerHeadshot"
-    },
-    "announcer-ten-left": {
-      "layers": [
-        {
-          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Shooter Game Announcer Voice/VOXFutz_Announcer Vocal Male Wet Countdown Ten Kills Remaining 03_ESM_SGAV.wav",
-          "start": 0,
-          "duration": 1.416825,
-          "pitch": 1,
-          "gain_db": 0,
-          "presence": false,
-          "library": "Sonniss GDC 2026"
-        }
-      ],
-      "duration": 1.4168253968253968,
-      "fade": 0.025,
-      "note": "Whole phrase; manifest gain 0.7 supplies approximately -3 dB playback attenuation.",
-      "master": {
-        "peak_dbfs": -1.0,
-        "rms_dbfs": -15.803,
-        "high_rms_dbfs": -32.5,
-        "duration": 1.416825,
-        "channels": 1,
-        "sample_rate": 44100
-      },
-      "encoded": {
-        "ogg": {
-          "peak_dbfs": -0.958,
-          "rms_dbfs": -15.835,
-          "high_rms_dbfs": -32.741,
-          "duration": 1.416825,
-          "channels": 1,
-          "sample_rate": 44100,
-          "bytes": 17133,
-          "sha256": "9e288827b7d98ec04a515fff29ffaadc42c0e19c0ef35732eb9b7fc1a654921f"
-        },
-        "m4a": {
-          "peak_dbfs": -1.006,
-          "rms_dbfs": -15.888,
-          "high_rms_dbfs": -32.675,
-          "duration": 1.439637,
-          "channels": 1,
-          "sample_rate": 44100,
-          "bytes": 23988,
-          "sha256": "3df810eb654365805feb17e1bb19f0fb8d205829ba0172300b156d5ca957cac4"
-        }
-      },
-      "sound": "announcerTenLeft"
-    },
     "footstep-1": {
       "layers": [
         {
@@ -1506,6 +1412,206 @@
         }
       },
       "sound": "footstep variant 4"
+    },
+    "jump": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle3of5/InMotionAudio - Foley T-Shirt/FOLYClth_SinglePats04_InMotionAudio_FoleyT-Shirt.wav",
+          "library": "Sonniss GDC 2026",
+          "start": 0.109535,
+          "duration": 0.12,
+          "gain_db": 0,
+          "pitch": 1,
+          "delay": 0,
+          "filters": ""
+        },
+        {
+          "source": "impact-sounds/Audio/footstep_concrete_000.ogg",
+          "library": "Kenney Impact Sounds",
+          "start": 0,
+          "duration": 0.15,
+          "gain_db": -6,
+          "pitch": 1,
+          "delay": 0,
+          "filters": ""
+        }
+      ],
+      "duration": 0.15,
+      "fade": 0.03,
+      "note": "Cloth pat 0 dB with soft concrete push-off -6 dB. Playback gain 0.25.",
+      "sound": "jump",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -20.24,
+        "high_rms_dbfs": -36.883,
+        "duration": 0.15,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -1.091,
+          "rms_dbfs": -20.222,
+          "high_rms_dbfs": -37.019,
+          "duration": 0.147098,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 4920,
+          "sha256": "257e8693a30ea451fafa0d6224a8d132c1d250f5718ceabb898a1596b68b6a93"
+        },
+        "m4a": {
+          "peak_dbfs": -1.055,
+          "rms_dbfs": -20.558,
+          "high_rms_dbfs": -37.139,
+          "duration": 0.16254,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 3270,
+          "sha256": "8b4f070eeba9638b84e1e479218bb10983467b16ea93db87330d427955d418b7"
+        }
+      }
+    },
+    "land-1": {
+      "layers": [
+        {
+          "source": "impact-sounds/Audio/footstep_concrete_001.ogg",
+          "library": "Kenney Impact Sounds",
+          "start": 0,
+          "duration": 0.22,
+          "gain_db": 0,
+          "pitch": 1,
+          "delay": 0,
+          "filters": ""
+        },
+        {
+          "source": "Sine 70\u219270 Hz; exponential decay exp(-4t/d), 1 ms attack, 3 ms release",
+          "library": "Synthesized",
+          "start": 0,
+          "duration": 0.05,
+          "gain_db": -4,
+          "pitch": 1,
+          "delay": 0,
+          "filters": "",
+          "f0": 70,
+          "f1": 70,
+          "decay": 4
+        },
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle3of5/InMotionAudio - Foley T-Shirt/FOLYClth_SinglePats04_InMotionAudio_FoleyT-Shirt.wav",
+          "library": "Sonniss GDC 2026",
+          "start": 0.109535,
+          "duration": 0.12,
+          "gain_db": -8,
+          "pitch": 1,
+          "delay": 0,
+          "filters": ""
+        }
+      ],
+      "duration": 0.22,
+      "fade": 0.04,
+      "note": "Footstep 0 dB, 50 ms 70 Hz thump -4 dB, cloth pat -8 dB. Playback gain 0.4; fall-speed multiplier 0.6\u20131.2.",
+      "sound": "land (1/2)",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -22.503,
+        "high_rms_dbfs": -46.016,
+        "duration": 0.22,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -1.028,
+          "rms_dbfs": -22.417,
+          "high_rms_dbfs": -46.528,
+          "duration": 0.217098,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 4895,
+          "sha256": "be13523027a1193f9bc5b674cac793f0806f3b6f00db81e8dbf3e17f9f91dadc"
+        },
+        "m4a": {
+          "peak_dbfs": -1.02,
+          "rms_dbfs": -22.714,
+          "high_rms_dbfs": -46.279,
+          "duration": 0.2322,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 3290,
+          "sha256": "129d301c911bace70ab5c71b50c31bbe51ae54bed5a1ded6f453d98e9ef5f21e"
+        }
+      }
+    },
+    "land-2": {
+      "layers": [
+        {
+          "source": "impact-sounds/Audio/footstep_wood_001.ogg",
+          "library": "Kenney Impact Sounds",
+          "start": 0,
+          "duration": 0.22,
+          "gain_db": 0,
+          "pitch": 1,
+          "delay": 0,
+          "filters": ""
+        },
+        {
+          "source": "Sine 70\u219270 Hz; exponential decay exp(-4t/d), 1 ms attack, 3 ms release",
+          "library": "Synthesized",
+          "start": 0,
+          "duration": 0.05,
+          "gain_db": -4,
+          "pitch": 1,
+          "delay": 0,
+          "filters": "",
+          "f0": 70,
+          "f1": 70,
+          "decay": 4
+        },
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle3of5/InMotionAudio - Foley T-Shirt/FOLYClth_SinglePats04_InMotionAudio_FoleyT-Shirt.wav",
+          "library": "Sonniss GDC 2026",
+          "start": 0.109535,
+          "duration": 0.12,
+          "gain_db": -8,
+          "pitch": 1,
+          "delay": 0,
+          "filters": ""
+        }
+      ],
+      "duration": 0.22,
+      "fade": 0.04,
+      "note": "Footstep 0 dB, 50 ms 70 Hz thump -4 dB, cloth pat -8 dB. Playback gain 0.4; fall-speed multiplier 0.6\u20131.2.",
+      "sound": "land (2/2)",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -19.888,
+        "high_rms_dbfs": -46.467,
+        "duration": 0.22,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.925,
+          "rms_dbfs": -19.791,
+          "high_rms_dbfs": -46.704,
+          "duration": 0.217098,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 4932,
+          "sha256": "c8d75676fcc9f6ffa665a2894cae44ed37c5ffb5e614b2cab47db552a546dcbd"
+        },
+        "m4a": {
+          "peak_dbfs": -0.982,
+          "rms_dbfs": -20.105,
+          "high_rms_dbfs": -46.572,
+          "duration": 0.2322,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 3493,
+          "sha256": "3fb7f8eeda7f79bd31bde4cbcc45c67da3a603cf322dfee3cdc076abdecada73"
+        }
+      }
     }
   }
 }

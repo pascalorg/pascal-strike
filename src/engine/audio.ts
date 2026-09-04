@@ -18,6 +18,8 @@ export type SoundName =
   | 'respawn'
   | 'door'
   | 'footstep'
+  | 'jump'
+  | 'land'
   | 'death'
   | 'dryFire'
 
@@ -368,6 +370,13 @@ export function createAudio(): Audio {
           break
         case 'footstep':
           noiseBurst(output, time, 0.08, 0.16, 'lowpass', 480)
+          break
+        case 'jump':
+          noiseBurst(output, time, 0.15, 0.1, 'bandpass', 1000)
+          break
+        case 'land':
+          noiseBurst(output, time, 0.22, 0.16, 'lowpass', 650)
+          oscillator(output, time, 0.05, 70, 70, 0.2)
           break
         case 'death':
           noiseBurst(output, time, 0.35, 0.3, 'lowpass', 650)

@@ -47,6 +47,7 @@ fragments = {
     'lock': 'Tinkering Antique Lock',
     'latch': 'MECHLtch_Click Deep Mechanism Latch Button Nearfield Thunk 02',
     'thud': 'SWSH_SWING IMPACTS Quick Heavy Weapon Swing To Thud Impact Var 01',
+    'pat': 'FOLYClth_SinglePats04_InMotionAudio_FoleyT-Shirt',
     'cloth': 'FOLYClth_ClothMovement24_InMotionAudio_FoleyT-Shirt',
     'ding': 'Ting Coins',
     'shards': 'GLASMvmt_Whoosh Glass Crystal Fragments Sharp Shards Dry 05',
@@ -60,6 +61,8 @@ for key, fragment in fragments.items():
     paths[key] = matches[0]
     samples[key] = decode(matches[0])
 paths['wood'] = KENNEY / 'impact-sounds/Audio/impactWood_light_002.ogg'
+for key, stem in [('push', 'footstep_concrete_000'), ('land-concrete', 'footstep_concrete_001'), ('land-wood', 'footstep_wood_001')]:
+    paths[key] = KENNEY / f'impact-sounds/Audio/{stem}.ogg'
 
 
 def layer(key, start, duration, gain=0, pitch=1, delay=0, filters=''):
@@ -190,9 +193,20 @@ add('door-handle', [layer(squeak_key, squeak_start, .256, -10, .8, filters='afad
 add('respawn-chime', [layer('kalimba', 0, .650)], .650, .250,
     'Real three-note kalimba; source ends naturally at 553 ms, padded to 650 ms. Playback gain 0.3.')
 
+pat_start = peak_start('pat')
+add('jump', [layer('pat', pat_start, .120), layer('push', 0, .150, -6)], .150, .030,
+    'Cloth pat 0 dB with soft concrete push-off -6 dB. Playback gain 0.25.')
+for n, key in [(1, 'land-concrete'), (2, 'land-wood')]:
+    add(f'land-{n}', [layer(key, 0, .220), synth(70, 70, .050, -4), layer('pat', pat_start, .120, -8)],
+        .220, .040, 'Footstep 0 dB, 50 ms 70 Hz thump -4 dB, cloth pat -8 dB. Playback gain 0.4; fall-speed multiplier 0.6–1.2.')
+
 with tempfile.TemporaryDirectory(prefix='pascal-strike-fine-tune-') as folder:
     work = Path(folder)
+    built = []
     for stem, recipe in recipes.items():
+        if all(records.get(stem, {}).get(key) == value for key, value in recipe.items()):
+            continue
+        built.append(stem)
         print(f'Building {stem}', flush=True)
         master = work / f'{stem}.wav'
         mix(recipe, master)
@@ -233,19 +247,19 @@ with tempfile.TemporaryDirectory(prefix='pascal-strike-fine-tune-') as folder:
     assert all(1 <= delta <= 2 for delta in decisions['pistol_full_rms_above_marker_db'].values()), 'Pistol must exceed marker full RMS by 1–2 dB'
     # Validate every preserved encode against the report before publishing anything.
     for stem, record in records.items():
-        if stem not in recipes:
+        if stem not in built:
             for ext in ['ogg','m4a']:
                 assert metrics(OUT/f'{stem}.{ext}') == record['encoded'][ext], stem
     payload = dict(schema=1, sample_rate=RATE, master_peak_dbfs=-1, decisions=decisions, sounds=records)
     (work/'measurements.json').write_text(json.dumps(payload, indent=2)+'\n')
     lines = (OUT/'CREDITS.md').read_text().split('Build:')[0].rstrip().splitlines()
     lines += ['', 'Build: `bash scripts/sfx/build-sfx.sh`. Sources are read in place from `SONNISS_DIR` and `KENNEY_DIR`; temporary masters are removed on exit. '
-              'Only changed pairs are rebuilt. reloadStart, knifeSwing, knifeHit, footsteps, deny, both announcers, and splat v2 remain byte-identical.', '',
+              'Only changed pairs are rebuilt. reloadStart, knifeSwing, knifeHit, footsteps, deny, and splat v2 remain byte-identical.', '',
               'Processing: mono 44.1 kHz; source layers highpassed at 80 Hz (synthesized low thumps bypass this); no lowpass, compression, limiting, or loudness normalization. '
               'Layers are peak-matched to -1 dBFS before relative gain and delay. Gain-only master normalization: -1 dBFS; 1 ms attack. '
               'OGG libvorbis q4 and mono AAC M4A 128 kbps; decoded peak correction tolerance ±0.15 dB. Legacy footsteps retain their original encodes.', '',
-              'Manifest: hit 0.55, death 0.7, respawn 0.3; other gains unchanged. Deny plays on team refusal; headshot announces local head kills with a 3 s cooldown; '
-              'ten-left announces either team reaching killTarget − 10 during live, once per round with a phase reset.', '',
+              'Manifest: hit 0.55, death 0.7, respawn 0.3, jump 0.25, land 0.4; other gains unchanged. Deny plays on team refusal. '
+              'Jump plays on accepted local jump input; land plays on local ground contact or remote descent stopping above 2.5 m/s, scaled 0.6–1.2 over 2.5–8 m/s. Remote land is culled at 22 m.', '',
               '## Selection evidence', '', '```json', json.dumps(decisions, indent=2), '```', '',
               '## Exact sources and cuts', '',
               'Sonniss paths are relative to `SONNISS_DIR`; Kenney paths are relative to `KENNEY_DIR`. Cuts are start / duration before pitch, padding, and fades. '
@@ -275,10 +289,10 @@ with tempfile.TemporaryDirectory(prefix='pascal-strike-fine-tune-') as folder:
         lines.append(f"| `{stem}` | {pair('peak_dbfs',2)} | {pair('duration',6)} | {pair('rms_dbfs',2)} | {high} | {pair('bytes',0)} |")
     lines += ['', f"Total: {len(records)} pairs; largest file {max(m['bytes'] for r in records.values() for m in r['encoded'].values()):,} bytes. Limit: 150,000 bytes per file.", '']
     (work/'CREDITS.md').write_text('\n'.join(lines))
-    for stem in recipes:
+    for stem in built:
         for ext in ['ogg','m4a']:
             (OUT/f'{stem}.{ext}').write_bytes((work/f'{stem}.{ext}').read_bytes())
     for name in ['measurements.json','CREDITS.md']:
         (OUT/name).write_bytes((work/name).read_bytes())
-    print(f'Published {len(recipes)} changed pairs; all other audio byte-identical.', flush=True)
+    print(f'Published {len(built)} changed pairs; all other audio byte-identical.', flush=True)
 PY

@@ -33,6 +33,8 @@ import { createMelee, type Melee } from '../weapons/melee'
 import {
   bindFootstepAudio,
   createFootstepCadence,
+  didStartJump,
+  localLandingGain,
   LOCAL_RUN_THRESHOLD,
 } from './footsteps'
 import type { MapSession } from './map-session'
@@ -268,8 +270,14 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
       move.jump = source.jump
       move.crouch = source.crouch
       move.walk = source.walk ?? false
+      const groundedBeforeUpdate = controller.state.grounded
       const fallSpeed = controller.state.velocity.y
       controller.update(dt, move, yaw, marker.moveSpeedScale)
+      if (didStartJump(groundedBeforeUpdate, controller.state.grounded, move.jump, controller.state.velocity.y)) {
+        audio.play('jump')
+      }
+      const landGain = localLandingGain(groundedBeforeUpdate, controller.state.grounded, fallSpeed)
+      if (landGain > 0) audio.play('land', undefined, undefined, landGain)
       if (!wasGrounded && controller.state.grounded) fpsCamera.landing(fallSpeed)
       wasGrounded = controller.state.grounded
     },

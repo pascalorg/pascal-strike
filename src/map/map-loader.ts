@@ -17,7 +17,7 @@ import {
   Vector3,
 } from 'three'
 import { loadGltf, type Loaders } from '../engine/loaders'
-import { batchOpenableLeaves, batchStaticMeshes } from './batch'
+import { batchOpenableLeaves, batchStaticMeshes, isTransparentMaterial } from './batch'
 import { buildOpenDoorObstacles } from './doors'
 
 import {
@@ -79,7 +79,7 @@ export async function loadMap(
   const bounds = new Box3()
   if (collider.geometry.boundingBox) bounds.copy(collider.geometry.boundingBox)
 
-  const matte = prepareMaterials(root, opts?.tintTerrain !== false)
+  const matte = prepareMaterials(root, opts?.tintTerrain !== false, glassMeshes)
 
   // Batch after the materials are final (the batches reuse the very same instances) and after
   // the colliders are baked (they read the original meshes' world matrices).
@@ -173,13 +173,15 @@ const GRASS_TINT = new Color(0x7f8f5a)
  * Shadow flags, sidedness, the roughness floors and the terrain tint, in one traversal. Returns
  * the textured non-metals, which `clampEnvironment` hooks up after batching.
  */
-function prepareMaterials(root: Object3D, tintTerrain: boolean): Set<MeshStandardMaterial> {
+function prepareMaterials(root: Object3D, tintTerrain: boolean, glassMeshes: Set<Mesh>): Set<MeshStandardMaterial> {
   const matte = new Set<MeshStandardMaterial>()
   const grass = new Map<Material, Material>()
   root.traverse((obj) => {
     const mesh = obj as Mesh
     if (!mesh.isMesh) return
-    mesh.castShadow = true
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+    // Light must pass through glass whether intact or broken, including furniture glazing.
+    mesh.castShadow = !glassMeshes.has(mesh) && !materials.some(isTransparentMaterial)
     mesh.receiveShadow = true
     mesh.frustumCulled = true
 

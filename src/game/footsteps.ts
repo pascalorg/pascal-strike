@@ -64,3 +64,32 @@ export function playRemoteFootstep(scene: Scene, at: Vector3): void {
   const binding = audioByScene.get(scene)
   if (binding) binding.audio.play('footstep', at, binding.listener)
 }
+
+/** Only an accepted upward jump counts; falling off a ledge and blocked input stay silent. */
+export function didStartJump(
+  wasGrounded: boolean, grounded: boolean, jumpInput: boolean, verticalSpeed: number,
+): boolean {
+  return wasGrounded && !grounded && jumpInput && verticalSpeed > 0
+}
+
+/** Downward speed is captured before the controller zeroes it on contact. */
+export function landingGain(fallSpeed: number): number {
+  return 0.6 + Math.min(1, Math.max(0, (fallSpeed - 2.5) / (8 - 2.5))) * 0.6
+}
+
+export function localLandingGain(
+  wasGrounded: boolean, grounded: boolean, previousVerticalSpeed: number,
+): number {
+  return !wasGrounded && grounded && previousVerticalSpeed < -2.5
+    ? landingGain(-previousVerticalSpeed) : 0
+}
+
+export function remoteLandingGain(previousVerticalSpeed: number, verticalSpeed: number): number {
+  return previousVerticalSpeed < -2.5 && Math.abs(verticalSpeed) <= REMOTE_GROUNDED_VERTICAL_SPEED
+    ? landingGain(-previousVerticalSpeed) : 0
+}
+
+export function playRemoteLand(scene: Scene, at: Vector3, gain: number): void {
+  const binding = audioByScene.get(scene)
+  if (binding) binding.audio.play('land', at, binding.listener, gain)
+}

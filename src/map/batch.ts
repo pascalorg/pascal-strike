@@ -144,7 +144,8 @@ export function batchStaticMeshes(root: Object3D, excluded: Set<Object3D>[]): Ba
 
     const batch = new Mesh(geometry, group.material)
     batch.name = `batch-${group.material.name || group.material.type}-${batches}`
-    batch.castShadow = true
+    // Light must pass through glass whether intact or broken.
+    batch.castShadow = !isTransparentMaterial(group.material)
     batch.receiveShadow = true
     batch.matrixAutoUpdate = false
     batch.matrixWorldAutoUpdate = false
@@ -375,7 +376,8 @@ export function batchOpenableLeaves(
 
       const batch = new Mesh(geometry, group.material)
       batch.name = `leaf-batch-${door.id}-${created}`
-      batch.castShadow = true
+      // Light must pass through glass whether intact or broken.
+      batch.castShadow = !isTransparentMaterial(group.material)
       batch.receiveShadow = true
       // Local transform is identity and never changes; the parent's animation still propagates.
       batch.matrixAutoUpdate = false
@@ -400,4 +402,9 @@ function animatedAncestor(mesh: Object3D, animated: Set<Object3D>): Object3D | n
     node = node.parent
   }
   return null
+}
+
+/** GLTFLoader maps alphaMode BLEND to transparent; extras cover manually supplied materials. */
+export function isTransparentMaterial(material: Material): boolean {
+  return material.transparent || material.userData.alphaMode === 'BLEND'
 }

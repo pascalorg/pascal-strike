@@ -9,8 +9,8 @@ SOUND_NAMES = {
     'knife-swing': 'knifeSwing', 'knife-hit': 'knifeHit', 'death': 'death',
     'weapon-switch': 'weaponSwitch', 'dry-fire': 'dryFire', 'glass-1': 'glassBreak (1/2)',
     'glass-2': 'glassBreak (2/2)', 'shard-tinkle': 'shardTinkle', 'respawn-chime': 'respawn',
-    'door-handle': 'door', 'deny': 'deny', 'announcer-headshot': 'announcerHeadshot',
-    'announcer-ten-left': 'announcerTenLeft',
+    'door-handle': 'door', 'deny': 'deny',
+    'jump': 'jump', 'land-1': 'land (1/2)', 'land-2': 'land (2/2)',
 }
 
 
@@ -46,10 +46,10 @@ def write_report(directory, records, decisions, sonniss, kenney):
              'OGG uses libvorbis q4; M4A uses mono AAC 128 kbps. Gain-only encode/decode correction targets -1 dBFS '
              '(±0.15 dB codec tolerance). All new encodes are mono. The eight existing footstep files remain byte-identical, '
              'including their dual-mono stereo OGG files and original 100 Hz highpass/fades.', '',
-             'Manifest mix: shots 0.9, splats/body/knife/death 0.8, deny 0.6, announcers 0.7. '
-             'Announcer gain 0.7 provides −3.10 dB attenuation; door gain is the previous 0.39 multiplied by '
+             'Manifest mix: shots 0.9, splats/body/knife/death 0.8, deny 0.6. '
+             'Door gain is the previous 0.39 multiplied by '
              '−6 dB (0.501187). These attenuations are applied at playback so the file peaks remain normalized. '
-             'Footstep gain/variants/pitch jitter are unchanged. Deny and announcer entries are prepared in the manifest; '
+             'Footstep gain/variants/pitch jitter are unchanged. The deny entry is prepared in the manifest; '
              'the existing SoundName API and gameplay triggers are unchanged. Optional entries have no added synth fallback.', '',
              '## Selection evidence', '']
     marker = decisions['marker']

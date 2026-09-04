@@ -13,6 +13,8 @@ import type { Hittable, PlayerEntity, WeaponKind } from '../types'
 import {
   createFootstepCadence,
   playRemoteFootstep,
+  playRemoteLand,
+  remoteLandingGain,
   REMOTE_FOOTSTEP_CULL_DISTANCE_SQ,
   REMOTE_GROUNDED_VERTICAL_SPEED,
   REMOTE_RUN_THRESHOLD,
@@ -62,6 +64,7 @@ interface Slot {
   invincible: boolean
   tagVisible: boolean
   footsteps: FootstepCadence
+  previousVerticalSpeed: number
   previousY: number
   lastUpdateAt: number
   hasPreviousPosition: boolean
@@ -98,6 +101,7 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
       invincible: false,
       tagVisible: true,
       footsteps: createFootstepCadence(REMOTE_RUN_THRESHOLD),
+      previousVerticalSpeed: 0,
       previousY: entity.position.y,
       lastUpdateAt: 0,
       hasPreviousPosition: false,
@@ -153,6 +157,7 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
         if (slot.alive !== entity.alive) {
           slot.alive = entity.alive
           slot.footsteps.reset()
+          slot.previousVerticalSpeed = 0
           slot.hasPreviousPosition = false
           if (entity.alive) slot.avatar.spawn()
           else slot.avatar.die()
@@ -168,9 +173,15 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
         slot.lastUpdateAt = now
         const verticalSpeed =
           slot.hasPreviousPosition && footstepDt > 0
-            ? Math.abs(entity.position.y - slot.previousY) / footstepDt
+            ? (entity.position.y - slot.previousY) / footstepDt
             : Infinity
-        const grounded = verticalSpeed <= REMOTE_GROUNDED_VERTICAL_SPEED
+        const grounded = Math.abs(verticalSpeed) <= REMOTE_GROUNDED_VERTICAL_SPEED
+        const landGain = entity.alive && slot.hasPreviousPosition && footstepDt > 0
+          ? remoteLandingGain(slot.previousVerticalSpeed, verticalSpeed) : 0
+        if (landGain > 0 && eye && entity.position.distanceToSquared(eye) <= REMOTE_FOOTSTEP_CULL_DISTANCE_SQ) {
+          playRemoteLand(scene, entity.position, landGain)
+        }
+        if (footstepDt > 0) slot.previousVerticalSpeed = verticalSpeed
         slot.previousY = entity.position.y
         slot.hasPreviousPosition = true
         if (
@@ -242,6 +253,7 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
       if (!slot || !slot.alive) return
       slot.alive = false
       slot.footsteps.reset()
+      slot.previousVerticalSpeed = 0
       slot.hasPreviousPosition = false
       slot.avatar.die(colorHex)
       slot.avatar.setInvincible(false)
@@ -252,6 +264,7 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
       if (!slot) return
       slot.alive = true
       slot.footsteps.reset()
+      slot.previousVerticalSpeed = 0
       slot.hasPreviousPosition = false
       slot.avatar.spawn()
     },

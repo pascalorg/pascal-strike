@@ -4,13 +4,13 @@ Sonniss excerpts: **Sonniss GDC Game Audio Bundle (2026)** — royalty-free; com
 
 License supplied with the bundle: `Sonniss.com-GDC2026-GameAudioBundle2of5/License - GDC Game Audio.pdf`. The bundle Readme also permits personal/commercial use without attribution. The license prohibits selling the sounds as standalone recordings and prohibits AI training. These edited excerpts are incorporated into Pascal Strike.
 
-Preserved footsteps (and wood door layer if used): [Kenney Impact Sounds](https://kenney.nl/assets/impact-sounds), version 1.0, 2019-12-19, [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).
+Footsteps, jump/land footstep layers, and wood door layer: [Kenney Impact Sounds](https://kenney.nl/assets/impact-sounds), version 1.0, 2019-12-19, [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).
 
-Build: `bash scripts/sfx/build-sfx.sh`. Sources are read in place from `SONNISS_DIR` and `KENNEY_DIR`; temporary masters are removed on exit. Only changed pairs are rebuilt. reloadStart, knifeSwing, knifeHit, footsteps, deny, both announcers, and splat v2 remain byte-identical.
+Build: `bash scripts/sfx/build-sfx.sh`. Sources are read in place from `SONNISS_DIR` and `KENNEY_DIR`; temporary masters are removed on exit. Only changed pairs are rebuilt. reloadStart, knifeSwing, knifeHit, footsteps, deny, and splat v2 remain byte-identical.
 
 Processing: mono 44.1 kHz; source layers highpassed at 80 Hz (synthesized low thumps bypass this); no lowpass, compression, limiting, or loudness normalization. Layers are peak-matched to -1 dBFS before relative gain and delay. Gain-only master normalization: -1 dBFS; 1 ms attack. OGG libvorbis q4 and mono AAC M4A 128 kbps; decoded peak correction tolerance ±0.15 dB. Legacy footsteps retain their original encodes.
 
-Manifest: hit 0.55, death 0.7, respawn 0.3; other gains unchanged. Deny plays on team refusal; headshot announces local head kills with a 3 s cooldown; ten-left announces either team reaching killTarget − 10 during live, once per round with a phase reset.
+Manifest: hit 0.55, death 0.7, respawn 0.3, jump 0.25, land 0.4; other gains unchanged. Deny plays on team refusal. Jump plays on accepted local jump input; land plays on local ground contact or remote descent stopping above 2.5 m/s, scaled 0.6–1.2 over 2.5–8 m/s. Remote land is culled at 22 m.
 
 ## Selection evidence
 
@@ -84,12 +84,13 @@ Sonniss paths are relative to `SONNISS_DIR`; Kenney paths are relative to `KENNE
 | door → `door-handle` | Sonniss GDC 2026: `Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - HD Game Materials/ICEFric_Dry Ice Squeak Metal Animal Mouse Imitation Short 07_ESM_HDGM.wav`; **0.295964 / 0.256000 s**; -10 dB; ×0.8 pitch; `afade=t=out:st=0.24:d=0.08`<br>Kenney Impact Sounds: `impact-sounds/Audio/impactWood_light_002.ogg`; **0.000000 / 0.300000 s**; +0 dB; ×1 pitch; delay 40 ms<br>Sonniss GDC 2026: `Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - HD Lock And Mechanism Sound Design Kit/MECHLtch_Click Deep Mechanism Latch Button Nearfield Thunk 02_ESM_HDLM.wav`; **0.010578 / 0.160000 s**; -6 dB; ×1 pitch; delay 40 ms | Hinge -20% pitch, 320 ms after pitch at -10 dB; wood/latch start 40 ms later. Prior door playback gain retained. Fade-out 40 ms. Master 420 ms. |
 | respawn → `respawn-chime` | Sonniss GDC 2026: `Sonniss.com-GDC2026-GameAudioBundle2of5/CB_Sounddesign - Applicable Sounds - Organic UI and Building Games SFX/UIMisc_Kalimba 3 Up_CB Sounddesign_APPlicable Sounds.wav`; **0.000000 / 0.650000 s**; +0 dB; ×1 pitch | Real three-note kalimba; source ends naturally at 553 ms, padded to 650 ms. Playback gain 0.3. Fade-out 250 ms. Master 650 ms. |
 | deny → `deny` | Sonniss GDC 2026: `Sonniss.com-GDC2026-GameAudioBundle2of5/Cinematic Sound Design - UI Interaction Elements/Deny Muted.wav`; **0.000000 / 0.220000 s**; +0 dB; ×1 pitch |  Fade-out 40 ms. Master 220 ms. |
-| announcerHeadshot → `announcer-headshot` | Sonniss GDC 2026: `Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Shooter Game Announcer Voice/VOXMale_Announcer Vocal Male Dry Special Kill Headshot 01_ESM_SGAV.wav`; **0.004943 / 0.768345 s**; +0 dB; ×1 pitch | Whole phrase; manifest gain 0.7 supplies approximately -3 dB playback attenuation. Fade-out 25 ms. Master 768.345 ms. |
-| announcerTenLeft → `announcer-ten-left` | Sonniss GDC 2026: `Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Shooter Game Announcer Voice/VOXFutz_Announcer Vocal Male Wet Countdown Ten Kills Remaining 03_ESM_SGAV.wav`; **0.000000 / 1.416825 s**; +0 dB; ×1 pitch | Whole phrase; manifest gain 0.7 supplies approximately -3 dB playback attenuation. Fade-out 25 ms. Master 1416.83 ms. |
 | footstep variant 1 → `footstep-1` | Kenney Impact Sounds: `impact-sounds/Audio/footstep_concrete_000.ogg`; **0.000000 / 0.120000 s**; +0 dB; ×1 pitch | Unchanged legacy encode; 100 Hz highpass and original fade. |
 | footstep variant 2 → `footstep-2` | Kenney Impact Sounds: `impact-sounds/Audio/footstep_concrete_001.ogg`; **0.000000 / 0.120000 s**; +0 dB; ×1 pitch | Unchanged legacy encode; 100 Hz highpass and original fade. |
 | footstep variant 3 → `footstep-3` | Kenney Impact Sounds: `impact-sounds/Audio/footstep_wood_000.ogg`; **0.000000 / 0.210000 s**; +0 dB; ×1 pitch | Unchanged legacy encode; 100 Hz highpass and original fade. |
 | footstep variant 4 → `footstep-4` | Kenney Impact Sounds: `impact-sounds/Audio/footstep_wood_001.ogg`; **0.000000 / 0.210000 s**; +0 dB; ×1 pitch | Unchanged legacy encode; 100 Hz highpass and original fade. |
+| jump → `jump` | Sonniss GDC 2026: `Sonniss.com-GDC2026-GameAudioBundle3of5/InMotionAudio - Foley T-Shirt/FOLYClth_SinglePats04_InMotionAudio_FoleyT-Shirt.wav`; **0.109535 / 0.120000 s**; +0 dB; ×1 pitch<br>Kenney Impact Sounds: `impact-sounds/Audio/footstep_concrete_000.ogg`; **0.000000 / 0.150000 s**; -6 dB; ×1 pitch | Cloth pat 0 dB with soft concrete push-off -6 dB. Playback gain 0.25. Fade-out 30 ms. Master 150 ms. |
+| land (1/2) → `land-1` | Kenney Impact Sounds: `impact-sounds/Audio/footstep_concrete_001.ogg`; **0.000000 / 0.220000 s**; +0 dB; ×1 pitch<br>Synthesized: `Sine 70→70 Hz; exponential decay exp(-4t/d), 1 ms attack, 3 ms release`; **0.000000 / 0.050000 s**; -4 dB; ×1 pitch<br>Sonniss GDC 2026: `Sonniss.com-GDC2026-GameAudioBundle3of5/InMotionAudio - Foley T-Shirt/FOLYClth_SinglePats04_InMotionAudio_FoleyT-Shirt.wav`; **0.109535 / 0.120000 s**; -8 dB; ×1 pitch | Footstep 0 dB, 50 ms 70 Hz thump -4 dB, cloth pat -8 dB. Playback gain 0.4; fall-speed multiplier 0.6–1.2. Fade-out 40 ms. Master 220 ms. |
+| land (2/2) → `land-2` | Kenney Impact Sounds: `impact-sounds/Audio/footstep_wood_001.ogg`; **0.000000 / 0.220000 s**; +0 dB; ×1 pitch<br>Synthesized: `Sine 70→70 Hz; exponential decay exp(-4t/d), 1 ms attack, 3 ms release`; **0.000000 / 0.050000 s**; -4 dB; ×1 pitch<br>Sonniss GDC 2026: `Sonniss.com-GDC2026-GameAudioBundle3of5/InMotionAudio - Foley T-Shirt/FOLYClth_SinglePats04_InMotionAudio_FoleyT-Shirt.wav`; **0.109535 / 0.120000 s**; -8 dB; ×1 pitch | Footstep 0 dB, 50 ms 70 Hz thump -4 dB, cloth pat -8 dB. Playback gain 0.4; fall-speed multiplier 0.6–1.2. Fade-out 40 ms. Master 220 ms. |
 
 ## Output measurements
 
@@ -119,11 +120,12 @@ Decoded OGG / M4A, dBFS. High RMS uses `highpass=f=3000` twice for analysis only
 | `door-handle` | -0.98 / -1.05 | 0.417098 / 0.441179 | -24.32 / -24.09 | -36.63 (-12.31) / -36.25 (-12.16) | 6412 / 5861 |
 | `respawn-chime` | -1.03 / -0.92 | 0.647098 / 0.650159 | -21.76 / -22.45 | -28.59 (-6.83) / -29.01 (-6.56) | 7629 / 8266 |
 | `deny` | -1.02 / -0.99 | 0.242358 / 0.232200 | -7.72 / -7.62 | -51.53 (-43.81) / -51.20 (-43.58) | 5568 / 4626 |
-| `announcer-headshot` | -1.07 / -1.08 | 0.765442 / 0.789478 | -14.69 / -14.57 | -23.13 (-8.44) / -23.00 (-8.43) | 11578 / 13376 |
-| `announcer-ten-left` | -0.96 / -1.01 | 1.416825 / 1.439637 | -15.84 / -15.89 | -32.74 (-16.91) / -32.67 (-16.79) | 17133 / 23988 |
 | `footstep-1` | -0.96 / -1.01 | 0.116100 / 0.116100 | -19.08 / -19.18 | -62.98 (-43.90) / -60.86 (-41.68) | 4586 / 2697 |
 | `footstep-2` | -0.99 / -0.97 | 0.116100 / 0.116100 | -20.94 / -20.94 | -44.13 (-23.19) / -44.30 (-23.36) | 4894 / 2694 |
 | `footstep-3` | -1.04 / -1.00 | 0.232200 / 0.232200 | -19.69 / -19.66 | -84.94 (-65.26) / -77.73 (-58.08) | 4313 / 3014 |
 | `footstep-4` | -0.95 / -1.01 | 0.232200 / 0.232200 | -19.81 / -19.85 | -83.02 (-63.20) / -75.74 (-55.89) | 4272 / 2984 |
+| `jump` | -1.09 / -1.05 | 0.147098 / 0.162540 | -20.22 / -20.56 | -37.02 (-16.80) / -37.14 (-16.58) | 4920 / 3270 |
+| `land-1` | -1.03 / -1.02 | 0.217098 / 0.232200 | -22.42 / -22.71 | -46.53 (-24.11) / -46.28 (-23.57) | 4895 / 3290 |
+| `land-2` | -0.93 / -0.98 | 0.217098 / 0.232200 | -19.79 / -20.11 | -46.70 (-26.91) / -46.57 (-26.47) | 4932 / 3493 |
 
-Total: 28 pairs; largest file 23,988 bytes. Limit: 150,000 bytes per file.
+Total: 29 pairs; largest file 15,094 bytes. Limit: 150,000 bytes per file.

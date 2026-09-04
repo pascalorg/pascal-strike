@@ -30,8 +30,6 @@ FRAGMENTS = {
     'door': 'DOORMetl_StairWellDoor01_InMotionAudio_USAHotel',
     'respawn': 'Game Entry Happy Short',
     'deny': 'Deny Muted',
-    'headshot': 'VOXMale_Announcer Vocal Male Dry Special Kill Headshot 01',
-    'ten-left': 'VOXFutz_Announcer Vocal Male Wet Countdown Ten Kills Remaining 03',
 }
 
 
@@ -169,10 +167,6 @@ def select(paths, samples, work):
     for key, stem, duration in [('respawn', 'respawn-chime', .600), ('deny', 'deny', .220)]:
         start, available = bounds(samples[key])
         add(stem, [cut(paths[key], start, min(duration, available))], duration)
-    for key, stem in [('headshot', 'announcer-headshot'), ('ten-left', 'announcer-ten-left')]:
-        start, duration = bounds(samples[key], -36, .020)
-        add(stem, [cut(paths[key], start, duration)], duration, .025,
-            'Whole phrase; manifest gain 0.7 supplies approximately -3 dB playback attenuation.')
     return recipes, decisions
 
 

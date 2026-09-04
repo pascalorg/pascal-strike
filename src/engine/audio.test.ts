@@ -139,7 +139,7 @@ class FakeAudioContext {
   }
 }
 
-const OPTIONAL_SOUNDS: OptionalSoundName[] = ['deny', 'announcerHeadshot', 'announcerTenLeft']
+const OPTIONAL_SOUNDS: OptionalSoundName[] = ['deny']
 
 const ALL_SOUNDS: SoundName[] = [
   'shot',
@@ -158,6 +158,8 @@ const ALL_SOUNDS: SoundName[] = [
   'respawn',
   'door',
   'footstep',
+  'jump',
+  'land',
   'death',
   'dryFire',
 ]
@@ -196,10 +198,9 @@ test('Sonniss variants retain distinct gameplay cues and requested mix levels', 
   expect(SFX_MANIFEST.knifeHit.urls).not.toEqual(SFX_MANIFEST.splat.urls)
   expect(SFX_MANIFEST.weaponSwitch.urls).not.toEqual(SFX_MANIFEST.dryFire.urls)
   expect(SFX_MANIFEST.reload.urls).toEqual(SFX_MANIFEST.reloadEnd.urls)
-  for (const name of ['announcerHeadshot', 'announcerTenLeft'] as const) {
-    expect(SFX_MANIFEST[name].gain).toBe(0.7)
-    expect(SFX_MANIFEST[name].pitchJitter).toBe(0)
-  }
+  expect(SFX_MANIFEST.jump.gain).toBe(0.25)
+  expect(SFX_MANIFEST.land.gain).toBe(0.4)
+  expect(SFX_MANIFEST.land.variants).toBe(2)
   expect(variantUrls(SFX_MANIFEST.shot, 3)).toEqual(['/sfx/shot-3.ogg', '/sfx/shot-3.m4a'])
 })
 
@@ -210,6 +211,7 @@ test('fine-tuned samples meet duration, decoded peak, and pistol RMS requirement
     'dry-fire': 0.07, 'weapon-switch': 0.12, 'reload-end': 0.16,
     'splat-1': 0.12, 'splat-3': 0.12, 'body-hit': 0.16, death: 0.45,
     'hit-confirm': 0.12, 'glass-1': 0.9, 'glass-2': 0.9,
+    jump: 0.15, 'land-1': 0.22, 'land-2': 0.22,
     'shard-tinkle': 0.4, 'door-handle': 0.42, 'respawn-chime': 0.65,
   }
   for (const [stem, duration] of Object.entries(durations)) {
@@ -293,8 +295,6 @@ test('literal audio play names in src have manifest entries', () => {
   }
 
   expect([...used].sort()).toEqual([
-    'announcerHeadshot',
-    'announcerTenLeft',
     'death',
     'deny',
     'door',
@@ -303,8 +303,10 @@ test('literal audio play names in src have manifest entries', () => {
     'glassBreak',
     'hit',
     'hitConfirm',
+    'jump',
     'knifeHit',
     'knifeSwing',
+    'land',
     'pistolShot',
     'reload',
     'reloadEnd',
@@ -405,7 +407,6 @@ test('decoded samples play from buffers while failed samples use the synth fallb
       const url = String(input)
       requested.push(url)
       const ok = url.endsWith('/shot-1.ogg') || url.endsWith('/deny.m4a')
-        || url.endsWith('/announcer-headshot.ogg') || url.endsWith('/announcer-ten-left.ogg')
       return {
         ok,
         status: ok ? 200 : 404,

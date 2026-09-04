@@ -21,8 +21,8 @@ const entry = (
   ...(variants === undefined ? {} : { variants }),
 })
 
-/** Sample-only cues used by game and overlay announcements. */
-export type OptionalSoundName = 'deny' | 'announcerHeadshot' | 'announcerTenLeft'
+/** Sample-only team refusal cue. */
+export type OptionalSoundName = 'deny'
 
 export const SFX_MANIFEST = {
   shot: entry('shot-1', 0.9, 0.06, 3),
@@ -37,6 +37,8 @@ export const SFX_MANIFEST = {
   // Apply the requested -6 dB in the mix, preserving normalized file peaks.
   door: entry('door-handle', 0.39 * 10 ** (-6 / 20)),
   footstep: entry('footstep-1', 0.23, 0.06, 4),
+  jump: entry('jump', 0.25),
+  land: entry('land-1', 0.4, 0.06, 2),
   death: entry('death', 0.7),
   knifeSwing: entry('knife-swing', 0.32),
   knifeHit: entry('knife-hit', 0.8),
@@ -45,9 +47,6 @@ export const SFX_MANIFEST = {
   shardTinkle: entry('shard-tinkle', 0.28),
   dryFire: entry('dry-fire', 0.31),
   deny: entry('deny', 0.6, 0),
-  // 0.7 is approximately -3 dB; no pitch randomization on spoken phrases.
-  announcerHeadshot: entry('announcer-headshot', 0.7, 0),
-  announcerTenLeft: entry('announcer-ten-left', 0.7, 0),
 } as const satisfies Record<SoundName | OptionalSoundName, SfxManifestEntry>
 
 export function variantUrls(entry: SfxManifestEntry, variant: number): readonly [string, string] {
