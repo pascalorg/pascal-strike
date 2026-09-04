@@ -103,10 +103,15 @@ export function parsePascalScene(gltf: GLTF): ParsedScene {
   levels.sort((a, b) => a.y - b.y)
 
   // Glass first, in its own pass, so the ids only depend on the scene graph — not on whether a
-  // node happens to carry Pascal extras.
+  // node happens to carry Pascal extras. Only what a player would call a window: transparent
+  // meshes owned by a `window` or `door` node. A house is full of other transparent surfaces —
+  // pascal-house v7 has 23 under a fridge, 2 on a side table and 1 at the site root — and none
+  // of those should burst into shards when a paintball clips them; they stay solid, unbreakable
+  // parts of the bullet collider.
   root.traverse((node) => {
     const mesh = node as Mesh
     if (!mesh.isMesh || !isTransparent(mesh.material)) return
+    if (!GLAZED_KINDS.has(ownerKind(mesh))) return
     glassPanes.push({ id: `glass:${glassPanes.length}`, mesh, broken: false })
   })
 
@@ -157,6 +162,20 @@ export function parsePascalScene(gltf: GLTF): ParsedScene {
     markerNodes,
     glassPanes,
   }
+}
+
+/** Only these own breakable panes. Everything else keeps its glass as solid scenery. */
+const GLAZED_KINDS = new Set(['window', 'door'])
+
+/** The `kind` of the nearest ancestor carrying Pascal extras — what this mesh is part of. */
+function ownerKind(node: Object3D): string {
+  let current: Object3D | null = node
+  while (current) {
+    const kind = (current.userData as Partial<PascalExtras> | undefined)?.kind
+    if (typeof kind === 'string') return kind
+    current = current.parent
+  }
+  return ''
 }
 
 /** glTF `alphaMode: BLEND` reaches three as `transparent`; opacity covers a hand-authored GLB. */
