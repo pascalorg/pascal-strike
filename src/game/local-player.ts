@@ -30,6 +30,11 @@ import type {
 } from '../types'
 import { createMarker, weaponSpec, WEAPON_BY_SLOT, type Marker } from '../weapons/marker'
 import { createMelee, type Melee } from '../weapons/melee'
+import {
+  bindFootstepAudio,
+  createFootstepCadence,
+  LOCAL_RUN_THRESHOLD,
+} from './footsteps'
 import type { MapSession } from './map-session'
 
 export interface LocalPlayerOptions {
@@ -104,7 +109,6 @@ export interface LocalPlayer {
 }
 
 const MAX_PITCH = Math.PI / 2 - 0.05
-const FOOTSTEP_DISTANCE = 2.2
 /** Frame delta cap for the critically damped camera/view-model springs. */
 const SPRING_MAX_DT = 1 / 30
 /** How fast the crosshair follows `marker.currentSpreadDeg` (it is already damped there). */
@@ -113,7 +117,6 @@ const SPREAD_FOLLOW = 12
 const SPREAD_MAX_DEG = WEAPON.spreadRunningDeg + WEAPON.spreadBloomMaxDeg
 /** Shift walk: steadier camera and quieter steps than the default run. */
 const WALK_BOB_SCALE = 0.55
-const WALK_FOOTSTEP_GAIN = 0.45
 
 const _eye = new Vector3()
 const _look = new Vector3()
@@ -143,6 +146,8 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
   const move: MoveInput = { forward: 0, right: 0, jump: false, crouch: false, walk: false }
   const override: MoveInput = { forward: 0, right: 0, jump: false, crouch: false, walk: false }
   const listener: AudioListenerPose = { position: new Vector3(), forward: new Vector3(0, 0, -1) }
+  const unbindFootstepAudio = bindFootstepAudio(engine.scene, audio, listener)
+  const footsteps = createFootstepCadence(LOCAL_RUN_THRESHOLD)
   const hittable: Hittable = {
     id: entity.id,
     team: entity.team,
@@ -161,7 +166,6 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
   let deathDrop = 0
   let deathTilt = 0
   let spread = 0
-  let footstepDistance = 0
   let wasGrounded = true
   let wasReloading = false
   let pendingLookX = 0
@@ -249,7 +253,7 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
       } else {
         spread = 0
         wasGrounded = false
-        footstepDistance = 0
+        footsteps.reset()
       }
     },
 
@@ -415,12 +419,15 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
       viewModel.update(springDt, speed, controller.state.grounded)
       viewModel.object.visible = !dead
 
-      if (!dead && controller.state.grounded) {
-        footstepDistance += speed * dt
-        if (footstepDistance > FOOTSTEP_DISTANCE) {
-          footstepDistance = 0
-          audio.play('footstep', undefined, undefined, walking ? WALK_FOOTSTEP_GAIN : 1)
-        }
+      if (
+        footsteps.update(
+          dt,
+          speed,
+          !dead && controller.state.grounded,
+          controller.state.crouching || walking,
+        )
+      ) {
+        audio.play('footstep')
       }
 
       // The registry entry is what the rest of the game (HUD, doors, bots) reads.
@@ -465,7 +472,7 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
       yaw = yawValue
       pitch = 0
       wasGrounded = false
-      footstepDistance = 0
+      footsteps.reset()
     },
 
     die() {
@@ -476,6 +483,7 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
       hittable.alive = false
       marker.reset()
       melee.reset()
+      footsteps.reset()
     },
 
     revive() {
@@ -529,6 +537,7 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
     },
 
     dispose() {
+      unbindFootstepAudio()
       viewModel.dispose()
     },
   }

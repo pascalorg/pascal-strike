@@ -10,6 +10,14 @@ import type { Scene } from 'three'
 import { createAvatar, NAME_TAG_MAX_DISTANCE, type Avatar } from '../player/avatar'
 import type { EntityRegistry } from './entities'
 import type { Hittable, PlayerEntity, WeaponKind } from '../types'
+import {
+  createFootstepCadence,
+  playRemoteFootstep,
+  REMOTE_FOOTSTEP_CULL_DISTANCE_SQ,
+  REMOTE_GROUNDED_VERTICAL_SPEED,
+  REMOTE_RUN_THRESHOLD,
+  type FootstepCadence,
+} from './footsteps'
 
 export interface RemotePlayers {
   /**
@@ -53,6 +61,10 @@ interface Slot {
   alive: boolean
   invincible: boolean
   tagVisible: boolean
+  footsteps: FootstepCadence
+  previousY: number
+  lastUpdateAt: number
+  hasPreviousPosition: boolean
 }
 
 /**
@@ -85,6 +97,10 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
       alive: true,
       invincible: false,
       tagVisible: true,
+      footsteps: createFootstepCadence(REMOTE_RUN_THRESHOLD),
+      previousY: entity.position.y,
+      lastUpdateAt: 0,
+      hasPreviousPosition: false,
     }
     if (!entity.alive) {
       avatar.die()
@@ -136,6 +152,8 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
         // own (join mid-death, host migration) — reconcile so an avatar never lies.
         if (slot.alive !== entity.alive) {
           slot.alive = entity.alive
+          slot.footsteps.reset()
+          slot.hasPreviousPosition = false
           if (entity.alive) slot.avatar.spawn()
           else slot.avatar.die()
         }
@@ -145,6 +163,31 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
           slot.avatar.setInvincible(invincible)
         }
         slot.avatar.set(entity.position, entity.yaw, entity.pitch, entity.crouching, entity.speed)
+
+        const footstepDt = slot.lastUpdateAt > 0 ? Math.max(0, (now - slot.lastUpdateAt) / 1000) : 0
+        slot.lastUpdateAt = now
+        const verticalSpeed =
+          slot.hasPreviousPosition && footstepDt > 0
+            ? Math.abs(entity.position.y - slot.previousY) / footstepDt
+            : Infinity
+        const grounded = verticalSpeed <= REMOTE_GROUNDED_VERTICAL_SPEED
+        slot.previousY = entity.position.y
+        slot.hasPreviousPosition = true
+        if (
+          slot.footsteps.update(
+            footstepDt,
+            entity.speed,
+            entity.alive && grounded,
+            entity.crouching,
+          ) && eye
+        ) {
+          const dx = entity.position.x - eye.x
+          const dy = entity.position.y - eye.y
+          const dz = entity.position.z - eye.z
+          if (dx * dx + dy * dy + dz * dz <= REMOTE_FOOTSTEP_CULL_DISTANCE_SQ) {
+            playRemoteFootstep(scene, entity.position)
+          }
+        }
         if (eye) {
           const dx = entity.position.x - eye.x
           const dz = entity.position.z - eye.z
@@ -198,6 +241,8 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
       const slot = slots.get(id)
       if (!slot || !slot.alive) return
       slot.alive = false
+      slot.footsteps.reset()
+      slot.hasPreviousPosition = false
       slot.avatar.die(colorHex)
       slot.avatar.setInvincible(false)
       slot.invincible = false
@@ -206,6 +251,8 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
       const slot = slots.get(id)
       if (!slot) return
       slot.alive = true
+      slot.footsteps.reset()
+      slot.hasPreviousPosition = false
       slot.avatar.spawn()
     },
     flashHit(id) {
