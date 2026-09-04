@@ -824,6 +824,11 @@ export interface GameStatus {
    * `HOST_STABLE_MS`, so this and `isHost` disagree for a few seconds around a migration.
    */
   hostConfirmed: boolean
+  /**
+   * Why the host last refused one of our hits, for a couple of seconds after it said so, or
+   * null. The one thing that turns "my shots do nothing" into a report with a cause in it.
+   */
+  hitRejection: string | null
 }
 
 /** JSON-friendly view of the whole game — the playtest harness asserts against this. */
@@ -859,6 +864,7 @@ export function statusSnapshot(s: GameStatus) {
     spectating: s.local.spectating,
     myTeam: s.myTeam,
     choosing: s.choosing,
+    hitRejection: s.hitRejection,
     match: s.match && {
       phase: s.match.phase,
       round: s.match.round,
@@ -936,8 +942,11 @@ export function createDebugPanel(
         s.match
           ? `${s.match.phase} r${s.match.round} ${s.match.scores.a}:${s.match.scores.b} ${Math.round(msLeft(s.match, s.now) / 1000)}s`
           : 'match —',
+        s.hitRejection ? `hit refused · ${s.hitRejection}` : null,
         'N navmesh · C collider',
-      ].join('\n')
+      ]
+        .filter((line): line is string => line !== null)
+        .join('\n')
     },
     dispose() {
       node.remove()

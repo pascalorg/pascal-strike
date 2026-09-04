@@ -34,6 +34,7 @@ import {
   type FellEvent,
   type GlassEvent,
   type GlassStates,
+  type HitRejected,
   type TeamChoice,
   type TeamResult,
 } from '../net/protocol'
@@ -97,6 +98,12 @@ const STATE_REVIVE_AFTER_MS = PLAYER.respawnDelayMs + 400
  * "Play" button is a fresh gesture.
  */
 const LOCK_FALLBACK_MS = 350
+
+/**
+ * How long the `?debug=1` panel keeps showing the host's last refusal. Long enough to read
+ * while playing, short enough that a stale line never gets blamed for the next shot.
+ */
+const HIT_REJECTION_SHOW_MS = 2_000
 
 const _hittables: Hittable[] = []
 const _damageDir = new Vector3()
@@ -166,6 +173,8 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   let lastWeapon: WeaponKind | null = null
   /** `warnIfNothingToHit` fires once per session, not once per round of ammunition. */
   let warnedNothingToHit = false
+  /** The host's last refusal of one of our hits, for the debug panel. */
+  let hitRejection: { reason: string; at: number } | null = null
 
   /**
    * Null only while a map change is in flight. The frame loop keeps running between
@@ -446,6 +455,18 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   events.on('shot', (shot) => {
     if (shot.by === room.me.id) return
     presentShot(shot, false)
+  })
+
+  /**
+   * The host threw one of our hits away. Every rule in `validate()` answered with silence until
+   * now, so a shooter could not tell a refused hit from a missed shot — the difference between
+   * "hits feel broken" and a bug report that names the rule. Broadcast and filtered by id, the
+   * way `teamResult` is.
+   */
+  const offHitRejected = room.rpc.register<HitRejected>(RPCS.hitRejected, (ev) => {
+    if (!ev || ev.player !== room.me.id) return
+    hitRejection = { reason: ev.reason, at: clock.now() }
+    console.debug(`[hit] the host refused shot ${ev.shotId || '(no id)'}: ${ev.reason}`)
   })
 
   events.on('damage', (dmg) => {
@@ -944,6 +965,10 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     teamScreen: teamScreen.mode,
     choosing: binding.spectators().map((s) => s.name),
     hostConfirmed: hostGate.confirmed,
+    hitRejection:
+      hitRejection && clock.now() - hitRejection.at < HIT_REJECTION_SHOW_MS
+        ? hitRejection.reason
+        : null,
   })
   const debugPanel = createDebugPanel(mount, debugMode, status)
 
@@ -964,6 +989,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       binding.stop()
       offDoorRpc()
       offGlassRpc()
+      offHitRejected()
       window.clearTimeout(lockFallbackTimer)
       hostSide.dispose()
       hostGate.stop()

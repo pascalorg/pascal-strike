@@ -164,6 +164,17 @@ export const RPCS = {
    * client filters by `player`.
    */
   teamResult: 'teamResult',
+  /**
+   * ALL — HitRejected, filtered by `player` the way `teamResult` is (Playroom cannot answer one
+   * player). Sent only when a HUMAN's claim is refused: a bot's shooter is the host itself, and
+   * a held trigger on an invincible target would be twelve broadcasts a second of the host
+   * telling itself something it already knows.
+   *
+   * Every rule in `validate()` used to return the same silent `null`, so a shooter could not
+   * tell a refusal from a paintball that missed — which is why "hits stopped registering" could
+   * only ever be reported as a feeling. Now the reason travels back to whoever fired.
+   */
+  hitRejected: 'hitRejected',
 } as const
 
 export type RpcName = (typeof RPCS)[keyof typeof RPCS]
@@ -190,6 +201,12 @@ export const BOT_STATS_MS = 500
  * not that anything is wrong. Comfortably longer than `BOT_STATS_MS` plus a round trip.
  */
 export const BOT_MIRROR_GRACE_MS = 1_500
+
+/**
+ * At most one rejection notice per shooter per this long. A rifle held on an invincible target
+ * is twelve refusals a second and the shooter only needs to know that it is happening.
+ */
+export const HIT_REJECT_NOTICE_MS = 500
 
 /** One accepted team swap per player per this long (host-enforced). */
 export const TEAM_SWAP_COOLDOWN_MS = 10_000
@@ -248,6 +265,18 @@ export interface BotStat {
   /** Host truth, and a client's only way back from a lost `kill`/`respawn` RPC. */
   alive: boolean
   hp: number
+}
+
+/**
+ * The host threw one of your hits away, and why. Reaches every client (Playroom has no reply-to-
+ * one mode); the shooter is the one whose id matches `player`. `?debug=1` shows the last reason.
+ */
+export interface HitRejected {
+  player: string
+  /** `HitEvent.shotId`, or empty when the claim was too malformed to carry one. */
+  shotId: string
+  /** Plain English, meant to be read in a bug report. */
+  reason: string
 }
 
 /** Value of the `botStats` room state: bot player id → its stats. */

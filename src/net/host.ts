@@ -25,6 +25,7 @@ import {
   botsFillValue,
   GS,
   HIT_MAX_DESYNC_M,
+  HIT_REJECT_NOTICE_MS,
   PS,
   RPCS,
   SEEN_SHOTS,
@@ -32,6 +33,7 @@ import {
   teamChoiceFrom,
   teamFrom,
   type BotStats,
+  type HitRejected,
   type TeamChoice,
   type TeamRequest,
   type TeamResult,
@@ -489,29 +491,69 @@ export function startHostAuthority(
     return true
   }
 
-  const validate = (hit: HitEvent, senderId?: string): { shooter: HostPlayer; target: HostPlayer } | null => {
-    if (!hit || !hit.by || !hit.target || hit.by === hit.target) return null
-    if (!isLive(match.state)) return null
+  /**
+   * Every rule here used to answer with the same `null`, which is why a player whose hits stopped
+   * counting had nothing to report but a feeling. The refusals carry their reason now, in words
+   * meant to be pasted into a bug report; `noticeRejection` sends it back to whoever fired.
+   */
+  type Validation =
+    | { ok: true; shooter: HostPlayer; target: HostPlayer }
+    | { ok: false; reason: string }
+
+  const validate = (hit: HitEvent, senderId?: string): Validation => {
+    if (!hit || !hit.by || !hit.target) return { ok: false, reason: 'the claim is missing a shooter or a target' }
+    if (hit.by === hit.target) return { ok: false, reason: 'you cannot hit yourself' }
+    if (!isLive(match.state)) return { ok: false, reason: `the match is in ${match.state.phase}, not live` }
     const shooter = players.get(hit.by)
     const target = players.get(hit.target)
-    if (!shooter || !target) return null
+    if (!shooter) return { ok: false, reason: 'the host has no record of the shooter' }
+    if (!target) return { ok: false, reason: 'the host has no record of the target' }
     // Only the shooter (or the host, on behalf of its bots) may claim a hit.
-    if (senderId && senderId !== hit.by && !(shooter.isBot && senderId === room.me.id)) return null
-    if (!shooter.alive || !target.alive) return null
+    if (senderId && senderId !== hit.by && !(shooter.isBot && senderId === room.me.id)) {
+      return { ok: false, reason: 'only the shooter may claim their own hit' }
+    }
+    if (!shooter.alive) return { ok: false, reason: 'the shooter is dead on the host' }
+    if (!target.alive) return { ok: false, reason: 'the target was already dead on the host' }
     // Somebody still on the team screen is on nobody's side: they cannot shoot and cannot be shot.
-    if (!shooter.team || !target.team) return null
-    if (shooter.team === target.team) return null
+    if (!shooter.team) return { ok: false, reason: 'the shooter has not picked a side' }
+    if (!target.team) return { ok: false, reason: 'the target has not picked a side' }
+    if (shooter.team === target.team) return { ok: false, reason: 'same team' }
     const now = clock.now()
-    if (target.inv > now) return null
-    if (!hit.shotId || !rememberShot(hit.shotId)) return null
+    if (target.inv > now) {
+      return { ok: false, reason: `the target is invincible for another ${Math.round(target.inv - now)} ms` }
+    }
+    if (!hit.shotId) return { ok: false, reason: 'the claim carries no shot id' }
+    if (!rememberShot(hit.shotId)) return { ok: false, reason: 'that shot has already scored' }
     const snap = playerById(target.id)?.getState(PS.snap) as PlayerSnapshot | undefined
     if (snap && hit.point) {
       const dx = hit.point[0] - snap.x
       const dy = hit.point[1] - snap.y
       const dz = hit.point[2] - snap.z
-      if (dx * dx + dy * dy + dz * dz > HIT_MAX_DESYNC_M * HIT_MAX_DESYNC_M) return null
+      const distanceSq = dx * dx + dy * dy + dz * dz
+      if (distanceSq > HIT_MAX_DESYNC_M * HIT_MAX_DESYNC_M) {
+        return {
+          ok: false,
+          reason: `the impact is ${Math.sqrt(distanceSq).toFixed(1)} m from where the host last saw the target (max ${HIT_MAX_DESYNC_M} m)`,
+        }
+      }
     }
-    return { shooter, target }
+    return { ok: true, shooter, target }
+  }
+
+  /** Host clock ms of the last rejection notice sent to each shooter — the rate limit. */
+  const lastRejectNotice = new Map<string, number>()
+
+  /**
+   * Tell the shooter why their hit did not count. Broadcast and filtered by id, like
+   * `teamResult`; skipped for a bot, whose shooter is this very tab.
+   */
+  const noticeRejection = (hit: HitEvent, reason: string): void => {
+    if (!hit?.by || players.get(hit.by)?.isBot) return
+    const now = clock.now()
+    if (now - (lastRejectNotice.get(hit.by) ?? -Infinity) < HIT_REJECT_NOTICE_MS) return
+    lastRejectNotice.set(hit.by, now)
+    const payload: HitRejected = { player: hit.by, shotId: hit.shotId ?? '', reason }
+    void room.rpc.call(RPCS.hitRejected, payload, 'all')
   }
 
   /**
@@ -540,7 +582,10 @@ export function startHostAuthority(
 
   const applyHit = (hit: HitEvent, senderId?: string): boolean => {
     const valid = validate(hit, senderId)
-    if (!valid) return false
+    if (!valid.ok) {
+      noticeRejection(hit, valid.reason)
+      return false
+    }
     const { shooter, target } = valid
     const now = clock.now()
 
@@ -675,6 +720,7 @@ export function startHostAuthority(
       offHostChange()
       players.clear()
       lastSwap.clear()
+      lastRejectNotice.clear()
       active = null
     },
     submitHit: (hit, senderId) => applyHit(hit, senderId ?? room.me.id),
