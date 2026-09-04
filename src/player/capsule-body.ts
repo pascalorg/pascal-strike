@@ -17,6 +17,12 @@ import { buildDynamicColliders, type DynamicCollider } from './dynamic-colliders
 
 const EPSILON = 1e-5
 export const SKIN = 1e-4
+/**
+ * How close to the capsule something may already be and still count as "already touching" for
+ * the head sweep. A stair handrail 2 cm off the shoulder is resolved by the push-out in the
+ * same frame; letting it veto the step-up strands the player against it.
+ */
+const LIFT_CONTACT_SLACK = 0.02
 
 export interface CapsuleBodyOptions {
   radius: number
@@ -251,13 +257,18 @@ export class CapsuleBody {
       this.correction.multiplyScalar(1 / distance)
     }
     if (this.castMode === 'lift') {
-      // Only what is *above* the head stops a lift. A stair handrail brushing the side of the
-      // capsule is pushed away by the normal resolve pass; letting it veto the step would
-      // strand a crouched player halfway up a flight.
-      if (entry) entry.toWorldVector(this.correction, this.worldCorrection).normalize()
-      else this.worldCorrection.copy(this.correction)
-      if (this.worldCorrection.y < -0.5) this.castPenetrating = true
-      return this.castPenetrating
+      // Only something the capsule is not *already* touching stops a lift: a stair handrail
+      // brushing its side is the resolve pass's business, and vetoing on it would strand a
+      // crouched player halfway up a flight. Judging that by the push-out direction instead
+      // ("is it overhead?") is not monotone — once the sweep is long enough to straddle a
+      // ceiling the push turns sideways and a *longer* lift reports itself free, which is how
+      // a 0.52 m step height came to hoist the capsule into the flight above.
+      triangle.closestPointToPoint(this.capsule.start, this.worldPoint)
+      if (this.worldPoint.distanceTo(this.capsule.start) < this.castRadius + LIFT_CONTACT_SLACK / toWorld) {
+        return false
+      }
+      this.castPenetrating = true
+      return true
     }
     this.correction.multiplyScalar(this.castRadius - distance + SKIN / toWorld)
     if (entry) entry.toWorldVector(this.correction, this.worldCorrection)

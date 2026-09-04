@@ -26,6 +26,10 @@ const EPSILON = 1e-5
 const GROUND_PROBE = 0.08
 /** Below this a step-up is not worth attempting (and the ground snap covers it anyway). */
 const MIN_STEP_LIFT = 0.05
+/** A rise smaller than this is not a step; the push-out and the ground snap absorb it. */
+const MIN_STEP_RISE = 0.01
+/** Lifted this far over the tread ahead, so the capsule clears its nosing. */
+const STEP_CLEARANCE = 0.03
 
 class CapsuleController implements CharacterController {
   readonly state: CharacterState = {
@@ -67,6 +71,8 @@ class CapsuleController implements CharacterController {
   private readonly probeResult = new Vector3()
   private readonly ray = new Ray()
   private readonly groundProbeOffsets = [0, 0.5, 0.99, -0.5, -0.99]
+  /** Forward only: `probeStepAhead` asks how high the ground in front of the capsule is. */
+  private readonly stepProbeOffsets = [0.5, 0.99]
 
   constructor(collider: StaticCollider, options: CharacterControllerOptions) {
     const config = { ...PLAYER, ...options }
@@ -227,9 +233,21 @@ class CapsuleController implements CharacterController {
       + (position.z - this.beforeMove.z) * this.desiredHorizontal.z) / desiredSq
   }
 
-  /** Up (as far as the headroom allows), forward, then down onto the tread. */
+  /** Up (just over the tread ahead), forward, then down onto it. */
   private tryStep(): boolean {
-    const lift = this.body.availableLift(this.beforeMove, this.currentHeight, this.stepHeight + 0.01)
+    const maxLift = this.stepHeight + 0.01
+    // Hoisting the capsule the whole step height when a 0.25 m riser is all that is in front
+    // plants it inside whatever hangs above — on a curved stair, the flight itself — and the
+    // push-out then shoves it sideways, which the drift guard below reads as a failed step. So
+    // measure the step first and lift just over it.
+    const rise = this.probeStepAhead(maxLift)
+    // Nothing measurable in front (a wall, a nosing deeper than the probes reach): fall back to
+    // asking for the whole step height. Otherwise take as little as the tread needs — and take
+    // it even when the headroom is short, because a partial lift still gets the capsule onto
+    // whatever ledge is in between, which is how the low soffit at the foot of the house
+    // staircase is climbed at all.
+    const wanted = rise === null ? maxLift : Math.min(maxLift, Math.max(MIN_STEP_LIFT, rise + STEP_CLEARANCE))
+    const lift = this.body.availableLift(this.beforeMove, this.currentHeight, wanted)
     if (lift < MIN_STEP_LIFT) return false
     this.stepResult.copy(this.beforeMove)
     this.stepResult.y += lift
@@ -242,6 +260,36 @@ class CapsuleController implements CharacterController {
     if (Math.hypot(this.stepResult.x - beforeResolveX, this.stepResult.z - beforeResolveZ) > this.radius * 0.5) return false
     if (this.body.contactCeiling) return false
     return this.findGround(this.stepResult, this.beforeMove.y, lift, GROUND_PROBE, false)
+  }
+
+  /**
+   * Height of the step the capsule is walking into, or null when there is nothing to climb
+   * (a wall, a drop, or flat ground). Vertical rays land where the capsule is heading, from
+   * high enough to clear the tallest step it could take.
+   */
+  private probeStepAhead(maxLift: number): number | null {
+    const horizontalLength = Math.hypot(this.desiredHorizontal.x, this.desiredHorizontal.z)
+    if (horizontalLength < EPSILON) return null
+    const directionX = this.desiredHorizontal.x / horizontalLength
+    const directionZ = this.desiredHorizontal.z / horizontalLength
+    const rayLength = maxLift + 0.02 + GROUND_PROBE
+    let lowest = Infinity
+
+    this.ray.direction.set(0, -1, 0)
+    for (let index = 0; index < this.stepProbeOffsets.length; index++) {
+      const offset = this.stepProbeOffsets[index]!
+      this.ray.origin.set(
+        this.beforeMove.x + this.desiredHorizontal.x + directionX * this.radius * offset,
+        this.beforeMove.y + maxLift + 0.02,
+        this.beforeMove.z + this.desiredHorizontal.z + directionZ * this.radius * offset,
+      )
+      if (!this.body.probeDown(this.ray, rayLength)) continue
+      if (Math.abs(this.body.probeNormal.y) < this.slopeY) continue
+      const rise = this.body.probePoint.y - this.beforeMove.y
+      // The lowest tread ahead, not the highest: a flight is climbed one riser at a time.
+      if (rise > MIN_STEP_RISE && rise <= maxLift && rise < lowest) lowest = rise
+    }
+    return lowest === Infinity ? null : lowest
   }
 
   private tryGroundSnap(): boolean {

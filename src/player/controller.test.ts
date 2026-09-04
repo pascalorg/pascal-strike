@@ -3,12 +3,17 @@ import { expect, test } from 'bun:test'
 import { Vector3 } from 'three'
 import type { MoveInput } from '../types'
 import { buildTestRoomGeometry, createTestRoom } from '../dev/test-room'
+import { PLAYER } from '../config'
 import {
   buildPascalStairCollider,
+  buildPascalStairColliderV7,
   PASCAL_STAIR,
+  PASCAL_STAIR_V7,
   stairAutopilotYaw,
   stairPoint,
+  type StairFixture,
 } from '../dev/fixtures/pascal-stair'
+import type { StaticCollider } from '../types'
 import { createCharacterController } from './controller'
 
 const DT = 1 / 120
@@ -52,26 +57,65 @@ function climbStairs(input: MoveInput, x = 10, z = 4.5, seconds = 4) {
 
 /**
  * Walks up the real staircase of pascal-house.glb (see `dev/fixtures`): a curved flight of ten
- * 0.25 m risers sweeping 180°, with a newel at r = 0.24 m and a railing at r = 1.34 m, under the
- * 2.48 m ceiling of the storey. `radius` is the distance from the newel the player holds.
+ * 0.25 m risers sweeping 180°, with a newel at r = 0.24 m and a railing at r = 1.34 m. `radius`
+ * is the distance from the newel the player holds; the walkable band is 0.55 m … 1.05 m.
  */
-function climbPascalStairs(input: MoveInput, radius: number, seconds = 6) {
-  const controller = createCharacterController(buildPascalStairCollider())
-  const [startX, startZ] = stairPoint(PASCAL_STAIR.startAngle - 0.5, radius)
-  controller.setPosition(new Vector3(startX, PASCAL_STAIR.floorY + 0.02, startZ))
+function climbStair(
+  stair: StairFixture,
+  collider: StaticCollider,
+  input: MoveInput,
+  radius: number,
+  opts: { seconds?: number; stepHeight?: number } = {},
+) {
+  const controller = createCharacterController(
+    collider,
+    opts.stepHeight === undefined ? {} : { stepHeight: opts.stepHeight },
+  )
+  const [startX, startZ] = stairPoint(stair.startAngle - 0.5, radius, stair)
+  controller.setPosition(new Vector3(startX, stair.floorY + 0.02, startZ))
   run(controller, 0.33, idle)
 
   let airborne = 0
   let maxY = controller.state.position.y
   let reachedAt = -1
-  for (let index = 0; index < Math.ceil(seconds / DT); index++) {
+  for (let index = 0; index < Math.ceil((opts.seconds ?? 6) / DT); index++) {
     const p = controller.state.position
-    controller.update(DT, input, stairAutopilotYaw(p.x, p.z, radius))
+    controller.update(DT, input, stairAutopilotYaw(p.x, p.z, radius, 1, stair))
     if (!controller.state.grounded) airborne++
     maxY = Math.max(maxY, controller.state.position.y)
-    if (reachedAt < 0 && maxY >= PASCAL_STAIR.landingY - 0.05) reachedAt = index * DT
+    if (reachedAt < 0 && maxY >= stair.landingY - 0.05) reachedAt = index * DT
   }
   return { controller, maxY, airborne, reachedAt }
+}
+
+function climbPascalStairs(input: MoveInput, radius: number, seconds = 6) {
+  return climbStair(PASCAL_STAIR, buildPascalStairCollider(), input, radius, { seconds })
+}
+
+function climbPascalStairsV7(input: MoveInput, radius: number, opts: { stepHeight?: number } = {}) {
+  return climbStair(PASCAL_STAIR_V7, buildPascalStairColliderV7(), input, radius, { seconds: 7, ...opts })
+}
+
+/** Walks back down the v7 flight from the Floor-1 slab, on the walk line at `radius`. */
+function descendPascalStairsV7(input: MoveInput, radius: number, seconds = 4) {
+  const stair = PASCAL_STAIR_V7
+  const controller = createCharacterController(buildPascalStairColliderV7())
+  const [startX, startZ] = stairPoint(stair.endAngle + 0.35, radius, stair)
+  controller.setPosition(new Vector3(startX, stair.landingY + 0.02, startZ))
+  run(controller, 0.33, idle)
+
+  let maxUpwardMove = 0
+  let reachedAt = -1
+  let previousY = controller.state.position.y
+  for (let index = 0; index < Math.ceil(seconds / DT); index++) {
+    const p = controller.state.position
+    controller.update(DT, input, stairAutopilotYaw(p.x, p.z, radius, -1, stair))
+    const y = controller.state.position.y
+    if (reachedAt < 0 && y <= stair.floorY + 0.02) reachedAt = index * DT
+    if (reachedAt < 0) maxUpwardMove = Math.max(maxUpwardMove, y - previousY)
+    previousY = y
+  }
+  return { controller, maxUpwardMove, reachedAt, y: controller.state.position.y }
 }
 
 /**
@@ -166,6 +210,61 @@ test('runs and crouches up the real Pascal staircase too', () => {
     expect(crouching.maxY).toBeGreaterThanOrEqual(PASCAL_STAIR.landingY - 0.05)
     expect(crouching.airborne).toBe(0)
   }
+})
+
+test('the configured step height covers the last riser of the v7 staircase', () => {
+  // pascal-house v7 has 3 m storeys, so the flight stops 0.50 m under the Floor-1 slab.
+  expect(PASCAL_STAIR_V7.finalRiser).toBe(0.5)
+  expect(PLAYER.stepHeight).toBeGreaterThanOrEqual(PASCAL_STAIR_V7.finalRiser)
+})
+
+test('walks up the v7 staircase and over its 0.50 m last step onto Floor 1', () => {
+  for (const radius of [0.6, 0.7, 0.85]) {
+    const result = climbPascalStairsV7({ ...idle, forward: 1, walk: true }, radius)
+    expect(result.maxY).toBeGreaterThanOrEqual(PASCAL_STAIR_V7.landingY - 0.05)
+    expect(result.reachedAt).toBeGreaterThan(0)
+    expect(result.airborne).toBe(0)
+    expect(result.controller.state.grounded).toBe(true)
+  }
+})
+
+test('runs and crouches up the v7 staircase too', () => {
+  for (const radius of [0.6, 0.7, 0.85]) {
+    for (const input of [{ ...idle, forward: 1 }, { ...idle, forward: 1, crouch: true }]) {
+      const result = climbPascalStairsV7(input, radius)
+      expect(result.maxY).toBeGreaterThanOrEqual(PASCAL_STAIR_V7.landingY - 0.05)
+    }
+  }
+})
+
+test('the last riser is taken in one step, not by scrambling over the handrail', () => {
+  // 0.52 clears the 0.50 m riser outright: one frame on the top tread, the next on the slab.
+  // (A shorter step height only gets up there via the banister and the slab's own soffit, both
+  // of which the ground probe accepts as surfaces — see the report on `findGround`.)
+  const controller = createCharacterController(buildPascalStairColliderV7())
+  const [x, z] = stairPoint(PASCAL_STAIR_V7.endAngle - 0.05, 0.85, PASCAL_STAIR_V7)
+  controller.setPosition(new Vector3(x, 2.57, z))
+  run(controller, 0.33, idle)
+  const heights = new Set<number>()
+  for (let index = 0; index < Math.ceil(1.5 / DT); index++) {
+    const p = controller.state.position
+    controller.update(DT, { ...idle, forward: 1, walk: true },
+      stairAutopilotYaw(p.x, p.z, 0.85, 1, PASCAL_STAIR_V7))
+    if (controller.state.grounded) heights.add(Math.round(controller.state.position.y * 100) / 100)
+  }
+  expect(controller.state.position.y).toBeCloseTo(PASCAL_STAIR_V7.landingY, 2)
+  // Nothing in between: the capsule stood on the top tread and then on Floor 1.
+  expect([...heights].filter((y) => y > 2.6 && y < 3.04)).toEqual([])
+})
+
+test('walks back down the v7 flight without being pushed up again', () => {
+  const result = descendPascalStairsV7({ ...idle, forward: 1, walk: true }, 0.85)
+  // Reaches the ground floor — the descent is a series of short drops down the 0.25 m treads,
+  // but nothing ever shoves the capsule back up a tread.
+  expect(result.reachedAt).toBeGreaterThan(0)
+  expect(result.reachedAt).toBeLessThan(2)
+  expect(result.maxUpwardMove).toBeLessThan(0.01)
+  expect(result.controller.state.grounded).toBe(true)
 })
 
 test('walking into a wall stops without penetrating by more than 1 cm', () => {
