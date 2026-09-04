@@ -107,7 +107,7 @@ export const WEAPONS = {
     slot: 2,
     label: 'Pistol',
     auto: false,
-    fireRate: 5,
+    fireRate: 12,
     ammo: 12,
     reloadMs: 1_100,
     projectileSpeed: 110,
