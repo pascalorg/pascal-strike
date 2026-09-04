@@ -49,7 +49,7 @@ export const PLAYER = {
   jumpVelocity: 4.8,
   gravity: 20,
   /** Max step height the controller can climb without jumping. Pascal's v7 stair ends with a 0.50 m riser. */
-  stepHeight: 0.52,
+  stepHeight: 0.45,
   /** Max slope angle (degrees) considered walkable ground. */
   maxSlopeDeg: 55,
   lookSensitivity: 0.0022,
