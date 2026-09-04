@@ -18,6 +18,8 @@ import {
 } from 'three'
 import { loadGltf, type Loaders } from '../engine/loaders'
 import { batchOpenableLeaves, batchStaticMeshes } from './batch'
+import { buildOpenDoorObstacles } from './doors'
+
 import {
   attachBreakables,
   buildStaticColliders,
@@ -103,6 +105,10 @@ export async function loadMap(
   // So a caller holding only the collider (the map session builds its own query) still gets glass.
   attachBreakables(colliders.bullet, parsed.glassPanes)
 
+  // After batching (it rewrites `leafMeshes`) and after the colliders are baked: this swings
+  // every door open for a moment to read where its leaves land, then puts them back.
+  const openLeaves = buildOpenDoorObstacles(root, parsed.doors)
+
   // Zone floor heights need the collider, so they are resolved here rather than in the parser.
   if (parsed.zones.length > 0) {
     const world = createWorldQuery(colliders.bullet, parsed.doors, parsed.glassPanes)
@@ -121,8 +127,9 @@ export async function loadMap(
     breakables: parsed.glassPanes,
     bounds,
     // Movement geometry minus roofs: recast cannot cut a path through a window, and cannot
-    // hand the bots a roof pitch to roam on either.
-    navMeshSource: [colliders.navSource],
+    // hand the bots a roof pitch to roam on either. Plus the strips where open door leaves come
+    // to rest, so a path never runs through a panel that is solid but not in the collider.
+    navMeshSource: openLeaves ? [colliders.navSource, openLeaves] : [colliders.navSource],
   }
 }
 

@@ -10,7 +10,22 @@
  * closes; an openable that reverses mid-swing just flips `timeScale` and continues from where
  * the leaf currently is.
  */
-import { AnimationMixer, Box3, LoopOnce, Ray, Sphere, Vector3, type AnimationAction, type Mesh } from 'three'
+import {
+  AnimationMixer,
+  Box3,
+  BoxGeometry,
+  LoopOnce,
+  Mesh,
+  MeshBasicMaterial,
+  Object3D,
+  Quaternion,
+  Ray,
+  Sphere,
+  Vector3,
+  type AnimationAction,
+  type BufferGeometry,
+} from 'three'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { DOORS } from '../config'
 import type { DoorInfo, MapData } from '../types'
 
@@ -237,4 +252,131 @@ export function createDoorSystem(map: MapData): DoorSystem {
 
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v
+}
+
+/**
+ * How far the open-leaf strips are grown before recast eats them.
+ *
+ * `walkableRadius` is 0.22 m, deliberately under the 0.3 m capsule so that recast does not sever
+ * the 0.25 m curved stair treads. Everywhere else that shortfall is harmless; at a door leaf it
+ * is not, because a path corner planned 0.22 m off the panel puts a 0.3 m capsule 0.08 m inside
+ * it. Padding the obstacle instead of the whole world buys the missing clearance exactly where
+ * it is needed and leaves the treads alone.
+ */
+const LEAF_PAD = 0.12
+/** The strips only have to be tall enough that no storey leaves `walkableHeight` above them. */
+const MIN_LEAF_HEIGHT = 2
+/** How far short of the clip's end the open pose is sampled (see `buildOpenDoorObstacles`). */
+const OPEN_POSE_EPSILON = 1e-3
+
+const _leafBox = new Box3()
+const _leafSize = new Vector3()
+const _leafCenter = new Vector3()
+
+interface NodePose {
+  node: Object3D
+  position: Vector3
+  quaternion: Quaternion
+  scale: Vector3
+}
+
+/**
+ * Thin obstacle boxes where each door's leaves come to rest when they are OPEN.
+ *
+ * A door that is open is a hole you can walk through, and recast is told so — the leaves are out
+ * of the navmesh source in their closed pose because bots open what is in their way. But the leaf
+ * does not vanish when it swings: it parks along the wall beside the opening, sticking a quarter
+ * of a metre into the room, and it is still solid to everybody. Recast, knowing nothing about it,
+ * runs the corridor straight through the panel's corner, so a bot walking that corner wedges
+ * against a wall it cannot see and pushes into it for as long as the goal stands (39 s, in one
+ * traced case: 36 stalls, always the same corner).
+ *
+ * So the OPEN pose is baked in as geometry. Each leaf is driven to the end of its clip, its world
+ * box read off, padded, and dropped back to the floor; the boxes cover the strip along the wall
+ * and nothing else, so the doorway itself stays walkable and the path simply routes around the
+ * leaf. Everything is restored to the closed pose before this returns — the collider was baked
+ * from that pose and the door system animates from it.
+ *
+ * Doors only: a window sash swings into a room a metre and a half up, where nobody walks.
+ */
+export function buildOpenDoorObstacles(root: Object3D, doors: readonly DoorInfo[]): Mesh | null {
+  const geometries: BufferGeometry[] = []
+
+  for (const door of doors) {
+    if ((door.kind ?? 'door') !== 'door' || !door.clip || door.leafMeshes.length === 0) continue
+
+    const poses = capturePoses(root, door)
+    const mixer = new AnimationMixer(root)
+    const action = mixer.clipAction(door.clip)
+    try {
+      // LoopOnce + clamp, and a hair short of the end: a repeating clip sampled at exactly its
+      // duration wraps back to frame 0, which is the CLOSED pose — the one thing this must not
+      // read. The clip's last frame is the fully open pose (its rest pose is the closed one).
+      action.loop = LoopOnce
+      action.clampWhenFinished = true
+      action.play()
+      mixer.setTime(Math.max(0, door.clip.duration - OPEN_POSE_EPSILON))
+      root.updateMatrixWorld(true)
+      for (const leaf of door.leafMeshes) {
+        const box = _leafBox.setFromObject(leaf, true)
+        if (box.isEmpty()) continue
+        // Stand it on the floor: the leaf reaches it anyway, and a strip that floats leaves a
+        // walkable sliver underneath for recast to thread a path through.
+        const floorY = Math.min(box.min.y, door.center.y - 1)
+        box.min.y = floorY
+        box.max.y = Math.max(box.max.y, floorY + MIN_LEAF_HEIGHT)
+        box.expandByVector(_leafSize.set(LEAF_PAD, 0, LEAF_PAD))
+        box.getSize(_leafSize)
+        box.getCenter(_leafCenter)
+        const geometry = new BoxGeometry(_leafSize.x, _leafSize.y, _leafSize.z)
+        geometry.translate(_leafCenter.x, _leafCenter.y, _leafCenter.z)
+        geometries.push(geometry)
+      }
+    } finally {
+      action.stop()
+      mixer.stopAllAction()
+      mixer.uncacheClip(door.clip)
+      restorePoses(poses)
+      root.updateMatrixWorld(true)
+    }
+  }
+
+  if (geometries.length === 0) return null
+  const merged = geometries.length === 1 ? geometries[0] : mergeGeometries(geometries, false)
+  for (const geometry of geometries) if (geometry !== merged) geometry.dispose()
+  if (!merged) return null
+  // Never rendered and never collided with: recast is the only thing that ever reads it.
+  const mesh = new Mesh(merged, new MeshBasicMaterial())
+  mesh.name = 'navmesh-open-leaves'
+  mesh.visible = false
+  mesh.matrixAutoUpdate = false
+  mesh.updateMatrixWorld(true)
+  return mesh
+}
+
+/** Local transforms of every node the clip writes to, so the closed pose can be put back. */
+function capturePoses(root: Object3D, door: DoorInfo): NodePose[] {
+  const poses: NodePose[] = []
+  const seen = new Set<Object3D>()
+  for (const track of door.clip.tracks) {
+    const name = track.name.slice(0, track.name.lastIndexOf('.'))
+    const node = name ? root.getObjectByName(name) : null
+    if (!node || seen.has(node)) continue
+    seen.add(node)
+    poses.push({
+      node,
+      position: node.position.clone(),
+      quaternion: node.quaternion.clone(),
+      scale: node.scale.clone(),
+    })
+  }
+  return poses
+}
+
+function restorePoses(poses: readonly NodePose[]): void {
+  for (const pose of poses) {
+    pose.node.position.copy(pose.position)
+    pose.node.quaternion.copy(pose.quaternion)
+    pose.node.scale.copy(pose.scale)
+  }
 }
