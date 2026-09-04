@@ -330,7 +330,9 @@ export function startHostAuthority(
           bot.setState(PS.kills, 0, true)
           bot.setState(PS.deaths, 0, true)
           bot.setState(PS.inv, 0, true)
-          // The tick's "alive but never spawned" pass places it once balance() gave it a team.
+          // The tick's "has a side but was never placed" pass puts it on a spawn point on its
+          // next run — `hp.alive` is still false here, and that is exactly why that pass must
+          // not test it.
           void hp
         })
         .catch(() => {
@@ -668,8 +670,24 @@ export function startHostAuthority(
     }
 
     for (const hp of players.values()) {
-      if (!hp.alive && hp.respawnAt && now >= hp.respawnAt) respawn(hp, now)
-      else if (hp.alive && !hp.spawned && hp.team) respawn(hp, now)
+      // A side, but never placed: this is the pass that turns a body onto the map, and it must
+      // not ask whether they are alive first.
+      //
+      // `ensure()` records everyone it has not met as a spectator — no team, `alive: false`,
+      // no respawn clock — because a human who has not picked yet must have no body anywhere
+      // (W5-A). A bot added by the fill goes through that same door: `ensure(bot.id, true)` runs
+      // before its `team` state is written, so the record it gets is the spectator one, and the
+      // fill then sets `hp.team` a few statements later without touching `alive`. Keying this
+      // pass on `alive` therefore meant a bot the fill added was never spawned by anybody: dead
+      // to the rules (so unhittable, and every hit on it refused as "already dead"), never
+      // respawned by the pass below either, whose clock it never had. It lay at the origin for
+      // the rest of the match. A human is spared only because `requestTeam` repairs the record
+      // by hand when they pick.
+      if (hp.team && !hp.spawned) respawn(hp, now)
+      else if (!hp.alive && hp.respawnAt && now >= hp.respawnAt) respawn(hp, now)
+      // Dead, on a side, and with no clock running. Only a bad adopt or a side picked in the
+      // middle of dying reaches this, and without it they wait for a respawn nobody scheduled.
+      else if (!hp.alive && hp.team && !hp.respawnAt) hp.respawnAt = now + PLAYER.respawnDelayMs
     }
 
     // A bot's entry in the registry is ours to keep honest. Nothing else can: a bot has no
