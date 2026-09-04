@@ -87,13 +87,19 @@ export const GS = {
    */
   glass: 'glass',
   /**
-   * BotStats — `{ team, kills, deaths }` per bot, republished by the host whenever one changes
-   * (at most every `BOT_STATS_MS`).
+   * BotStats — `{ team, kills, deaths, alive, hp }` per bot, republished by the host whenever
+   * one changes (at most every `BOT_STATS_MS`).
    *
    * A bot is a real participant with its own state, but playroomkit 0.0.97 only ever delivers
    * that state to the other clients when the bot JOINS: every later `setState` on a bot stays on
    * the host, so a joiner's scoreboard showed bots frozen at the kills they had when it walked
-   * in. Globals do sync, so the host mirrors the three fields that change.
+   * in. Globals do sync, so the host mirrors the fields that move.
+   *
+   * `alive` and `hp` are here for a harder reason than a scoreboard. On a client they are moved
+   * by the `kill`, `respawn` and `damage` RPCs and by nothing else, so one dropped `respawn`
+   * leaves a bot dead forever — and a dead body has no capsule in `remote-players.ts`, which is
+   * a bot that every paintball passes through, on that one client, for the rest of the match.
+   * This is the only thing that can get a client out of that, so it is not optional bookkeeping.
    */
   botStats: 'botStats',
 } as const
@@ -177,6 +183,14 @@ export const SEEN_SHOTS = 512
 /** How often the host may republish `botStats` (2 Hz — scoreboard numbers, not gameplay). */
 export const BOT_STATS_MS = 500
 
+/**
+ * How long the `botStats` mirror must disagree with a bot entity before a client believes it
+ * over its own copy. The mirror is the host's truth but it is the slower of the two channels
+ * (2 Hz, and only on a change), so a fresh disagreement means the RPCs are simply ahead of it —
+ * not that anything is wrong. Comfortably longer than `BOT_STATS_MS` plus a round trip.
+ */
+export const BOT_MIRROR_GRACE_MS = 1_500
+
 /** One accepted team swap per player per this long (host-enforced). */
 export const TEAM_SWAP_COOLDOWN_MS = 10_000
 
@@ -231,6 +245,9 @@ export interface BotStat {
   team: TeamId
   kills: number
   deaths: number
+  /** Host truth, and a client's only way back from a lost `kill`/`respawn` RPC. */
+  alive: boolean
+  hp: number
 }
 
 /** Value of the `botStats` room state: bot player id → its stats. */

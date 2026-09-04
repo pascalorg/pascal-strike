@@ -16,11 +16,13 @@ import type {
   WeaponKind,
 } from '../types'
 import {
+  BOT_MIRROR_GRACE_MS,
   GS,
   PS,
   RPCS,
   TEAM_SWAP_TIMEOUT_MS,
   teamFrom,
+  type BotStat,
   type BotStats,
   type TeamChoice,
   type TeamRequest,
@@ -132,6 +134,7 @@ export function bindNetToRegistry(
     room.onLeave((id) => {
       interps.delete(id)
       lastRaw.delete(id)
+      botMirrorSince.delete(id)
       registry.remove(id)
       events.emit('player-left', { id })
     }),
@@ -222,6 +225,7 @@ export function bindNetToRegistry(
       if (!live.has(entity.id)) {
         interps.delete(entity.id)
         lastRaw.delete(entity.id)
+        botMirrorSince.delete(entity.id)
         registry.remove(entity.id)
         events.emit('player-left', { id: entity.id })
       }
@@ -237,6 +241,7 @@ export function bindNetToRegistry(
     if (room.isHost()) return
     const stats = room.getGlobal<BotStats>(GS.botStats)
     if (!stats) return
+    const now = Date.now()
     for (const id of Object.keys(stats)) {
       const stat = stats[id]
       const entity = registry.get(id)
@@ -244,7 +249,50 @@ export function bindNetToRegistry(
       if (stat.team === 'a' || stat.team === 'b') entity.team = stat.team
       entity.kills = numberOr(stat.kills, entity.kills)
       entity.deaths = numberOr(stat.deaths, entity.deaths)
+      reconcileBotLife(entity, stat, now)
     }
+  }
+
+  /** Bot id → the mirrored life we have been disagreeing with, and since when. */
+  const botMirrorSince = new Map<string, { alive: boolean; hp: number; since: number }>()
+
+  /**
+   * A bot's life, repaired from the host's mirror.
+   *
+   * `kill`, `respawn` and `damage` are the only things that move a bot's `alive` and `hp` on this
+   * client — its own player state stops reaching us the moment it joins (see `GS.botStats`) — so
+   * one dropped `respawn` leaves a corpse that never gets up. `remote-players.ts` builds no
+   * capsule for a corpse, so from then on every paintball we fire at that bot goes through it,
+   * for the rest of the match, on this client and nowhere else. There was no way back.
+   *
+   * The mirror is the host's truth, but it is the slower channel: an RPC in flight is fresher
+   * than a global published at 2 Hz, so a *fresh* disagreement means we are ahead, not wrong.
+   * It only overrules the entity once it has said the same thing for `BOT_MIRROR_GRACE_MS`,
+   * which is longer than any RPC is in flight and shorter than anyone can miss a body.
+   */
+  const reconcileBotLife = (entity: PlayerEntity, stat: BotStat, now: number) => {
+    // A host on an older build publishes neither field; nothing to reconcile against.
+    if (typeof stat.alive !== 'boolean' || !Number.isFinite(stat.hp)) {
+      botMirrorSince.delete(entity.id)
+      return
+    }
+    if (entity.alive === stat.alive && entity.hp === stat.hp) {
+      botMirrorSince.delete(entity.id)
+      return
+    }
+    const seen = botMirrorSince.get(entity.id)
+    if (!seen || seen.alive !== stat.alive || seen.hp !== stat.hp) {
+      botMirrorSince.set(entity.id, { alive: stat.alive, hp: stat.hp, since: now })
+      return
+    }
+    if (now - seen.since < BOT_MIRROR_GRACE_MS) return
+    botMirrorSince.delete(entity.id)
+    console.debug(
+      `[net] ${entity.name} is ${entity.alive ? 'alive' : 'dead'} here and ${stat.alive ? 'alive' : 'dead'} ` +
+        `on the host, and has been for ${BOT_MIRROR_GRACE_MS} ms — taking the host's word (a lost RPC)`,
+    )
+    entity.alive = stat.alive
+    entity.hp = stat.hp
   }
 
   poll()
@@ -338,6 +386,7 @@ export function bindNetToRegistry(
       cleanups.length = 0
       interps.clear()
       lastRaw.clear()
+      botMirrorSince.clear()
       spectatorList.length = 0
     },
   }

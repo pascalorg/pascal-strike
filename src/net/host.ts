@@ -343,7 +343,9 @@ export function startHostAuthority(
   // --- bot stats -----------------------------------------------------------
   // Everything else about a bot reaches the other clients through the bot's own player state —
   // except that playroomkit only sends that state when the bot joins (see `GS.botStats`). So the
-  // three fields that move afterwards go out as a global instead, which does sync, at 2 Hz.
+  // fields that move afterwards go out as a global instead, which does sync, at 2 Hz. `alive` and
+  // `hp` ride along not for the scoreboard but because they are a client's only way back from a
+  // lost `kill`/`respawn`: a bot stuck dead over there is a bot nobody can hit.
 
   let publishedBotStats = ''
   let lastBotStatsAt = 0
@@ -353,7 +355,7 @@ export function startHostAuthority(
     const stats: BotStats = {}
     for (const hp of players.values()) {
       if (!hp.isBot || !hp.team) continue
-      stats[hp.id] = { team: hp.team, kills: hp.kills, deaths: hp.deaths }
+      stats[hp.id] = { team: hp.team, kills: hp.kills, deaths: hp.deaths, alive: hp.alive, hp: hp.hp }
     }
     // Cheap deep compare: the object is six ids at most, and this runs 20 times a second.
     const encoded = JSON.stringify(stats)
