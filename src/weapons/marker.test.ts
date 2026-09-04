@@ -155,13 +155,14 @@ test('the pistol still obeys its fire rate when the trigger is spammed', () => {
   const marker = createMarker({ ownerId: 'spam', team: 'a', now: () => 0, weapon: 'pistol' })
   marker.setMotion(0, true, false, false)
   let shots = 0
-  // Twelve pull/release cycles inside a second: the 5 Hz rate has to cap it.
-  for (let i = 0; i < 12; i++) {
-    shots += holdFor(marker, 1 / 24).length
-    shots += holdFor(marker, 1 / 24, false).length
+  // Thirty pull/release cycles inside a second, well above the cap: the fire rate has to win.
+  const cycles = 30
+  for (let i = 0; i < cycles; i++) {
+    shots += holdFor(marker, 1 / (cycles * 2)).length
+    shots += holdFor(marker, 1 / (cycles * 2), false).length
   }
-  expect(shots).toBeLessThanOrEqual(6)
-  expect(shots).toBeGreaterThanOrEqual(4)
+  expect(shots).toBeLessThanOrEqual(WEAPONS.pistol.fireRate + 1)
+  expect(shots).toBeGreaterThanOrEqual(WEAPONS.pistol.fireRate - 2)
 })
 
 test('the rifle is automatic and empties its 30 rounds while held', () => {
