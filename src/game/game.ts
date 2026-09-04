@@ -9,9 +9,10 @@
  *   frame      : look/camera/marker → net interpolation → avatars → projectiles → doors → HUD
  */
 import { Vector3 } from 'three'
-import { BUILTIN_MAPS, DOORS, PLAYER, TEAMS } from '../config'
-import { createAudio, type Audio } from '../engine/audio'
+import { BUILTIN_MAPS, DOORS, MATCH, PLAYER, TEAMS } from '../config'
+import { createAudio, type Audio, type AudioListenerPose, type SoundName } from '../engine/audio'
 import { createEventBus } from '../engine/events'
+import type { OptionalSoundName } from '../engine/sfx-manifest'
 import { createInput } from '../engine/input'
 import { createLoaders } from '../engine/loaders'
 import { createRenderer, type Engine } from '../engine/renderer'
@@ -40,7 +41,7 @@ import {
 } from '../net/protocol'
 import type { Room } from '../net/room'
 import { createClock, createSnapshotSender } from '../net/sync'
-import type { DoorInfo, Hittable, MapSelection, MatchState, ShotEvent, TeamId, WeaponKind } from '../types'
+import type { DamageEvent, DoorInfo, Hittable, MapSelection, MatchState, ShotEvent, TeamId, WeaponKind } from '../types'
 import { createHud } from '../ui/hud'
 import { createPrompt } from '../ui/prompt'
 import { createScoreboard } from '../ui/scoreboard'
@@ -131,9 +132,13 @@ export async function startGame(opts: GameOptions): Promise<Game> {
 
   const engine = await createRenderer(mount)
   const loaders = createLoaders(engine.renderer)
-  const rawAudio = createAudio()
+  // The sample loader already supports these manifest cues; they have no synth fallback.
+  type GameAudio = Omit<Audio, 'play'> & {
+    play(name: SoundName | OptionalSoundName, at?: Vector3, listener?: AudioListenerPose): void
+  }
+  const rawAudio = createAudio() as GameAudio
   let muted = false
-  const audio: Audio = {
+  const audio: GameAudio = {
     resume: () => rawAudio.resume(),
     play: (name, at, listener) => {
       if (!muted) rawAudio.play(name, at, listener)
@@ -469,7 +474,12 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     console.debug(`[hit] the host refused shot ${ev.shotId || '(no id)'}: ${ev.reason}`)
   })
 
+  const lastDamagePart = new Map<string, DamageEvent['part']>()
+  let lastHeadshotAt = -Infinity
+  let tenLeftPlayed = false
+
   events.on('damage', (dmg) => {
+    lastDamagePart.set(dmg.target, dmg.part)
     // W3-B: the host names the body part, so the feedback can differ per part — a headshot
     // marker for the shooter, a heavier paint splash for the victim, paint on the victim's body.
     const byTeam = registry.get(dmg.by)?.team ?? 'b'
@@ -487,6 +497,13 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   })
 
   events.on('kill', (kill) => {
+    const part = lastDamagePart.get(kill.victim)
+    lastDamagePart.delete(kill.victim)
+    const now = performance.now()
+    if (kill.killer === room.me.id && part === 'head' && now - lastHeadshotAt >= 3_000) {
+      audio.play('announcerHeadshot')
+      lastHeadshotAt = now
+    }
     const killer = registry.get(kill.killer)
     const victim = registry.get(kill.victim)
     hud.killFeed({
@@ -510,6 +527,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   })
 
   events.on('respawn', (ev) => {
+    lastDamagePart.delete(ev.player)
     if (ev.player === room.me.id) {
       localPlayer.place(ev.position, ev.yaw)
       localPlayer.revive()
@@ -713,8 +731,17 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     if (match) {
       hud.setScores(match.scores.a, match.scores.b, msLeft(match, now))
       if (match.phase !== lastPhase) {
+        tenLeftPlayed = false
+        lastDamagePart.clear()
         lastPhase = match.phase
         hud.setPhase(match.phase, match.round)
+      }
+      if (
+        match.phase === 'live' && !tenLeftPlayed &&
+        Math.max(match.scores.a, match.scores.b) >= MATCH.killTarget - 10
+      ) {
+        audio.play('announcerTenLeft')
+        tenLeftPlayed = true
       }
       if (match.phase === 'ended' && endedRound !== match.round) {
         endedRound = match.round
@@ -863,6 +890,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
 
   const teamScreen = createTeamScreen({
     mount,
+    audio,
     roster,
     myTeam,
     onPick: requestTeam,

@@ -21,23 +21,23 @@ const entry = (
   ...(variants === undefined ? {} : { variants }),
 })
 
-/** Prepared samples; gameplay wiring and the existing SoundName API are unchanged. */
+/** Sample-only cues used by game and overlay announcements. */
 export type OptionalSoundName = 'deny' | 'announcerHeadshot' | 'announcerTenLeft'
 
 export const SFX_MANIFEST = {
   shot: entry('shot-1', 0.9, 0.06, 3),
   pistolShot: entry('pistol-shot', 0.9),
   splat: entry('splat-1', 0.8, 0.06, 3),
-  hit: entry('body-hit', 0.8),
+  hit: entry('body-hit', 0.55),
   hitConfirm: entry('hit-confirm', 0.35, 0.025),
   reload: entry('reload-end', 0.35),
   reloadStart: entry('reload-start', 0.34),
   reloadEnd: entry('reload-end', 0.39),
-  respawn: entry('respawn-chime', 0.24, 0.025),
+  respawn: entry('respawn-chime', 0.3, 0.025),
   // Apply the requested -6 dB in the mix, preserving normalized file peaks.
   door: entry('door-handle', 0.39 * 10 ** (-6 / 20)),
   footstep: entry('footstep-1', 0.23, 0.06, 4),
-  death: entry('death', 0.8),
+  death: entry('death', 0.7),
   knifeSwing: entry('knife-swing', 0.32),
   knifeHit: entry('knife-hit', 0.8),
   weaponSwitch: entry('weapon-switch', 0.28),

@@ -189,6 +189,9 @@ test('Sonniss variants retain distinct gameplay cues and requested mix levels', 
   expect(SFX_MANIFEST.pistolShot.gain).toBe(0.9)
   expect(SFX_MANIFEST.splat.gain).toBe(0.8)
   expect(SFX_MANIFEST.deny.gain).toBe(0.6)
+  expect(SFX_MANIFEST.hit.gain).toBe(0.55)
+  expect(SFX_MANIFEST.death.gain).toBe(0.7)
+  expect(SFX_MANIFEST.respawn.gain).toBe(0.3)
   expect(SFX_MANIFEST.hit.urls).not.toEqual(SFX_MANIFEST.hitConfirm.urls)
   expect(SFX_MANIFEST.knifeHit.urls).not.toEqual(SFX_MANIFEST.splat.urls)
   expect(SFX_MANIFEST.weaponSwitch.urls).not.toEqual(SFX_MANIFEST.dryFire.urls)
@@ -198,6 +201,39 @@ test('Sonniss variants retain distinct gameplay cues and requested mix levels', 
     expect(SFX_MANIFEST[name].pitchJitter).toBe(0)
   }
   expect(variantUrls(SFX_MANIFEST.shot, 3)).toEqual(['/sfx/shot-3.ogg', '/sfx/shot-3.m4a'])
+})
+
+test('fine-tuned samples meet duration, decoded peak, and pistol RMS requirements', () => {
+  const report = JSON.parse(readFileSync('public/sfx/measurements.json', 'utf8'))
+  const durations: Record<string, number> = {
+    'shot-1': 0.22, 'shot-2': 0.24, 'shot-3': 0.2, 'pistol-shot': 0.17,
+    'dry-fire': 0.07, 'weapon-switch': 0.12, 'reload-end': 0.16,
+    'splat-1': 0.12, 'splat-3': 0.12, 'body-hit': 0.16, death: 0.45,
+    'hit-confirm': 0.12, 'glass-1': 0.9, 'glass-2': 0.9,
+    'shard-tinkle': 0.4, 'door-handle': 0.42, 'respawn-chime': 0.65,
+  }
+  for (const [stem, duration] of Object.entries(durations)) {
+    const sound = report.sounds[stem]
+    expect(Math.abs(sound.master.duration - duration)).toBeLessThanOrEqual(1 / 44100)
+    expect(sound.master.peak_dbfs).toBe(-1)
+    for (const ext of ['ogg', 'm4a']) {
+      const measured = sound.encoded[ext]
+      const bytes = readFileSync(`public/sfx/${stem}.${ext}`)
+      expect(createHash('sha256').update(bytes).digest('hex')).toBe(measured.sha256)
+      expect(measured.channels).toBe(1)
+      expect(measured.sample_rate).toBe(44100)
+      expect(Math.abs(measured.peak_dbfs + 1)).toBeLessThanOrEqual(0.15)
+      expect(Number.isFinite(measured.high_rms_dbfs)).toBe(true)
+    }
+  }
+  for (const ext of ['ogg', 'm4a']) {
+    for (const marker of ['shot-1', 'shot-2', 'shot-3']) {
+      const delta = report.sounds['pistol-shot'].encoded[ext].rms_dbfs
+        - report.sounds[marker].encoded[ext].rms_dbfs
+      expect(delta).toBeGreaterThanOrEqual(1)
+      expect(delta).toBeLessThanOrEqual(2)
+    }
+  }
 })
 
 test('Kenney footsteps are preserved byte-for-byte with the original playback settings', () => {
@@ -226,7 +262,7 @@ test('literal audio play names in src have manifest entries', () => {
 
   for (const path of files) {
     const source = readFileSync(`src/${path}`, 'utf8')
-    const calls = source.matchAll(/\b(?:audio|rawAudio)\.play\s*\(/g)
+    const calls = source.matchAll(/\b(?:audio|rawAudio)(?:\?\.|\.)play\s*\(/g)
     for (const call of calls) {
       const start = (call.index ?? 0) + call[0].length
       let depth = 0
@@ -257,7 +293,10 @@ test('literal audio play names in src have manifest entries', () => {
   }
 
   expect([...used].sort()).toEqual([
+    'announcerHeadshot',
+    'announcerTenLeft',
     'death',
+    'deny',
     'door',
     'dryFire',
     'footstep',

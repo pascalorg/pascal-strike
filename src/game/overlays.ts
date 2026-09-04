@@ -87,6 +87,7 @@ export type TeamScreenMode = 'join' | 'change'
 
 export interface TeamScreenOptions {
   mount: HTMLElement
+  audio?: { play(name: 'deny'): void }
   /** Polled while the screen is open; bots and counts move under it. */
   roster(): TeamRoster
   /** Our team, or null while we are still choosing. */
@@ -176,6 +177,7 @@ export function createTeamScreen(opts: TeamScreenOptions): TeamScreen {
   /** The card the host refused: a 0.5 s shake, then it is a normal card again. */
   const refuse = (choice: TeamChoice, reason: string) => {
     note.textContent = reason
+    opts.audio?.play('deny')
     const node = cards[choice]
     window.clearTimeout(refuseTimer)
     for (const key of PICK_KEYS) cards[key].classList.remove('is-refused')
