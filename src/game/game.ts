@@ -164,6 +164,8 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   let lockFallbackTimer = 0
   /** Last weapon published to the room / pushed into the HUD. */
   let lastWeapon: WeaponKind | null = null
+  /** `warnIfNothingToHit` fires once per session, not once per round of ammunition. */
+  let warnedNothingToHit = false
 
   /**
    * Null only while a map change is in flight. The frame loop keeps running between
@@ -271,7 +273,10 @@ export async function startGame(opts: GameOptions): Promise<Game> {
         // already resolved the hit locally, and a ball at `speed: 0` would just drop out of
         // the blade. Everything else is a paintball, in the *live* session — a shot fired on
         // the frame a map change starts must not land in the house we just disposed.
-        if (shot.weapon !== 'knife') session?.projectiles.spawn(shot, { detectPlayers: true })
+        if (shot.weapon !== 'knife') {
+          warnIfNothingToHit()
+          session?.projectiles.spawn(shot, { detectPlayers: true })
+        }
         void room.rpc.call(RPCS.shot, shot, 'others')
       },
       onFell: () => {
@@ -292,6 +297,29 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     lastTeam = me.team
     player.setTeam(me.team)
     return player
+  }
+
+  /**
+   * The cheap standing alarm for "my paint goes straight through everybody".
+   *
+   * Every hit this client can ever detect comes from one array: the capsules
+   * `remote-players.ts` builds, one per avatar. If we are shooting while that array is empty
+   * and the registry still holds remote players, no shot of ours can hit anything — the avatars
+   * (and with them the hittables) were never built for the bodies we can see. It is a state the
+   * game must never be in, it is silent from the inside, and it is the exact shape of a whole
+   * family of regressions, so it says so once and then keeps quiet.
+   */
+  function warnIfNothingToHit(): void {
+    if (warnedNothingToHit || remotePlayers.hittables().length > 0) return
+    let remotes = 0
+    for (const entity of registry.list()) if (!entity.isLocal) remotes++
+    if (remotes === 0) return
+    warnedNothingToHit = true
+    console.warn(
+      `[game] firing with an empty hittable list while ${remotes} remote player(s) are in the ` +
+        'registry: remote-players.ts built no avatar capsules for them, so every paintball will ' +
+        'pass straight through. Hit detection is dead for this client.',
+    )
   }
 
   /** Owner-written state, like the pose: nobody validates which weapon we claim to hold. */
