@@ -1,0 +1,1403 @@
+{
+  "schema": 1,
+  "sample_rate": 44100,
+  "master_peak_dbfs": -1,
+  "decisions": {
+    "marker": {
+      "detected_peaks": 343,
+      "isolated_count": 29,
+      "fallback": false,
+      "selected": [
+        {
+          "sample": 956860,
+          "time": 21.69750566893424,
+          "isolation_db": 31.713883263474862,
+          "source_peak_dbfs": -4.007091168656755,
+          "cut_duration": 0.22,
+          "brightness_db": -15.419999999999998,
+          "energy90_seconds": 0.025532879818594104
+        },
+        {
+          "sample": 1356896,
+          "time": 30.768616780045352,
+          "isolation_db": 27.413179701844797,
+          "source_peak_dbfs": -3.3761700962331167,
+          "cut_duration": 0.22,
+          "brightness_db": -13.79,
+          "energy90_seconds": 0.027369614512471656
+        },
+        {
+          "sample": 1751469,
+          "time": 39.71585034013606,
+          "isolation_db": 27.161976180990106,
+          "source_peak_dbfs": -6.400972413264991,
+          "cut_duration": 0.22,
+          "brightness_db": -13.995999999999999,
+          "energy90_seconds": 0.1456235827664399
+        },
+        {
+          "sample": 3062215,
+          "time": 69.43798185941043,
+          "isolation_db": 26.737162829357526,
+          "source_peak_dbfs": -5.904749313663008,
+          "cut_duration": 0.22,
+          "brightness_db": -6.398000000000003,
+          "energy90_seconds": 0.07743764172335602
+        }
+      ],
+      "pistol_time": 69.43798185941043,
+      "whip": "Optional whip layer omitted to retain the natural marker transient and character."
+    },
+    "wall_hit_times": [
+      0.002290249433106576,
+      0.13043083900226757,
+      0.256984126984127
+    ],
+    "thud_candidates": [
+      0.2017687074829932,
+      3.1996825396825397,
+      6.207505668934241,
+      9.193764172335602,
+      12.214467120181405,
+      15.218616780045352,
+      18.192426303854877,
+      21.187619047619048,
+      24.19360544217687,
+      27.200657596371883,
+      30.19907029478458,
+      33.19229024943311,
+      36.18730158730159,
+      39.21562358276644,
+      42.20956916099773,
+      45.20018140589569,
+      48.181836734693874,
+      51.21049886621315,
+      54.20013605442177,
+      57.195691609977324,
+      60.21648526077097
+    ],
+    "door": {
+      "opening_peak": 0.2600907029478458,
+      "late_tail_delta_db": -15.343406529467245,
+      "fallback": true
+    }
+  },
+  "sounds": {
+    "shot-1": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Public Spaces - Crowds Walla and Everyday Ambiences/AMBWar_Paintball Match Firefight Shots Walla Nearfield Full 05_ESM_CPS.wav",
+          "start": 21.692506,
+          "duration": 0.22,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.22,
+      "fade": 0.06,
+      "note": "Isolated marker; no whip layer.",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -23.09,
+        "high_rms_dbfs": -38.51,
+        "duration": 0.22,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -1.078,
+          "rms_dbfs": -22.885,
+          "high_rms_dbfs": -38.676,
+          "duration": 0.217098,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 5779,
+          "sha256": "acff0cd11aa713910e9bf894443b82efcca932828b0f53373aa5a33ee9f2817c"
+        },
+        "m4a": {
+          "peak_dbfs": -1.044,
+          "rms_dbfs": -23.339,
+          "high_rms_dbfs": -38.848,
+          "duration": 0.2322,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 4607,
+          "sha256": "4bddde1aab8874f80fb8fe1bd1a273e9795c8afde64befca9d32ad9d22354f2e"
+        }
+      },
+      "sound": "shot (1/3)"
+    },
+    "shot-2": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Public Spaces - Crowds Walla and Everyday Ambiences/AMBWar_Paintball Match Firefight Shots Walla Nearfield Full 05_ESM_CPS.wav",
+          "start": 30.763617,
+          "duration": 0.22,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.22,
+      "fade": 0.06,
+      "note": "Isolated marker; no whip layer.",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -22.329,
+        "high_rms_dbfs": -36.119,
+        "duration": 0.22,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.979,
+          "rms_dbfs": -21.753,
+          "high_rms_dbfs": -35.684,
+          "duration": 0.217098,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 5876,
+          "sha256": "4e7afe2b136c515e576542c81b4c4028a8974e5954761c9611bdbf0d1ce7c39b"
+        },
+        "m4a": {
+          "peak_dbfs": -0.985,
+          "rms_dbfs": -22.281,
+          "high_rms_dbfs": -36.038,
+          "duration": 0.2322,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 4615,
+          "sha256": "7faf4922e4de558081a74d6d604b83ff9481245519e39890211ca4281115bb7c"
+        }
+      },
+      "sound": "shot (2/3)"
+    },
+    "shot-3": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Public Spaces - Crowds Walla and Everyday Ambiences/AMBWar_Paintball Match Firefight Shots Walla Nearfield Full 05_ESM_CPS.wav",
+          "start": 39.71085,
+          "duration": 0.22,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.22,
+      "fade": 0.06,
+      "note": "Isolated marker; no whip layer.",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -21.907,
+        "high_rms_dbfs": -35.903,
+        "duration": 0.22,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -1.028,
+          "rms_dbfs": -21.841,
+          "high_rms_dbfs": -35.677,
+          "duration": 0.217098,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 6200,
+          "sha256": "601283510e2d89719a3dd836669f5c75637115b7cd030953e7a7f0edc2df6368"
+        },
+        "m4a": {
+          "peak_dbfs": -1.07,
+          "rms_dbfs": -22.072,
+          "high_rms_dbfs": -36.208,
+          "duration": 0.2322,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 4745,
+          "sha256": "73a23b2158d8007cabdf436a591e6cc94b1bac21b72a8240561e9cdb238ff501"
+        }
+      },
+      "sound": "shot (3/3)"
+    },
+    "pistol-shot": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Public Spaces - Crowds Walla and Everyday Ambiences/AMBWar_Paintball Match Firefight Shots Walla Nearfield Full 05_ESM_CPS.wav",
+          "start": 69.432982,
+          "duration": 0.14,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": true,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.14,
+      "fade": 0.04,
+      "note": "Brightest of the four; +3 dB presence bell at 4 kHz.",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -27.486,
+        "high_rms_dbfs": -33.284,
+        "duration": 0.14,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.993,
+          "rms_dbfs": -26.947,
+          "high_rms_dbfs": -33.137,
+          "duration": 0.137098,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 5337,
+          "sha256": "59d032ac3b3d77aeecbfa2a2962b7e55ec758820ead25c5b649cc44131ba39dc"
+        },
+        "m4a": {
+          "peak_dbfs": -1.072,
+          "rms_dbfs": -28.122,
+          "high_rms_dbfs": -33.994,
+          "duration": 0.16254,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 3352,
+          "sha256": "451154df4f93ce651cdae7ca7e2e694f1664cb56d14a6a481e6ea7ae07fecf05"
+        }
+      },
+      "sound": "pistolShot"
+    },
+    "splat-1": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Tower Defense Game/WOODImpt_Hit Blood Spill Splat Wood Impact Light Hit Squelch Small Thump 03_ESM_TDG.wav",
+          "start": 0,
+          "duration": 0.12,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.12,
+      "fade": 0.025,
+      "note": "Separate detected wall-splat hit.",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -13.566,
+        "high_rms_dbfs": -21.093,
+        "duration": 0.12,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.988,
+          "rms_dbfs": -13.856,
+          "high_rms_dbfs": -21.571,
+          "duration": 0.121905,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 5276,
+          "sha256": "f333923d405ca67bd85021ae7901fb1babaf218ed9f29d8aa3de8bc140d98bde"
+        },
+        "m4a": {
+          "peak_dbfs": -0.948,
+          "rms_dbfs": -14.007,
+          "high_rms_dbfs": -21.624,
+          "duration": 0.13932,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 3050,
+          "sha256": "636af66b9f47d6c77f7a67e45a610c29e60720f84352cfef87c2e260ee183036"
+        }
+      },
+      "sound": "splat variant 1"
+    },
+    "splat-2": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Tower Defense Game/WOODImpt_Hit Blood Spill Splat Wood Impact Light Hit Squelch Small Thump 03_ESM_TDG.wav",
+          "start": 0.127431,
+          "duration": 0.12,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.12,
+      "fade": 0.025,
+      "note": "Separate detected wall-splat hit.",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -25.578,
+        "high_rms_dbfs": -30.283,
+        "duration": 0.12,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.935,
+          "rms_dbfs": -25.717,
+          "high_rms_dbfs": -30.365,
+          "duration": 0.117098,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 5062,
+          "sha256": "8c0446643cbe5deceaaeeb037512dbdbc9f9cda47a54bac55c194294d09cba65"
+        },
+        "m4a": {
+          "peak_dbfs": -1.016,
+          "rms_dbfs": -26.23,
+          "high_rms_dbfs": -31.033,
+          "duration": 0.13932,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 3291,
+          "sha256": "929aae2f89f65dd31bc9afa980eea4fb178909d675c70f05b088d5e46bc21de7"
+        }
+      },
+      "sound": "splat variant 2"
+    },
+    "splat-3": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Tower Defense Game/WOODImpt_Hit Blood Spill Splat Wood Impact Light Hit Squelch Small Thump 03_ESM_TDG.wav",
+          "start": 0.253984,
+          "duration": 0.078215,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.07821541950113381,
+      "fade": 0.025,
+      "note": "Separate detected wall-splat hit.",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -29.155,
+        "high_rms_dbfs": -30.903,
+        "duration": 0.078209,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.92,
+          "rms_dbfs": -28.326,
+          "high_rms_dbfs": -29.93,
+          "duration": 0.075306,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 4562,
+          "sha256": "b50a63e163947f90e74f735ffac2b23e3ed187e2e12222d1ac75ac923ec2e785"
+        },
+        "m4a": {
+          "peak_dbfs": -1.019,
+          "rms_dbfs": -29.613,
+          "high_rms_dbfs": -31.376,
+          "duration": 0.09288,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 2689,
+          "sha256": "a22591f8a9a3e74b0cd01069b2d6babf4d8154c1077ac3c6702063b9199c6303"
+        }
+      },
+      "sound": "splat variant 3"
+    },
+    "body-hit": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Halloween Game - Haunted House and Horror Audio Scare Kit/GORESplt_Gore Designed Transient Heavy Impact Smash 01_ESM_HALG.wav",
+          "start": 0.011599,
+          "duration": 0.18,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        },
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle1of5/344 Audio - Elemental Palette Designed Vol. 1/WATRMisc_Water, Liquid Impact, Bubble, Sci Fi, Hit 04_344 Audio_Elemental Palette Designed Vol 1.wav",
+          "start": 0.248333,
+          "duration": 0.18,
+          "pitch": 1,
+          "gain_db": -6,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.18,
+      "fade": 0.04,
+      "note": "",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -13.773,
+        "high_rms_dbfs": -19.565,
+        "duration": 0.18,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.983,
+          "rms_dbfs": -14.296,
+          "high_rms_dbfs": -20.118,
+          "duration": 0.193016,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 5671,
+          "sha256": "df48e5751ae6df509db0d133c3324794d33a8c4702ab9e6f26c8d8bac8d740f5"
+        },
+        "m4a": {
+          "peak_dbfs": -0.982,
+          "rms_dbfs": -14.199,
+          "high_rms_dbfs": -20.136,
+          "duration": 0.18576,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 3913,
+          "sha256": "49baf05b8c0bb7ec56fb029e09125322acc888a590902205c78997bc112bb757"
+        }
+      },
+      "sound": "hit"
+    },
+    "death": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Halloween Game - Haunted House and Horror Audio Scare Kit/GORESplt_Gore Designed Transient Heavy Impact Smash 01_ESM_HALG.wav",
+          "start": 0.011599,
+          "duration": 0.36,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        },
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle1of5/344 Audio - Elemental Palette Designed Vol. 1/WATRMisc_Water, Liquid Impact, Bubble, Sci Fi, Hit 04_344 Audio_Elemental Palette Designed Vol 1.wav",
+          "start": 0.248333,
+          "duration": 0.36,
+          "pitch": 1,
+          "gain_db": -3,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.36,
+      "fade": 0.06,
+      "note": "",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -15.114,
+        "high_rms_dbfs": -21.504,
+        "duration": 0.36,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.939,
+          "rms_dbfs": -15.485,
+          "high_rms_dbfs": -21.928,
+          "duration": 0.372971,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 7653,
+          "sha256": "91728593792dc66f2f77cbf7eb928e3cfcdae7a36a52273bce25e0b5becd6bbf"
+        },
+        "m4a": {
+          "peak_dbfs": -0.932,
+          "rms_dbfs": -15.508,
+          "high_rms_dbfs": -21.99,
+          "duration": 0.371519,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 6690,
+          "sha256": "a1a6537ce9d0970631543daaf19d39a2779a3780585aced58c37699e50cd27fd"
+        }
+      },
+      "sound": "death"
+    },
+    "hit-confirm": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Cinematic Sound Design - Interface & Infographics/Interface Percussion Snap.wav",
+          "start": 0,
+          "duration": 0.1,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.1,
+      "fade": 0.02,
+      "note": "",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -20.563,
+        "high_rms_dbfs": -34.037,
+        "duration": 0.1,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.981,
+          "rms_dbfs": -20.217,
+          "high_rms_dbfs": -33.858,
+          "duration": 0.097098,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 4833,
+          "sha256": "1fed79ba69d940e608fada9199b2f8ca90e2866727a4c2e412781128696bf0db"
+        },
+        "m4a": {
+          "peak_dbfs": -0.957,
+          "rms_dbfs": -21.236,
+          "high_rms_dbfs": -34.782,
+          "duration": 0.1161,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 2827,
+          "sha256": "1e6ff6f38326750ddc8cf44a604274e31a06a2b976039aecef950efcb2196714"
+        }
+      },
+      "sound": "hitConfirm"
+    },
+    "reload-start": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - HD Lock And Mechanism Sound Design Kit/MACHMech_Mechanism Counting Machine Interact Loose Container Short 01_ESM_HDLM.wav",
+          "start": 0.066376,
+          "duration": 0.18,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.18,
+      "fade": 0.04,
+      "note": "",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -17.363,
+        "high_rms_dbfs": -20.178,
+        "duration": 0.18,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.981,
+          "rms_dbfs": -17.695,
+          "high_rms_dbfs": -20.618,
+          "duration": 0.177098,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 5715,
+          "sha256": "55955ed3a6c3608ed72b82221f15e361902a53138a5a0c3ff5534a4ab528f15a"
+        },
+        "m4a": {
+          "peak_dbfs": -0.968,
+          "rms_dbfs": -18.454,
+          "high_rms_dbfs": -21.28,
+          "duration": 0.18576,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 3923,
+          "sha256": "68b8e0ddeb12fad5c1292e7426994d65c9db80fa309d4b3931bfb456cd47966d"
+        }
+      },
+      "sound": "reloadStart"
+    },
+    "reload-end": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - HD Lock And Mechanism Sound Design Kit/MECHLtch_Click Deep Mechanism Latch Button Nearfield Thunk 02_ESM_HDLM.wav",
+          "start": 0.010578,
+          "duration": 0.16,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.16,
+      "fade": 0.04,
+      "note": "",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -23.523,
+        "high_rms_dbfs": -29.061,
+        "duration": 0.16,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.973,
+          "rms_dbfs": -24.01,
+          "high_rms_dbfs": -30.19,
+          "duration": 0.157098,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 5346,
+          "sha256": "cae3efee9ec79d020dff6b83fad24d52ca804ea65d48b64b912cf7a7493b13e1"
+        },
+        "m4a": {
+          "peak_dbfs": -1.003,
+          "rms_dbfs": -23.792,
+          "high_rms_dbfs": -29.958,
+          "duration": 0.16254,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 3731,
+          "sha256": "63703cb6500266312735bc0b857f428df424c23ae6d998d44d4dfaf174771a4e"
+        }
+      },
+      "sound": "reload / reloadEnd"
+    },
+    "weapon-switch": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - HD Lock And Mechanism Sound Design Kit/METLTonl_Item Spring Wire Impact Flick Top Clatter Light Tap Roll Handling Short 01_ESM_HDLM.wav",
+          "start": 7.332329,
+          "duration": 0.11,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.11,
+      "fade": 0.025,
+      "note": "",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -13.824,
+        "high_rms_dbfs": -36.167,
+        "duration": 0.11,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -1.077,
+          "rms_dbfs": -14.525,
+          "high_rms_dbfs": -37.063,
+          "duration": 0.132063,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 4775,
+          "sha256": "f443aece350a1d2c910cd6c41437f3ff4efdc9d35bb72efd6baf36cd0b5c5308"
+        },
+        "m4a": {
+          "peak_dbfs": -1.05,
+          "rms_dbfs": -14.019,
+          "high_rms_dbfs": -36.51,
+          "duration": 0.1161,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 2936,
+          "sha256": "ea50aff0f28d3d70882f5a359a7497859ff5d776f779a134eb60a137ed6458ce"
+        }
+      },
+      "sound": "weaponSwitch"
+    },
+    "dry-fire": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - HD Lock And Mechanism Sound Design Kit/METLTonl_Item Spring Wire Impact Flick Top Clatter Light Tap Roll Handling Short 01_ESM_HDLM.wav",
+          "start": 3.479993,
+          "duration": 0.08,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.08,
+      "fade": 0.025,
+      "note": "",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -9.513,
+        "high_rms_dbfs": -31.424,
+        "duration": 0.08,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.985,
+          "rms_dbfs": -10.298,
+          "high_rms_dbfs": -32.721,
+          "duration": 0.091429,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 4776,
+          "sha256": "586644f8fa81ae17a6c6aa340a601f6459ee1a1794753adec672719525077ee8"
+        },
+        "m4a": {
+          "peak_dbfs": -0.984,
+          "rms_dbfs": -9.995,
+          "high_rms_dbfs": -32.042,
+          "duration": 0.09288,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 2442,
+          "sha256": "acc40363479f44ba391ec70b66baa85e980be3a419bfbd146b7959e189afa6b7"
+        }
+      },
+      "sound": "dryFire"
+    },
+    "knife-swing": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/David Dumais Audio - Melee Weapons Sound Effects Pack 2/METLFric_SWING SCRAPE Swift Melee Weapon Swing With A Long Blade 14_DDUMAIS_MWP2.wav",
+          "start": 0.030091,
+          "duration": 0.2,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.2,
+      "fade": 0.04,
+      "note": "",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -11.898,
+        "high_rms_dbfs": -17.645,
+        "duration": 0.2,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -1.031,
+          "rms_dbfs": -12.312,
+          "high_rms_dbfs": -18.197,
+          "duration": 0.200272,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 5754,
+          "sha256": "4bfe8e0d01ded810f061b87c0c3d936b3b15f66b5b7737191b3c806faa83ef59"
+        },
+        "m4a": {
+          "peak_dbfs": -1.05,
+          "rms_dbfs": -13.865,
+          "high_rms_dbfs": -19.752,
+          "duration": 0.20898,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 4261,
+          "sha256": "5d84419cb891e881078426c6b1df405ad4767bf8e66d781ef94e17cd66cf20a9"
+        }
+      },
+      "sound": "knifeSwing"
+    },
+    "knife-hit": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/David Dumais Audio - Melee Weapons Sound Effects Pack 2/SWSH_SWING IMPACTS Quick Heavy Weapon Swing To Thud Impact Var 01_DDUMAIS_MWP2.wav",
+          "start": 39.210624,
+          "duration": 0.22,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        },
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Halloween Game - Haunted House and Horror Audio Scare Kit/GORESplt_Gore Designed Transient Heavy Impact Smash 01_ESM_HALG.wav",
+          "start": 0.011599,
+          "duration": 0.22,
+          "pitch": 1,
+          "gain_db": -6,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.22,
+      "fade": 0.05,
+      "note": "",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -16.856,
+        "high_rms_dbfs": -28.372,
+        "duration": 0.22,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -1.003,
+          "rms_dbfs": -16.764,
+          "high_rms_dbfs": -28.491,
+          "duration": 0.217098,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 6297,
+          "sha256": "1a92a7dc447fde99510d39609b8430358ae237631b7556e7726d5fdcce2a0c07"
+        },
+        "m4a": {
+          "peak_dbfs": -1.029,
+          "rms_dbfs": -17.27,
+          "high_rms_dbfs": -28.704,
+          "duration": 0.2322,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 4637,
+          "sha256": "b71d808af97bb9f08a77d7a66a09af353ad635e9b33a3fe0bc60e89781e2b826"
+        }
+      },
+      "sound": "knifeHit"
+    },
+    "glass-1": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Tower Defense Game/ICEBrk_Skill Freeze Whoosh Break Impact Layered Movement Shatter 03_ESM_TDG.wav",
+          "start": 0.452132,
+          "duration": 0.45,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.45,
+      "fade": 0.06,
+      "note": "Impact peak minus 10 ms; whoosh onset skipped.",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -16.366,
+        "high_rms_dbfs": -25.384,
+        "duration": 0.45,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -1.066,
+          "rms_dbfs": -16.242,
+          "high_rms_dbfs": -25.489,
+          "duration": 0.447098,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 7708,
+          "sha256": "ce63993b317da4a3dce81b1bbc769a284c421213605a6fae1d7e75247e4ddce7"
+        },
+        "m4a": {
+          "peak_dbfs": -0.959,
+          "rms_dbfs": -16.971,
+          "high_rms_dbfs": -26.092,
+          "duration": 0.464399,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 8254,
+          "sha256": "69aeb9ae43012c58d98f3c84c5ab80bab53aa98f28f37638a4d122c5a4602bb9"
+        }
+      },
+      "sound": "glassBreak (1/2)"
+    },
+    "glass-2": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Elemental Mutation Whooshes and Impacts/GLASMvmt_Whoosh Glass Crystal Fragments Sharp Shards Dry 05_ESM_EMWI.wav",
+          "start": 1.480998,
+          "duration": 0.45,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.45,
+      "fade": 0.06,
+      "note": "",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -15.803,
+        "high_rms_dbfs": -16.733,
+        "duration": 0.45,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.969,
+          "rms_dbfs": -15.578,
+          "high_rms_dbfs": -16.48,
+          "duration": 0.447098,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 8230,
+          "sha256": "94acd63cf8aff6bc51980f2d82151d4311c4e914f27b01df6c4520c6adddc5b4"
+        },
+        "m4a": {
+          "peak_dbfs": -1.033,
+          "rms_dbfs": -16.122,
+          "high_rms_dbfs": -17.072,
+          "duration": 0.464399,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 8152,
+          "sha256": "ce1f8ad52b23e38b79bb077874780b8239e7696d199319fbd06a9feb8d77921f"
+        }
+      },
+      "sound": "glassBreak (2/2)"
+    },
+    "shard-tinkle": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Elemental Mutation Whooshes and Impacts/GLASMvmt_Whoosh Glass Crystal Fragments Sharp Shards Dry 05_ESM_EMWI.wav",
+          "start": 1.670998,
+          "duration": 0.2,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.2,
+      "fade": 0.04,
+      "note": "200 ms slice after the main shard transient.",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -17.858,
+        "high_rms_dbfs": -18.73,
+        "duration": 0.2,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.951,
+          "rms_dbfs": -17.163,
+          "high_rms_dbfs": -18.036,
+          "duration": 0.200272,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 5727,
+          "sha256": "9dcd659e1174aa89a6703c8103a787b0531ee693afb66d7411ba3a797143fb83"
+        },
+        "m4a": {
+          "peak_dbfs": -1.07,
+          "rms_dbfs": -18.153,
+          "high_rms_dbfs": -19.051,
+          "duration": 0.20898,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 4254,
+          "sha256": "2e7aaed68ee2d57d69fb1783c03c123846d737e933552b9f93174f9845b8a047"
+        }
+      },
+      "sound": "shardTinkle"
+    },
+    "door-handle": {
+      "layers": [
+        {
+          "source": "impact-sounds/Audio/impactWood_light_002.ogg",
+          "start": 0,
+          "duration": 0.3,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Kenney Impact Sounds"
+        },
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - HD Lock And Mechanism Sound Design Kit/MECHLtch_Click Deep Mechanism Latch Button Nearfield Thunk 02_ESM_HDLM.wav",
+          "start": 0.010578,
+          "duration": 0.16,
+          "pitch": 1,
+          "gain_db": -6,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.35,
+      "fade": 0.04,
+      "note": "Long door decay; Kenney wood plus Sonniss latch. Playback attenuated 6 dB.",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -23.908,
+        "high_rms_dbfs": -41.127,
+        "duration": 0.35,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.945,
+          "rms_dbfs": -23.826,
+          "high_rms_dbfs": -41.786,
+          "duration": 0.372971,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 5441,
+          "sha256": "ce67d450cc1cadd976f81c606826265515afbc3e008ad4d477e69d9d7f500176"
+        },
+        "m4a": {
+          "peak_dbfs": -1.052,
+          "rms_dbfs": -24.142,
+          "high_rms_dbfs": -42.378,
+          "duration": 0.371519,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 4683,
+          "sha256": "b7ed92a03ff5a6492a57de10d4e87b076dd4b435e16866287ad81ebfba77f013"
+        }
+      },
+      "sound": "door"
+    },
+    "respawn-chime": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Cinematic Sound Design - Hybrid Game & UI Elements/Game Entry Happy Short.wav",
+          "start": 0,
+          "duration": 0.31432,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.6,
+      "fade": 0.04,
+      "note": "",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -17.005,
+        "high_rms_dbfs": -32.908,
+        "duration": 0.6,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -1.002,
+          "rms_dbfs": -16.569,
+          "high_rms_dbfs": -32.509,
+          "duration": 0.597098,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 6749,
+          "sha256": "6b941de8e019ea4ea58c88b6f871eb96472f64d1bc8cc054e2cb906d6377324a"
+        },
+        "m4a": {
+          "peak_dbfs": -1.068,
+          "rms_dbfs": -17.931,
+          "high_rms_dbfs": -33.959,
+          "duration": 0.603719,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 5917,
+          "sha256": "e86d53e09ee56238e6a05ba3cb695268461d11e8ea07e13d98721e7e75ab01b6"
+        }
+      },
+      "sound": "respawn"
+    },
+    "deny": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Cinematic Sound Design - UI Interaction Elements/Deny Muted.wav",
+          "start": 0,
+          "duration": 0.22,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.22,
+      "fade": 0.04,
+      "note": "",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -7.368,
+        "high_rms_dbfs": -50.857,
+        "duration": 0.22,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -1.022,
+          "rms_dbfs": -7.723,
+          "high_rms_dbfs": -51.533,
+          "duration": 0.242358,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 5568,
+          "sha256": "779496275b08b7ebeb49f8b388760d3544188d30df9b7920dab4b45132a79944"
+        },
+        "m4a": {
+          "peak_dbfs": -0.986,
+          "rms_dbfs": -7.622,
+          "high_rms_dbfs": -51.204,
+          "duration": 0.2322,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 4626,
+          "sha256": "66247857396cc4b7f2d1f4e61680fd32c2b4c2441c622a582b151baa6b921aa8"
+        }
+      },
+      "sound": "deny"
+    },
+    "announcer-headshot": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Shooter Game Announcer Voice/VOXMale_Announcer Vocal Male Dry Special Kill Headshot 01_ESM_SGAV.wav",
+          "start": 0.004943,
+          "duration": 0.768345,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 0.7683446712018142,
+      "fade": 0.025,
+      "note": "Whole phrase; manifest gain 0.7 supplies approximately -3 dB playback attenuation.",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -14.111,
+        "high_rms_dbfs": -22.435,
+        "duration": 0.768345,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -1.074,
+          "rms_dbfs": -14.694,
+          "high_rms_dbfs": -23.132,
+          "duration": 0.765442,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 11578,
+          "sha256": "ec6bb4a0ea15be51d60f1a8ee43cf012ccf9618d41eeee2b7d783c39eeb57d8f"
+        },
+        "m4a": {
+          "peak_dbfs": -1.077,
+          "rms_dbfs": -14.569,
+          "high_rms_dbfs": -23.0,
+          "duration": 0.789478,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 13376,
+          "sha256": "5b23f8f70842256e7e0a282a3ba18258e55c4d4dfc507902bb73f2dc0e4a2f05"
+        }
+      },
+      "sound": "announcerHeadshot"
+    },
+    "announcer-ten-left": {
+      "layers": [
+        {
+          "source": "Sonniss.com-GDC2026-GameAudioBundle2of5/Epic Stock Media - Shooter Game Announcer Voice/VOXFutz_Announcer Vocal Male Wet Countdown Ten Kills Remaining 03_ESM_SGAV.wav",
+          "start": 0,
+          "duration": 1.416825,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Sonniss GDC 2026"
+        }
+      ],
+      "duration": 1.4168253968253968,
+      "fade": 0.025,
+      "note": "Whole phrase; manifest gain 0.7 supplies approximately -3 dB playback attenuation.",
+      "master": {
+        "peak_dbfs": -1.0,
+        "rms_dbfs": -15.803,
+        "high_rms_dbfs": -32.5,
+        "duration": 1.416825,
+        "channels": 1,
+        "sample_rate": 44100
+      },
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.958,
+          "rms_dbfs": -15.835,
+          "high_rms_dbfs": -32.741,
+          "duration": 1.416825,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 17133,
+          "sha256": "9e288827b7d98ec04a515fff29ffaadc42c0e19c0ef35732eb9b7fc1a654921f"
+        },
+        "m4a": {
+          "peak_dbfs": -1.006,
+          "rms_dbfs": -15.888,
+          "high_rms_dbfs": -32.675,
+          "duration": 1.439637,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 23988,
+          "sha256": "3df810eb654365805feb17e1bb19f0fb8d205829ba0172300b156d5ca957cac4"
+        }
+      },
+      "sound": "announcerTenLeft"
+    },
+    "footstep-1": {
+      "layers": [
+        {
+          "source": "impact-sounds/Audio/footstep_concrete_000.ogg",
+          "start": 0,
+          "duration": 0.12,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Kenney Impact Sounds"
+        }
+      ],
+      "preserved": true,
+      "note": "Unchanged legacy encode; 100 Hz highpass and original fade.",
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.957,
+          "rms_dbfs": -19.08,
+          "high_rms_dbfs": -62.975,
+          "duration": 0.1161,
+          "channels": 2,
+          "sample_rate": 44100,
+          "bytes": 4586,
+          "sha256": "0a841203858afd1d2677998b98d0c09c3d6666b0dfe3ae90f3cb03c6f1461f87"
+        },
+        "m4a": {
+          "peak_dbfs": -1.015,
+          "rms_dbfs": -19.178,
+          "high_rms_dbfs": -60.857,
+          "duration": 0.1161,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 2697,
+          "sha256": "b125dce1c08c9de58585687c198f617c61f75076815f294c73d33326a075a484"
+        }
+      },
+      "sound": "footstep variant 1"
+    },
+    "footstep-2": {
+      "layers": [
+        {
+          "source": "impact-sounds/Audio/footstep_concrete_001.ogg",
+          "start": 0,
+          "duration": 0.12,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Kenney Impact Sounds"
+        }
+      ],
+      "preserved": true,
+      "note": "Unchanged legacy encode; 100 Hz highpass and original fade.",
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.994,
+          "rms_dbfs": -20.939,
+          "high_rms_dbfs": -44.132,
+          "duration": 0.1161,
+          "channels": 2,
+          "sample_rate": 44100,
+          "bytes": 4894,
+          "sha256": "9ed87a706fb91ff8d63d94c282798c9f282ccbb3b058db4e20a3596a548b96e6"
+        },
+        "m4a": {
+          "peak_dbfs": -0.97,
+          "rms_dbfs": -20.941,
+          "high_rms_dbfs": -44.299,
+          "duration": 0.1161,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 2694,
+          "sha256": "2afec663a41604d421cc03d07b74c99e9f25b086b5e5504e0a2e28c87cc33f37"
+        }
+      },
+      "sound": "footstep variant 2"
+    },
+    "footstep-3": {
+      "layers": [
+        {
+          "source": "impact-sounds/Audio/footstep_wood_000.ogg",
+          "start": 0,
+          "duration": 0.21,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Kenney Impact Sounds"
+        }
+      ],
+      "preserved": true,
+      "note": "Unchanged legacy encode; 100 Hz highpass and original fade.",
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -1.042,
+          "rms_dbfs": -19.686,
+          "high_rms_dbfs": -84.945,
+          "duration": 0.2322,
+          "channels": 2,
+          "sample_rate": 44100,
+          "bytes": 4313,
+          "sha256": "c858799666e4f8b9ec04c4f98ea5f532843fdd6d121ea2a598e39d452b3bcfd8"
+        },
+        "m4a": {
+          "peak_dbfs": -1.001,
+          "rms_dbfs": -19.658,
+          "high_rms_dbfs": -77.734,
+          "duration": 0.2322,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 3014,
+          "sha256": "29ac0f8421ba5848173ac81e4f39d037979f1a1c9d305f5f230cd30723540832"
+        }
+      },
+      "sound": "footstep variant 3"
+    },
+    "footstep-4": {
+      "layers": [
+        {
+          "source": "impact-sounds/Audio/footstep_wood_001.ogg",
+          "start": 0,
+          "duration": 0.21,
+          "pitch": 1,
+          "gain_db": 0,
+          "presence": false,
+          "library": "Kenney Impact Sounds"
+        }
+      ],
+      "preserved": true,
+      "note": "Unchanged legacy encode; 100 Hz highpass and original fade.",
+      "encoded": {
+        "ogg": {
+          "peak_dbfs": -0.949,
+          "rms_dbfs": -19.813,
+          "high_rms_dbfs": -83.017,
+          "duration": 0.2322,
+          "channels": 2,
+          "sample_rate": 44100,
+          "bytes": 4272,
+          "sha256": "80c49b900b5ceeb0d94f3a1b1dd9135f809b5656539829ffa83bce8df77620d0"
+        },
+        "m4a": {
+          "peak_dbfs": -1.008,
+          "rms_dbfs": -19.846,
+          "high_rms_dbfs": -75.738,
+          "duration": 0.2322,
+          "channels": 1,
+          "sample_rate": 44100,
+          "bytes": 2984,
+          "sha256": "226b72bd6dcf0ca9b2024291d434b9d06a7fade28eb4836fbd09117dc4530656"
+        }
+      },
+      "sound": "footstep variant 4"
+    }
+  }
+}

@@ -1,9 +1,11 @@
 // @ts-ignore Bun provides this runtime module; the project intentionally has no @types/bun dependency.
 import { expect, test } from 'bun:test'
 import { createAudio, type SoundName } from './audio'
-import { SFX_MANIFEST, variantUrls } from './sfx-manifest'
+import { SFX_MANIFEST, variantUrls, type OptionalSoundName } from './sfx-manifest'
 // @ts-ignore Node's runtime modules are available under Bun; the project does not include Node globals.
 import { readdirSync, readFileSync, statSync } from 'node:fs'
+// @ts-ignore Bun supplies Node's crypto module without an @types/node dependency.
+import { createHash } from 'node:crypto'
 
 interface ParamEvent {
   kind: 'set' | 'exponential'
@@ -137,16 +139,7 @@ class FakeAudioContext {
   }
 }
 
-const NEW_SOUNDS: SoundName[] = [
-  'reloadStart',
-  'reloadEnd',
-  'pistolShot',
-  'knifeSwing',
-  'knifeHit',
-  'weaponSwitch',
-  'glassBreak',
-  'shardTinkle',
-]
+const OPTIONAL_SOUNDS: OptionalSoundName[] = ['deny', 'announcerHeadshot', 'announcerTenLeft']
 
 const ALL_SOUNDS: SoundName[] = [
   'shot',
@@ -170,21 +163,60 @@ const ALL_SOUNDS: SoundName[] = [
 ]
 
 test('manifest covers the API and every referenced sample exists within the size budget', () => {
-  expect(Object.keys(SFX_MANIFEST).sort()).toEqual([...ALL_SOUNDS].sort())
+  expect(Object.keys(SFX_MANIFEST).sort()).toEqual([...ALL_SOUNDS, ...OPTIONAL_SOUNDS].sort())
   const encoded = readdirSync('public/sfx').filter((name: string) => /\.(?:ogg|m4a)$/.test(name))
   const masters = new Set(encoded.map((name: string) => name.replace(/\.(?:ogg|m4a)$/, '')))
-  expect(masters.size).toBeLessThanOrEqual(28)
+  expect(masters.size).toBeLessThanOrEqual(34)
   expect(encoded.length).toBe(masters.size * 2)
+  const referenced = new Set<string>()
   for (const entry of Object.values(SFX_MANIFEST)) {
     const count = entry.variants ?? 1
     for (let variant = 1; variant <= count; variant++) {
       for (const url of variantUrls(entry, variant)) {
         const path = `public${url}`
+        referenced.add(url.slice('/sfx/'.length))
         expect(statSync(path).isFile()).toBe(true)
-        expect(statSync(path).size).toBeLessThanOrEqual(120_000)
+        expect(statSync(path).size).toBeLessThanOrEqual(150_000)
       }
     }
   }
+  expect([...referenced].sort()).toEqual(encoded.sort())
+})
+
+test('Sonniss variants retain distinct gameplay cues and requested mix levels', () => {
+  expect(SFX_MANIFEST.shot.variants).toBe(3)
+  expect(SFX_MANIFEST.shot.gain).toBe(0.9)
+  expect(SFX_MANIFEST.pistolShot.gain).toBe(0.9)
+  expect(SFX_MANIFEST.splat.gain).toBe(0.8)
+  expect(SFX_MANIFEST.deny.gain).toBe(0.6)
+  expect(SFX_MANIFEST.hit.urls).not.toEqual(SFX_MANIFEST.hitConfirm.urls)
+  expect(SFX_MANIFEST.knifeHit.urls).not.toEqual(SFX_MANIFEST.splat.urls)
+  expect(SFX_MANIFEST.weaponSwitch.urls).not.toEqual(SFX_MANIFEST.dryFire.urls)
+  expect(SFX_MANIFEST.reload.urls).toEqual(SFX_MANIFEST.reloadEnd.urls)
+  for (const name of ['announcerHeadshot', 'announcerTenLeft'] as const) {
+    expect(SFX_MANIFEST[name].gain).toBe(0.7)
+    expect(SFX_MANIFEST[name].pitchJitter).toBe(0)
+  }
+  expect(variantUrls(SFX_MANIFEST.shot, 3)).toEqual(['/sfx/shot-3.ogg', '/sfx/shot-3.m4a'])
+})
+
+test('Kenney footsteps are preserved byte-for-byte with the original playback settings', () => {
+  const hashes = [
+    ['b125dce1c08c9de58585687c198f617c61f75076815f294c73d33326a075a484', '0a841203858afd1d2677998b98d0c09c3d6666b0dfe3ae90f3cb03c6f1461f87'],
+    ['2afec663a41604d421cc03d07b74c99e9f25b086b5e5504e0a2e28c87cc33f37', '9ed87a706fb91ff8d63d94c282798c9f282ccbb3b058db4e20a3596a548b96e6'],
+    ['29ac0f8421ba5848173ac81e4f39d037979f1a1c9d305f5f230cd30723540832', 'c858799666e4f8b9ec04c4f98ea5f532843fdd6d121ea2a598e39d452b3bcfd8'],
+    ['226b72bd6dcf0ca9b2024291d434b9d06a7fade28eb4836fbd09117dc4530656', '80c49b900b5ceeb0d94f3a1b1dd9135f809b5656539829ffa83bce8df77620d0'],
+  ]
+  hashes.forEach((pair, index) => {
+    ;['m4a', 'ogg'].forEach((ext, format) => {
+      const bytes = readFileSync(`public/sfx/footstep-${index + 1}.${ext}`)
+      expect(createHash('sha256').update(bytes).digest('hex')).toBe(pair[format])
+    })
+  })
+  expect(SFX_MANIFEST.footstep).toEqual({
+    urls: ['/sfx/footstep-1.ogg', '/sfx/footstep-1.m4a'],
+    gain: 0.23, pitchJitter: 0.06, variants: 4,
+  })
 })
 
 test('literal audio play names in src have manifest entries', () => {
@@ -246,7 +278,7 @@ test('literal audio play names in src have manifest entries', () => {
   for (const name of used) expect(name in SFX_MANIFEST).toBe(true)
 })
 
-test('every wave-four sound schedules finite sub-second sources and envelopes', () => {
+test('every existing API sound retains finite sub-second synth fallback sources and envelopes', () => {
   const originalWindow = globalThis.window
   const contexts: FakeAudioContext[] = []
   class TestAudioContext extends FakeAudioContext {
@@ -262,7 +294,7 @@ test('every wave-four sound schedules finite sub-second sources and envelopes', 
 
   try {
     const audio = createAudio()
-    for (const name of NEW_SOUNDS) {
+    for (const name of ALL_SOUNDS) {
       const context = contexts[0]
       const sourceStart = context?.sources.length ?? 0
       const gainStart = context?.gains.length ?? 0
@@ -311,6 +343,7 @@ test('decoded samples play from buffers while failed samples use the synth fallb
   const originalFetch = globalThis.fetch
   const contexts: FakeAudioContext[] = []
   const decoded = new FakeBuffer(12) as unknown as AudioBuffer
+  const requested: string[] = []
 
   class TestAudioContext extends FakeAudioContext {
     constructor() {
@@ -331,7 +364,9 @@ test('decoded samples play from buffers while failed samples use the synth fallb
     configurable: true,
     value: async (input: RequestInfo | URL) => {
       const url = String(input)
-      const ok = url.endsWith('/shot-1.ogg')
+      requested.push(url)
+      const ok = url.endsWith('/shot-1.ogg') || url.endsWith('/deny.m4a')
+        || url.endsWith('/announcer-headshot.ogg') || url.endsWith('/announcer-ten-left.ogg')
       return {
         ok,
         status: ok ? 200 : 404,
@@ -353,6 +388,16 @@ test('decoded samples play from buffers while failed samples use the synth fallb
     expect(sample.buffer).toBe(decoded)
     expect(sample.playbackRate.value).toBeGreaterThanOrEqual(0.94)
     expect(sample.playbackRate.value).toBeLessThanOrEqual(1.06)
+
+    // Optional manifest entries are runtime-ready; SoundName deliberately stays unchanged.
+    for (const name of OPTIONAL_SOUNDS) {
+      ;(audio.play as (name: string) => void)(name)
+      expect(context.sources.at(-1)!.buffer).toBe(decoded)
+      expect(context.sources.at(-1)!.playbackRate.value).toBe(1)
+      expect(context.gains.at(-1)!.gain.value).toBe(SFX_MANIFEST[name].gain)
+    }
+    expect(requested).toContain('/sfx/deny.ogg')
+    expect(requested).toContain('/sfx/deny.m4a')
 
     for (let index = 0; index < 24; index++) audio.play('shot')
     expect(sample.stopTime).toBe(context.currentTime)

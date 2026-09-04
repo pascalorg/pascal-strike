@@ -21,26 +21,34 @@ const entry = (
   ...(variants === undefined ? {} : { variants }),
 })
 
+/** Prepared samples; gameplay wiring and the existing SoundName API are unchanged. */
+export type OptionalSoundName = 'deny' | 'announcerHeadshot' | 'announcerTenLeft'
+
 export const SFX_MANIFEST = {
-  shot: entry('shot-1', 0.65, 0.06, 2),
-  pistolShot: entry('pistol-shot', 0.4),
-  splat: entry('splat-1', 0.48, 0.06, 3),
-  hit: entry('soft-hit', 0.32),
-  hitConfirm: entry('soft-hit', 0.35),
+  shot: entry('shot-1', 0.9, 0.06, 3),
+  pistolShot: entry('pistol-shot', 0.9),
+  splat: entry('splat-1', 0.8, 0.06, 3),
+  hit: entry('body-hit', 0.8),
+  hitConfirm: entry('hit-confirm', 0.35, 0.025),
   reload: entry('reload-end', 0.35),
   reloadStart: entry('reload-start', 0.34),
   reloadEnd: entry('reload-end', 0.39),
   respawn: entry('respawn-chime', 0.24, 0.025),
-  door: entry('door-handle', 0.39),
+  // Apply the requested -6 dB in the mix, preserving normalized file peaks.
+  door: entry('door-handle', 0.39 * 10 ** (-6 / 20)),
   footstep: entry('footstep-1', 0.23, 0.06, 4),
-  death: entry('splat-3', 0.54),
+  death: entry('death', 0.8),
   knifeSwing: entry('knife-swing', 0.32),
-  knifeHit: entry('splat-3', 0.52),
-  weaponSwitch: entry('mechanical-click', 0.28),
+  knifeHit: entry('knife-hit', 0.8),
+  weaponSwitch: entry('weapon-switch', 0.28),
   glassBreak: entry('glass-1', 0.54, 0.06, 2),
   shardTinkle: entry('shard-tinkle', 0.28),
-  dryFire: entry('mechanical-click', 0.31),
-} as const satisfies Record<SoundName, SfxManifestEntry>
+  dryFire: entry('dry-fire', 0.31),
+  deny: entry('deny', 0.6, 0),
+  // 0.7 is approximately -3 dB; no pitch randomization on spoken phrases.
+  announcerHeadshot: entry('announcer-headshot', 0.7, 0),
+  announcerTenLeft: entry('announcer-ten-left', 0.7, 0),
+} as const satisfies Record<SoundName | OptionalSoundName, SfxManifestEntry>
 
 export function variantUrls(entry: SfxManifestEntry, variant: number): readonly [string, string] {
   if ((entry.variants ?? 1) === 1) return entry.urls
