@@ -123,7 +123,7 @@ export function createBotRunner(opts: BotRunnerOptions): BotRunner {
       controller.setPosition(entity.position)
       const rng = mulberry32(mixSeed(opts.seed ?? 0, hashString(entity.id)))
       const botNavigation = createSeededNavigation(opts.nav, opts.map.bounds, rng)
-      const pathFollower = createPathFollower(botNavigation, { doors: opts.map.doors })
+      const pathFollower = createPathFollower(botNavigation)
       const marker = createMarker({ ownerId: entity.id, team: entity.team, now: opts.now })
       const brain = createBotBrain({
         self: entity,

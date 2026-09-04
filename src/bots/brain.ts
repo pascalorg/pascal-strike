@@ -23,9 +23,6 @@ const ROAM_TIMEOUT_MS = 12_000
 const RETREAT_MS = 3_000
 const RETREAT_RADIUS = 6
 const OUTDOOR_RETURN_MS = 6_000
-const ABANDONED_GOAL_BLACKLIST_MS = 20_000
-const BLACKLIST_DISTANCE_SQ = 0.6 * 0.6
-const GOAL_PICK_ATTEMPTS = 8
 
 export type BotState = 'roam' | 'hunt' | 'engage' | 'retreat'
 
@@ -91,7 +88,6 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
   const ownAnchor = new Vector3()
   const enemyAnchor = new Vector3()
   const retreatFallback = new Vector3()
-  const blacklistedGoals: Array<{ point: Vector3; until: number }> = []
 
   let state: BotState = 'roam'
   let perceptionAccumulator = perceptionPeriod
@@ -133,33 +129,6 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
     navGoal.copy(point)
     follower.setGoal(navGoal)
     hasNavGoal = true
-  }
-
-  function pruneGoalBlacklist(now: number): void {
-    for (let index = blacklistedGoals.length - 1; index >= 0; index--) {
-      if (blacklistedGoals[index].until <= now) blacklistedGoals.splice(index, 1)
-    }
-  }
-
-  function isGoalBlacklisted(point: Vector3, now: number): boolean {
-    pruneGoalBlacklist(now)
-    for (let index = 0; index < blacklistedGoals.length; index++) {
-      if (blacklistedGoals[index].point.distanceToSquared(point) < BLACKLIST_DISTANCE_SQ) return true
-    }
-    return false
-  }
-
-  function blacklistNavigationGoal(now: number): void {
-    if (!hasNavGoal) return
-    pruneGoalBlacklist(now)
-    for (let index = 0; index < blacklistedGoals.length; index++) {
-      const entry = blacklistedGoals[index]
-      if (entry.point.distanceToSquared(navGoal) >= BLACKLIST_DISTANCE_SQ) continue
-      entry.point.copy(navGoal)
-      entry.until = now + ABANDONED_GOAL_BLACKLIST_MS
-      return
-    }
-    blacklistedGoals.push({ point: navGoal.clone(), until: now + ABANDONED_GOAL_BLACKLIST_MS })
   }
 
   function enterState(next: BotState): void {
@@ -305,14 +274,11 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
   }
 
   function pickRoamGoal(now: number, spawns: SpawnLayout): void {
-    if (opts.roamTargets) {
-      for (let attempt = 0; attempt < GOAL_PICK_ATTEMPTS; attempt++) {
-        const buildingTarget = opts.roamTargets.sample(opts.rng)
-        if (!buildingTarget || isGoalBlacklisted(buildingTarget, now)) continue
-        setNavigationGoal(buildingTarget)
-        roamPickedAt = now
-        return
-      }
+    const buildingTarget = opts.roamTargets?.sample(opts.rng)
+    if (buildingTarget) {
+      setNavigationGoal(buildingTarget)
+      roamPickedAt = now
+      return
     }
 
     const ownSpawns = spawns[opts.self.team]
@@ -321,36 +287,22 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
     const hasEnemyAnchor = averageSpawn(enemySpawns, enemyAnchor)
 
     if (opts.rng() < 0.6) {
-      for (let attempt = 0; attempt < GOAL_PICK_ATTEMPTS; attempt++) {
-        const candidate = opts.nav.randomPoint()
-        if (isGoalBlacklisted(candidate, now)) continue
-        if (hasOwnAnchor && hasEnemyAnchor
-          && candidate.distanceToSquared(ownAnchor) < candidate.distanceToSquared(enemyAnchor)) continue
-        setNavigationGoal(candidate)
-        roamPickedAt = now
-        return
+      let candidate = opts.nav.randomPoint()
+      if (hasOwnAnchor && hasEnemyAnchor) {
+        for (let attempt = 0; attempt < 7
+          && candidate.distanceToSquared(ownAnchor) < candidate.distanceToSquared(enemyAnchor);
+          attempt++) {
+          candidate = opts.nav.randomPoint()
+        }
       }
-    } else if (enemySpawns.length > 0) {
-      for (let attempt = 0; attempt < GOAL_PICK_ATTEMPTS; attempt++) {
-        const index = Math.min(enemySpawns.length - 1, Math.floor(opts.rng() * enemySpawns.length))
-        const candidate = opts.nav.randomPointAround(enemySpawns[index].position, RETREAT_RADIUS)
-        if (isGoalBlacklisted(candidate, now)) continue
-        setNavigationGoal(candidate)
-        roamPickedAt = now
-        return
-      }
-    }
-
-    // The preferred source may have produced only blacklisted points. Try the general navmesh
-    // sampler before leaving this tick idle; never immediately recommit to the failed goal.
-    for (let attempt = 0; attempt < GOAL_PICK_ATTEMPTS; attempt++) {
-      const candidate = opts.nav.randomPoint()
-      if (isGoalBlacklisted(candidate, now)) continue
       setNavigationGoal(candidate)
-      roamPickedAt = now
-      return
+    } else if (enemySpawns.length > 0) {
+      const index = Math.min(enemySpawns.length - 1, Math.floor(opts.rng() * enemySpawns.length))
+      setNavigationGoal(opts.nav.randomPointAround(enemySpawns[index].position, RETREAT_RADIUS))
+    } else {
+      setNavigationGoal(opts.nav.randomPoint())
     }
-    hasNavGoal = false
+    roamPickedAt = now
   }
 
   function smoothLook(desiredYaw: number, desiredPitch: number, dt: number): void {
@@ -389,13 +341,7 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
       && now - outdoorWithoutEnemySince > OUTDOOR_RETURN_MS
       && !returningIndoors
     if (needsIndoorGoal) {
-      let indoorTarget: Vector3 | null = null
-      for (let attempt = 0; attempt < GOAL_PICK_ATTEMPTS; attempt++) {
-        const candidate = opts.roamTargets?.sampleIndoor(opts.rng) ?? null
-        if (!candidate || isGoalBlacklisted(candidate, now)) continue
-        indoorTarget = candidate
-        break
-      }
+      const indoorTarget = opts.roamTargets?.sampleIndoor(opts.rng)
       if (indoorTarget) {
         setNavigationGoal(indoorTarget)
         roamPickedAt = now
@@ -409,14 +355,6 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
     }
 
     const path = follower.update(opts.self.position, dt)
-    if (path.abandoned) {
-      blacklistNavigationGoal(now)
-      enterState('roam')
-      hasNavGoal = false
-      returningIndoors = false
-      roamPickedAt = -Infinity
-      pickRoamGoal(now, spawns)
-    }
     if (state === 'hunt' && path.arrived) enterState('roam')
     if (state === 'roam' && path.arrived) {
       returningIndoors = false
@@ -593,7 +531,6 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
     nextBurstAt = -Infinity
     outdoorWithoutEnemySince = -Infinity
     returningIndoors = false
-    blacklistedGoals.length = 0
   }
 
   return {
