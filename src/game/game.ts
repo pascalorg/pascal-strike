@@ -39,7 +39,7 @@ import {
 } from '../net/protocol'
 import type { Room } from '../net/room'
 import { createClock, createSnapshotSender } from '../net/sync'
-import type { DoorInfo, Hittable, MapSelection, MatchState, TeamId, WeaponKind } from '../types'
+import type { DoorInfo, Hittable, MapSelection, MatchState, ShotEvent, TeamId, WeaponKind } from '../types'
 import { createHud } from '../ui/hud'
 import { createPrompt } from '../ui/prompt'
 import { createScoreboard } from '../ui/scoreboard'
@@ -367,9 +367,10 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     registry,
     events,
     clock,
-    audio,
     session: () => session,
-    listener: () => localPlayer.listener,
+    // A bot's gun is a gun we can see: it gets the same muzzle, flash and report as any other
+    // player's, and the ball is simulated here because the host owns the bot.
+    onBotShot: (shot) => presentShot(shot, true),
   })
 
   // --- net events ----------------------------------------------------------
@@ -380,12 +381,23 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     localPlayer.dead || localPlayer.spectating ? null : localPlayer.snapshot(),
   )
 
-  events.on('shot', (shot) => {
-    if (shot.by === room.me.id || !session) return
-    // `ShotEvent.origin` is the shooter's eye, which is where *they* fired from but not where
-    // we can see a gun: paint leaving a head reads as exactly that. So a remote shot starts at
-    // the avatar's muzzle instead, keeping the direction and speed — the paint lands within a
-    // few cm of what the shooter saw, and it comes out of the barrel.
+  /**
+   * Somebody else's shot, on our screen. Two callers reach it: the `shot` RPC (every remote
+   * human, and every bot for a client) and the host's own bot runner — a bot is a remote player
+   * like any other here, it just happens to be simulated in this tab.
+   *
+   * `ShotEvent.origin` is the shooter's eye, which is where *they* aimed from but not where we
+   * can see a gun: paint leaving a head reads as exactly that. So the ball is *drawn* leaving
+   * the avatar's muzzle (`visualOrigin`), the model flashes and the arms kick, and the report
+   * and the puff come off the barrel. The simulated trajectory stays the shooter's own —
+   * dropping it to the muzzle would drop every bot's aim by the half metre between eye and bore.
+   *
+   * `detectPlayers` is the only thing that differs: a shot off the wire was already resolved
+   * against players by its owner, so ours is paint; a bot's shot is owned here and must decide
+   * its own hits.
+   */
+  function presentShot(shot: ShotEvent, detectPlayers: boolean): void {
+    if (!session) return
     const fromMuzzle = remotePlayers.muzzleFor(shot.by, _shotOrigin)
     if (!fromMuzzle) _shotOrigin.set(shot.origin[0], shot.origin[1], shot.origin[2])
     remotePlayers.fire(shot.by, shot.weapon)
@@ -394,13 +406,18 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       audio.play('knifeSwing', _shotOrigin, localPlayer.listener)
       return
     }
-    const spawned = fromMuzzle
-      ? { ...shot, origin: [_shotOrigin.x, _shotOrigin.y, _shotOrigin.z] as [number, number, number] }
-      : shot
-    session.projectiles.spawn(spawned, { detectPlayers: false })
+    session.projectiles.spawn(shot, {
+      detectPlayers,
+      visualOrigin: fromMuzzle ? _shotOrigin : undefined,
+    })
     _shotDir.set(shot.dir[0], shot.dir[1], shot.dir[2])
     session.effects.remoteMuzzle(_shotOrigin, _shotDir, shot.team)
     audio.play(shot.weapon === 'pistol' ? 'pistolShot' : 'shot', _shotOrigin, localPlayer.listener)
+  }
+
+  events.on('shot', (shot) => {
+    if (shot.by === room.me.id) return
+    presentShot(shot, false)
   })
 
   events.on('damage', (dmg) => {

@@ -7,12 +7,11 @@
  */
 import { Vector3 } from 'three'
 import { DOORS } from '../config'
-import type { Audio, AudioListenerPose } from '../engine/audio'
 import { startHostAuthority, type HostAuthority } from '../net/host'
 import { PS, RPCS, type DoorEvent, type FellEvent } from '../net/protocol'
 import type { Room } from '../net/room'
 import type { NetClock } from '../net/sync'
-import type { BotRunner, EventBus, SpawnPoint, TeamId } from '../types'
+import type { BotRunner, EventBus, ShotEvent, SpawnPoint, TeamId } from '../types'
 import type { EntityRegistry } from './entities'
 import type { MapSession } from './map-session'
 
@@ -21,14 +20,18 @@ export interface HostSideOptions {
   registry: EntityRegistry
   events: EventBus
   clock: NetClock
-  audio: Audio
   /**
    * Read at call time — the session object is replaced on every map change, and is null for
    * the length of one: nothing here may touch a map that is being torn down.
    */
   session: () => MapSession | null
-  /** Listener pose for positional bot gunfire. */
-  listener: () => AudioListenerPose
+  /**
+   * A bot fired. The host owns the bot, so the ball has to be simulated in this tab (that is
+   * what makes its hits real) — but on this screen it is somebody else's gun, and the game
+   * orchestrator owns what another player's shot looks like: out of the muzzle, with the flash,
+   * the arm kick and the report. It spawns the projectile with `detectPlayers`.
+   */
+  onBotShot: (shot: ShotEvent) => void
 }
 
 export interface HostSide {
@@ -73,7 +76,7 @@ const _spawnScratch: Vector3[] = []
 const _respawnPoint = new Vector3()
 
 export function createHostSide(opts: HostSideOptions): HostSide {
-  const { room, registry, events, clock, audio } = opts
+  const { room, registry, events, clock } = opts
   let authority: HostAuthority | null = null
   let bots: BotRunner | null = null
   let disposed = false
@@ -112,12 +115,11 @@ export function createHostSide(opts: HostSideOptions): HostSide {
       nav: nav ?? fallbackNav(session),
       entities: () => registry.list(),
       spawns: () => session.spawns,
-      onShot: (bot, shot) => {
+      onShot: (_bot, shot) => {
         // Bot bullets are simulated here (detectPlayers), so their hits reach `submitHit`
         // through the same projectile sim as ours; everyone else only paints.
-        session.projectiles.spawn(shot, { detectPlayers: true })
+        opts.onBotShot(shot)
         void room.rpc.call(RPCS.shot, shot, 'others')
-        audio.play('shot', bot.position, opts.listener())
       },
       onSnapshot: (bot, snapshot) => {
         // The runner reuses one snapshot object per bot, so copy before handing it to Playroom.
