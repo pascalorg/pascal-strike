@@ -26,6 +26,7 @@ import {
 import { PMREMGenerator } from 'three/webgpu'
 import { SkyMesh } from 'three/examples/jsm/objects/SkyMesh.js'
 import type { Engine } from './renderer'
+import { GRAPHICS_PROFILES } from './graphics'
 
 /**
  * Sun elevation / azimuth in degrees. 28° is late afternoon: long shadows, warm raking light on
@@ -64,7 +65,6 @@ const SKY = {
 const ENVIRONMENT_INTENSITY = 0.42
 /** Half-extent of the sun's shadow frustum, in metres. A Pascal house fits in 16 m. */
 const SHADOW_EXTENT = 16
-const SHADOW_MAP_SIZE = 4096
 /** Box half-size of the sky dome. Must stay inside the camera far plane (corner = s·√3). */
 const SKY_HALF_SIZE = 90
 
@@ -113,9 +113,10 @@ export function createEnvironment(engine: Engine, bounds: Box3): EnvironmentRig 
   hemi.position.set(0, 1, 0)
   scene.add(hemi)
 
-  const sun = new DirectionalLight(SUN_COLOR, SUN_INTENSITY)
+  let sun = new DirectionalLight(SUN_COLOR, SUN_INTENSITY)
   sun.castShadow = true
-  sun.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE)
+  const shadowSize = GRAPHICS_PROFILES[engine.graphics.quality].shadowSize
+  sun.shadow.mapSize.set(shadowSize, shadowSize)
   // -0.0002 with a 4096 map over 32 m (7.8 mm texels): enough to kill acne on the big flat
   // walls, small enough that a door leaf still touches its own shadow.
   sun.shadow.bias = -0.0002
@@ -141,7 +142,7 @@ export function createEnvironment(engine: Engine, bounds: Box3): EnvironmentRig 
   // Light-space basis, matching Object3D.lookAt (z = eye - target, x = up × z, y = z × x).
   _lightRight.set(0, 1, 0).cross(SUN_DIR).normalize()
   _lightUp.copy(SUN_DIR).cross(_lightRight).normalize()
-  const texel = (extent * 2) / SHADOW_MAP_SIZE
+  let texel = (extent * 2) / shadowSize
 
   // ---- sky + image-based environment ---------------------------------------
   let sky: SkyMesh | null = null
@@ -187,7 +188,9 @@ export function createEnvironment(engine: Engine, bounds: Box3): EnvironmentRig 
     ground.position.y = -2
     const parent = sky.parent
     const skyScale = sky.scale.x
+    const skyVisible = sky.visible
     try {
+      sky.visible = true
       sky.showSunDisc.value = 0
       sky.scale.setScalar(60)
       bakeScene.add(sky)
@@ -201,6 +204,7 @@ export function createEnvironment(engine: Engine, bounds: Box3): EnvironmentRig 
       console.warn('[environment] PMREM from sky failed, materials keep the last env map', err)
     } finally {
       sky.showSunDisc.value = 1
+      sky.visible = skyVisible
       sky.scale.setScalar(skyScale)
       if (parent) parent.add(sky)
       else bakeScene.remove(sky)
@@ -210,6 +214,24 @@ export function createEnvironment(engine: Engine, bounds: Box3): EnvironmentRig 
   }
 
   bakeEnvironment()
+  const applyGraphics = () => {
+    const profile = GRAPHICS_PROFILES[engine.graphics.quality]
+    if (sun.shadow.mapSize.x !== profile.shadowSize) {
+      // Three r185 WebGPU caches shadow bindings across render contexts. Resizing a live
+      // attachment can leave the post/direct path using a destroyed texture. A fresh light
+      // gives every context a fresh shadow node; this only happens on a quality change.
+      const previous = sun
+      sun = previous.clone()
+      sun.shadow.mapSize.set(profile.shadowSize, profile.shadowSize)
+      scene.remove(previous, previous.target)
+      scene.add(sun, sun.target)
+      previous.dispose()
+    }
+    texel = (extent * 2) / profile.shadowSize
+    if (sky) sky.visible = profile.sky
+  }
+  applyGraphics()
+  const offGraphics = engine.graphics.onChange(applyGraphics)
   // The first bake can run before the sky's node material has finished compiling, which yields a
   // black cube. One more bake after the first real frame is cheap insurance.
   let rebakeFrames = sky ? 2 : 0
@@ -249,11 +271,12 @@ export function createEnvironment(engine: Engine, bounds: Box3): EnvironmentRig 
   update(_center)
 
   return {
-    sun,
+    get sun() { return sun },
     hemi,
     sky,
     update,
     dispose() {
+      offGraphics()
       scene.remove(sun)
       scene.remove(sun.target)
       scene.remove(hemi)

@@ -155,7 +155,7 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
   body.name = 'avatar-body'
   root.add(body)
 
-  const materials: MeshStandardMaterial[] = []
+  const fadeMaterials: { material: MeshStandardMaterial; opacity: number }[] = []
   let instance: CharacterInstance | undefined
   let animation: ReturnType<typeof createCharacterAnimation> | undefined
   let disposed = false
@@ -188,7 +188,13 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
       instance = instantiateCharacter(asset)
       body.add(instance.object)
       animation = createCharacterAnimation(instance)
-      materials.splice(1, materials.length - 1, ...instance.materials)
+      // Compile the dithered fade with the living body. Switching transparent on at death
+      // rebuilt every outfit pipeline on the first kill (especially costly on WebGL2).
+      fadeMaterials.length = 0
+      for (const material of instance.materials) {
+        material.alphaHash = true
+        fadeMaterials.push({ material, opacity: material.opacity })
+      }
       const hand = instance.model.getObjectByName(asset.sockets.handRight.three)!
       animation.grip(hand, weaponHand.quaternion)
       // Inverse world rotation is a rig-wide calibration; parent yaw must not enter it.
@@ -220,7 +226,6 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
     depthWrite: false,
     blending: AdditiveBlending,
   })
-  materials.push(shieldMaterial)
   const shield = new Mesh(new SphereGeometry(0.65, 16, 10), shieldMaterial)
   shield.name = 'avatar-shield'
   shield.position.y = 0.9
@@ -278,27 +283,27 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
       root.position.copy(position)
       root.rotation.y = yaw
       crouching = nextCrouching
-      animation?.update(dt, speed, crouching, pitch, grounded, reloading, weaponKind, backwards)
+      if (!fadedOut) animation?.update(dt, speed, crouching, pitch, grounded, reloading, weaponKind, backwards)
       body.scale.y += ((crouching ? 0.95 : 1) - body.scale.y) * Math.min(1, dt * 16)
       weapon.setFireFlash(now - firedAt < MUZZLE_FLASH_MS ? 1 - (now - firedAt) / MUZZLE_FLASH_MS : 0)
       for (const material of instance?.materials ?? []) {
         material.emissive.setHex(now < flashUntil ? 0xffffff : 0x000000)
         material.emissiveIntensity = now < flashUntil ? 0.5 : 0
       }
-      if (!alive) {
+      if (!alive && !fadedOut) {
         const elapsed = Math.min((now - deathStarted) / 1000, 1)
         // Death01 supplies the fall; the final fade clears the respawn space.
         deathSplat.visible = true
         deathSplat.scale.setScalar(0.35 + elapsed * 1.4)
         ;(deathSplat.material as SpriteMaterial).opacity = 1 - elapsed
-        for (const material of materials) {
-          material.transparent = true
-          material.opacity = 1 - elapsed
-        }
+        for (const { material, opacity } of fadeMaterials) material.opacity = opacity * (1 - elapsed)
+        shieldMaterial.opacity = 0.18 * (1 - elapsed)
         // Splat materials are shared between avatars, so they cannot fade with this one body:
         // drop them the moment the corpse is invisible instead of leaving paint hanging midair.
         if (elapsed >= 1 && !fadedOut) {
           fadedOut = true
+          body.visible = false
+          deathSplat.visible = false
           for (const splat of splats) splat.visible = false
           // The weapon model owns its materials and cannot fade with the body either.
           weapon.object.visible = false
@@ -313,6 +318,7 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
     die(colorHex) {
       if (!alive) return
       alive = false
+      fadedOut = false
       deathStarted = performance.now()
       animation?.die()
       ;(deathSplat.material as SpriteMaterial).color.setHex(colorHex ?? TEAMS[team].colorHex)
@@ -320,15 +326,14 @@ export function createAvatar(initialTeam: TeamId, initialName: string, id?: stri
     },
     spawn() {
       alive = true
+      body.visible = true
       animation?.spawn()
       body.rotation.set(0, 0, 0)
       deathSplat.visible = false
       weapon.object.visible = true
       clearSplats()
-      for (const material of materials) {
-        material.opacity = material === shieldMaterial ? 0.18 : 1
-        if (material !== shieldMaterial) material.transparent = false
-      }
+      shieldMaterial.opacity = 0.18
+      for (const { material, opacity } of fadeMaterials) material.opacity = opacity
       hittable.alive = true
     },
     setInvincible(value) {

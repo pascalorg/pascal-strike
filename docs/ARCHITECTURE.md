@@ -9,6 +9,7 @@ Decisions already made (do not re-litigate):
 - three.js **0.185** with `WebGPURenderer` (automatic WebGL2 fallback).
 - Collision & raycasts: **three-mesh-bvh**. Bot pathfinding: **recast-navigation**.
 - Multiplayer: **Playroom Kit** (`playroomkit`) with `skipLobby: true` and our own lobby.
+  **Play online** enables matchmaking; private creation, invite links and codes bypass it.
   3v3 from the first second: empty slots are filled with **host-simulated bots**.
 - Custom maps: a dropped GLB is uploaded to a public Supabase Storage bucket (`maps`) and its URL
   is shared through Playroom state.
@@ -26,9 +27,11 @@ Decisions already made (do not re-litigate):
 - Joining makes you a **spectator** over an orbiting view of the house until you pick Orange,
   Teal or Auto (host-refereed; with bots filling, friends may share a side). The Esc menu is a
   glass overlay over the running match with "Change team".
-- Rendering: physical sky + sun with image-based lighting from it, 4k texel-snapped shadows,
-  half-res GTAO, thresholded bloom, SMAA, Khronos PBR Neutral tone mapping and a grade
-  (`engine/post.ts`, ~1.4 ms at 1080p on WebGPU; `?nopost=1`, `?webgl=1`).
+- Rendering: saved Auto/Low/Medium/High profiles (`engine/graphics.ts`), with conservative
+  startup and sustained-FPS adaptation in Auto. High uses physical sky + sun, image-based
+  lighting, 4k texel-snapped shadows, half-res GTAO, bloom, SMAA, PBR Neutral tone mapping
+  and a grade. Lower profiles cap resolution and shadow costs and remove effects.
+  See [performance verification](PERFORMANCE.md); `?nopost=1` and `?webgl=1` remain available.
 - Sound: CC0 recordings (Kenney) layered with synthesized CO2/wet/hinge/shard tails, served from
   `public/sfx` through `engine/sfx-manifest.ts`; the procedural sounds remain the fallback.
 - Desktop only (pointer lock + WASD). Mobile gets a "play on desktop" screen.

@@ -907,6 +907,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
 
   const menu = createPauseMenu({
     mount,
+    graphics: engine.graphics,
     room,
     isHost: () => room.isHost(),
     onResume: () => input.requestLock(),
@@ -1227,4 +1228,3 @@ async function resolveMapSelection(
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
-

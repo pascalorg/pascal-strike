@@ -16,7 +16,8 @@ try {
   }
   await a.goto(`${base}/?debug=1&webgl=1`)
   await a.getByPlaceholder('Your name').fill('Gameplay Host')
-  await a.getByRole('button', {name:'Play',exact:true}).click()
+  await a.getByRole('combobox', {name:'Match type'}).selectOption('private')
+  await a.getByRole('button', {name:'Create private room',exact:true}).click()
   await a.waitForFunction(()=>window.__ps?.registry, {}, {timeout:90000})
   await a.evaluate(()=>window.__ps.pickTeam('a'))
   const hash = await a.evaluate(()=>location.hash)
