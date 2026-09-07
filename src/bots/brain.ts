@@ -1,5 +1,5 @@
 import { Vector3 } from 'three'
-import { BOTS, PLAYER, WEAPON } from '../config'
+import { BOTS, PLAYER, WEAPON, WEAPONS } from '../config'
 import type {
   BotDecision,
   Navigation,
@@ -117,6 +117,7 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
   let aimErrorPitch = 0
   let nextAimSampleAt = -Infinity
   let burstActive = false
+  let burstStartsAt = -Infinity
   let burstEndsAt = -Infinity
   let nextBurstAt = -Infinity
   let outdoorWithoutEnemySince = -Infinity
@@ -460,14 +461,15 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
   function updateBurst(now: number, eligible: boolean): boolean {
     if (burstActive && now >= burstEndsAt) burstActive = false
     if (!burstActive && eligible && now >= nextBurstAt) {
-      const shotPeriodMs = 1000 / WEAPON.fireRate
+      const shotPeriodMs = 1000 / WEAPONS.rifle.fireRate
       burstActive = true
+      burstStartsAt = now + BOTS.aimSettleMs
       // Marker fires immediately, then at fireRate while held. Release between the
       // requested final shot and the following cadence slot.
-      burstEndsAt = now + Math.max(1, burstShots - 0.25) * shotPeriodMs
+      burstEndsAt = now + BOTS.aimSettleMs + Math.max(1, burstShots - 0.25) * shotPeriodMs
       nextBurstAt = burstEndsAt + burstPauseMs
     }
-    return burstActive && eligible
+    return burstActive && eligible && now >= burstStartsAt
   }
 
   function updateEngage(dt: number, now: number, allies: PlayerEntity[]): void {
@@ -547,6 +549,11 @@ export function createBotBrain(opts: BotBrainOptions): BotBrain {
     const safe = !alliesBlockDirection(allies, targetDistance, aimDirection)
       && !alliesBlockDirection(allies, targetDistance, trueAimDirection)
     decision.fire = updateBurst(now, clear && accurate && safe)
+    if (burstActive) {
+      // Plant the feet for a burst, then reposition during the pause.
+      decision.move.forward = decision.move.right = 0
+      decision.fire = decision.fire && opts.self.speed < BOTS.fireSpeedThreshold
+    }
   }
 
   function reset(now = 0): void {

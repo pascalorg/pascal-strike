@@ -10,6 +10,7 @@
  */
 import { MathUtils, Vector3 } from 'three'
 import { PLAYER, WEAPON } from '../config'
+import { taggingScale } from './combat'
 import type { Audio, AudioListenerPose } from '../engine/audio'
 import type { Input } from '../engine/input'
 import type { Engine } from '../engine/renderer'
@@ -272,7 +273,7 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
       move.walk = source.walk ?? false
       const groundedBeforeUpdate = controller.state.grounded
       const fallSpeed = controller.state.velocity.y
-      controller.update(dt, move, yaw, marker.moveSpeedScale)
+      controller.update(dt, move, yaw, marker.moveSpeedScale * taggingScale(entity.taggedUntil, performance.now()))
       if (didStartJump(groundedBeforeUpdate, controller.state.grounded, move.jump, controller.state.velocity.y)) {
         audio.play('jump')
       }
@@ -444,6 +445,8 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
       entity.pitch = pitch
       entity.crouching = controller.state.crouching
       entity.speed = speed
+      entity.grounded = controller.state.grounded
+      entity.reloading = marker.reloading
       input.update()
     },
 

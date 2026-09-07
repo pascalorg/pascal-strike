@@ -2,7 +2,7 @@
  * In-match HUD. Every element is driven by explicit method calls — the HUD never reads game
  * state itself, so it stays cheap and testable (see `dev/ui-showcase.ts`).
  */
-import { MATCH, PLAYER, TEAMS, WEAPONS } from '../config'
+import { ARMOR, MATCH, PLAYER, TEAMS, WEAPONS } from '../config'
 import type { BodyPart, MatchPhase, TeamId, WeaponKind } from '../types'
 import { appRoot, clamp, el, formatClock, svg } from './dom'
 
@@ -20,6 +20,9 @@ export interface KillFeedEntry {
 export interface Hud {
   el: HTMLElement
   setHp(hp: number): void
+  setArmor(armor: number): void
+  confirmKill(name: string): void
+  setPointerReleased(free: boolean): void
   /** Rounds left in the magazine; `Infinity` (the knife) shows as a dash. */
   setHopper(count: number, reloading?: boolean): void
   /** Which slot is in hand: lights its dot and renames the widget. */
@@ -71,6 +74,8 @@ export function createHud(mount: HTMLElement = appRoot()): Hud {
     line(4, 22, 13, 22),
     line(31, 22, 40, 22),
   ])
+  let hitAnimation: Animation | undefined
+  let killAnimation: Animation | undefined
   const hitmark = svg('g', { class: 'ps-hitmark', stroke: '#fafafa', 'stroke-width': '2.4' }, [
     line(11, 11, 17, 17),
     line(33, 11, 27, 17),
@@ -149,7 +154,12 @@ export function createHud(mount: HTMLElement = appRoot()): Hud {
     roomCode,
   ])
 
+  const armorValue = el('b', { text: String(ARMOR.max) })
+  const armor = el('div', { class: 'ps-armor', 'aria-label': 'Armor and helmet' }, ['◈ ', armorValue, ' ARMOR'])
+  const killConfirm = el('div', { class: 'ps-kill-confirm', role: 'status', 'aria-live': 'polite' })
+  const pointerHint = el('div', { class: 'ps-pointer-hint', text: 'Pointer free · click the game or press P to resume', hidden: true })
   const root = el('div', { class: 'ps-hud' }, [
+    armor, killConfirm, pointerHint,
     crosshair,
     topbar,
     health,
@@ -207,6 +217,19 @@ export function createHud(mount: HTMLElement = appRoot()): Hud {
 
   const hud: Hud = {
     el: root,
+    setPointerReleased(free) { pointerHint.hidden = !free },
+    setArmor(value) {
+      armorValue.textContent = String(Math.max(0, Math.round(value)))
+      armor.classList.toggle('is-empty', value <= 0)
+    },
+    confirmKill(name) {
+      killConfirm.textContent = `ELIMINATED · ${name}`
+      killAnimation?.cancel()
+      killAnimation = killConfirm.animate([{ opacity: 0, transform: 'translate(-50%, 8px)' }, { opacity: 1, transform: 'translate(-50%, 0)', offset: .12 }, { opacity: 1, offset: .75 }, { opacity: 0, transform: 'translate(-50%, -4px)' }], { duration: 1800 })
+      hitAnimation?.cancel()
+      hitmark.style.setProperty('--hit', '#ffcf70')
+      hitAnimation = hitmark.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 550 })
+    },
     setHp(hp) {
       const value = clamp(hp, 0, PLAYER.maxHp)
       const fraction = value / PLAYER.maxHp
@@ -292,13 +315,10 @@ export function createHud(mount: HTMLElement = appRoot()): Hud {
     },
     hitMarker(part, team) {
       const head = part === 'head'
-      hitmark.classList.remove('is-on', 'is-head')
-      // A CSS custom property, not the `stroke` attribute: the marker's lines carry their own
-      // presentation attribute, which only a style rule can override.
-      hitmark.style.setProperty('--hit', head && team ? TEAMS[team].color : '#fafafa')
-      void (hitmark as unknown as HTMLElement).getBoundingClientRect()
-      hitmark.classList.add('is-on')
-      if (head) hitmark.classList.add('is-head')
+      hitmark.classList.toggle('is-head', head)
+      hitmark.style.setProperty('--hit', head ? '#ffcf70' : '#ffffff')
+      hitAnimation?.cancel()
+      hitAnimation = hitmark.animate([{ opacity: 1 }, { opacity: 1, offset: .35 }, { opacity: 0 }], { duration: head ? 420 : 300 })
     },
     paintHit(dirXZ, team, part) {
       const color = TEAMS[team].color
@@ -362,6 +382,8 @@ export function createHud(mount: HTMLElement = appRoot()): Hud {
       root.classList.toggle('is-hidden', !visible)
     },
     dispose() {
+      hitAnimation?.cancel()
+      killAnimation?.cancel()
       for (const id of timers) window.clearTimeout(id)
       timers.clear()
       root.remove()

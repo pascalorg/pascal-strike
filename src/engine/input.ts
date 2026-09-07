@@ -13,6 +13,8 @@ export interface Input {
   readonly weaponSlot: number
   readonly scoreboard: boolean
   readonly locked: boolean
+  readonly pointerReleased: boolean
+  releasePointer(): void
   consumeLook(): { dx: number; dy: number }
   /**
    * Re-sync the wheel's idea of the held slot (the weapon is owned by the player, not by the
@@ -48,6 +50,7 @@ export function createInput(canvas: HTMLCanvasElement): Input {
   let heldSlot = 1
   let wheelAccumulator = 0
   let locked = document.pointerLockElement === canvas
+  let pointerReleased = false
 
   const selectSlot = (slot: number) => {
     if (slot < 1 || slot > SLOT_COUNT || slot === heldSlot) return
@@ -66,6 +69,23 @@ export function createInput(canvas: HTMLCanvasElement): Input {
   }
 
   const onKeyDown = (event: KeyboardEvent) => {
+    const target = event.target as HTMLElement | null
+    if (target?.matches('input, textarea, select, [contenteditable=true]')) return
+    if (event.code === 'KeyP' && !event.repeat) {
+      event.preventDefault()
+      if (locked) releasePointer()
+      else if (pointerReleased) requestLock()
+      return
+    }
+    if (event.code === 'Escape' && locked) {
+      pointerReleased = false
+      onBlur()
+      document.exitPointerLock()
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      return
+    }
+    if (!locked) return
     if (event.code === 'Tab') event.preventDefault()
     if (event.code === 'KeyR' && !event.repeat) reload = true
     if (event.code === 'KeyE' && !event.repeat) interact = true
@@ -82,7 +102,7 @@ export function createInput(canvas: HTMLCanvasElement): Input {
     syncMove()
   }
   const onMouseDown = (event: MouseEvent) => {
-    if (event.button === 0) fire = true
+    if (event.button === 0 && locked) fire = true
   }
   const onMouseUp = (event: MouseEvent) => {
     if (event.button === 0) fire = false
@@ -108,11 +128,15 @@ export function createInput(canvas: HTMLCanvasElement): Input {
   const onBlur = () => {
     keys.clear()
     fire = false
+    reload = interact = false
+    weaponSlot = 0
+    look.dx = look.dy = 0
     syncMove()
   }
   const onLock = () => {
     locked = document.pointerLockElement === canvas
-    if (!locked) fire = false
+    if (!locked) onBlur()
+    else pointerReleased = false
     for (const callback of lockCallbacks) callback(locked)
   }
   const requestLock = () => {
@@ -121,6 +145,11 @@ export function createInput(canvas: HTMLCanvasElement): Input {
     // uncaught error in the console. The `pointerlockchange` that never comes is the signal.
     const request = canvas.requestPointerLock() as unknown as Promise<void> | undefined
     request?.catch?.(() => {})
+  }
+  const releasePointer = () => {
+    pointerReleased = true
+    onBlur()
+    if (document.pointerLockElement === canvas) document.exitPointerLock()
   }
   const onCanvasClick = () => requestLock()
   const onContextMenu = (event: Event) => event.preventDefault()
@@ -144,6 +173,8 @@ export function createInput(canvas: HTMLCanvasElement): Input {
     get weaponSlot() { return weaponSlot },
     get scoreboard() { return keys.has('Tab') },
     get locked() { return locked },
+    get pointerReleased() { return pointerReleased },
+    releasePointer,
     consumeLook() {
       consumedLook.dx = look.dx
       consumedLook.dy = look.dy

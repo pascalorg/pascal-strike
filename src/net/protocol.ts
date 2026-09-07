@@ -1,3 +1,4 @@
+import { ARMOR } from '../config'
 /**
  * The wire contract: every state key, RPC name and payload shape used by the net layer.
  *
@@ -31,6 +32,10 @@ export type {
 
 /** Per-player state keys (`player.setState(key, value, reliable)`). */
 export const PS = {
+  armor: 'armor',
+  character: 'character',
+  grounded: 'grounded',
+  reloading: 'reloading',
   /** string — display name */
   name: 'name',
   /**
@@ -229,6 +234,7 @@ export const HOST_STABLE_MS = 3_000
 export const DEFAULT_PLAYER_STATES: Record<string, unknown> = {
   [PS.name]: '',
   [PS.hp]: PLAYER.maxHp,
+  [PS.armor]: ARMOR.max,
   [PS.alive]: true,
   [PS.inv]: 0,
   [PS.kills]: 0,
@@ -259,6 +265,7 @@ export type DoorStates = Record<string, boolean>
 
 /** What the host publishes about one bot (see `GS.botStats`). */
 export interface BotStat {
+  armor?: number
   team: TeamId
   kills: number
   deaths: number

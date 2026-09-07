@@ -6,6 +6,7 @@
  * resources of the old house (geometry, textures, decals, navmesh) go away in one call.
  */
 import { Material, Mesh, Object3D, Texture, Vector3 } from 'three'
+import { BUILTIN_MAPS } from '../config'
 import type { Audio } from '../engine/audio'
 import { createEnvironment, type EnvironmentRig } from '../engine/environment'
 import type { Loaders } from '../engine/loaders'
@@ -63,11 +64,15 @@ export async function createMapSession(opts: MapSessionOptions): Promise<MapSess
   const source = await fetchAsFile(selection, (p) =>
     opts.onProgress?.(p * 0.75, `Downloading ${selection.name}`),
   )
-  opts.onProgress?.(0.78, 'Building the house')
+  opts.onProgress?.(0.78, 'Building the map')
   // Yield once so the overlay repaints before the (blocking) parse + BVH build.
   await nextFrame()
 
-  const map = await loadMap(source, loaders, { name: selection.name })
+  const map = await loadMap(source, loaders, {
+    name: selection.name,
+    // The streamed source is a File, so retain the built-in settings from its original URL.
+    tintTerrain: BUILTIN_MAPS.find((map) => map.url === selection.url)?.tintTerrain,
+  })
   engine.scene.add(map.root)
   opts.onProgress?.(0.9, 'Baking colliders')
   await nextFrame()

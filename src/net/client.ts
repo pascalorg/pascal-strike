@@ -1,3 +1,5 @@
+import { ARMOR, TAGGING } from '../config'
+import { parseCharacter, defaultCharacter } from '../characters/catalog'
 /**
  * The read side of the network: turns Playroom players + RPCs into registry entities and
  * `EventBus` events. Runs on every client, host included.
@@ -112,12 +114,14 @@ export function bindNetToRegistry(
       team: teamFrom(player.getState(PS.team)) ?? 'a',
       isBot,
       isLocal,
+      armor: numberOr(player.getState(PS.armor), ARMOR.max),
       hp: ours ? PLAYER.maxHp : numberOr(player.getState(PS.hp), PLAYER.maxHp),
       alive: ours ? true : player.getState(PS.alive) !== false,
       invincibleUntil: numberOr(player.getState(PS.inv), 0),
       kills: numberOr(player.getState(PS.kills), 0),
       deaths: numberOr(player.getState(PS.deaths), 0),
       weapon: weaponOr(player.getState(PS.weapon)),
+      character: parseCharacter(player.getState(PS.character)) ?? defaultCharacter(player.id),
     })
     if (!isLocal && !interps.has(player.id)) interps.set(player.id, createInterpolator(entity))
     // onJoin and the state poll can both discover a player; only announce them once.
@@ -195,6 +199,7 @@ export function bindNetToRegistry(
       })
       // ...except a bot's life on the host, which the authority writes directly (see above).
       if (!authorityOwnsLife(isBot)) {
+        applyIfChanged(id, PS.armor, player.getState(PS.armor), (v) => { entity.armor = numberOr(v, ARMOR.max) })
         applyIfChanged(id, PS.hp, player.getState(PS.hp), (v) => {
           entity.hp = numberOr(v, entity.hp)
         })
@@ -211,6 +216,14 @@ export function bindNetToRegistry(
       applyIfChanged(id, PS.deaths, player.getState(PS.deaths), (v) => {
         entity.deaths = numberOr(v, entity.deaths)
       })
+      applyIfChanged(id, PS.character, player.getState(PS.character), (v) => {
+        entity.character = parseCharacter(v) ?? defaultCharacter(id)
+      })
+      // Simulation owns these for us and for host bots; only remotes read the wire.
+      if (player.id !== room.me.id && !authorityOwnsLife(isBot)) {
+        entity.grounded = player.getState(PS.grounded) !== false
+        entity.reloading = player.getState(PS.reloading) === true
+      }
       // What they are holding: the remote presentation mounts the model from this.
       applyIfChanged(id, PS.weapon, player.getState(PS.weapon), (v) => {
         entity.weapon = weaponOr(v)
@@ -254,7 +267,7 @@ export function bindNetToRegistry(
   }
 
   /** Bot id → the mirrored life we have been disagreeing with, and since when. */
-  const botMirrorSince = new Map<string, { alive: boolean; hp: number; since: number }>()
+  const botMirrorSince = new Map<string, { alive: boolean; hp: number; armor?: number; since: number }>()
 
   /**
    * A bot's life, repaired from the host's mirror.
@@ -276,13 +289,13 @@ export function bindNetToRegistry(
       botMirrorSince.delete(entity.id)
       return
     }
-    if (entity.alive === stat.alive && entity.hp === stat.hp) {
+    if (entity.alive === stat.alive && entity.hp === stat.hp && (stat.armor === undefined || entity.armor === stat.armor)) {
       botMirrorSince.delete(entity.id)
       return
     }
     const seen = botMirrorSince.get(entity.id)
-    if (!seen || seen.alive !== stat.alive || seen.hp !== stat.hp) {
-      botMirrorSince.set(entity.id, { alive: stat.alive, hp: stat.hp, since: now })
+    if (!seen || seen.alive !== stat.alive || seen.hp !== stat.hp || seen.armor !== stat.armor) {
+      botMirrorSince.set(entity.id, { alive: stat.alive, hp: stat.hp, armor: stat.armor, since: now })
       return
     }
     if (now - seen.since < BOT_MIRROR_GRACE_MS) return
@@ -293,6 +306,7 @@ export function bindNetToRegistry(
     )
     entity.alive = stat.alive
     entity.hp = stat.hp
+    entity.armor = stat.armor ?? ARMOR.max
   }
 
   poll()
@@ -310,7 +324,11 @@ export function bindNetToRegistry(
   cleanups.push(
     room.rpc.register<DamageEvent>(RPCS.damage, (dmg) => {
       const entity = registry.get(dmg.target)
-      if (entity) entity.hp = dmg.hp
+      if (entity) {
+        entity.hp = dmg.hp
+        entity.armor = dmg.armor ?? entity.armor
+        entity.taggedUntil = performance.now() + TAGGING.holdMs + TAGGING.recoveryMs
+      }
       events.emit('damage', dmg)
       if (dmg.target === room.me.id) {
         events.emit('local-damaged', { hp: dmg.hp, from: dmg.point })
@@ -337,6 +355,8 @@ export function bindNetToRegistry(
         entity.yaw = ev.yaw
         entity.alive = true
         entity.hp = PLAYER.maxHp
+        entity.armor = ARMOR.max
+        entity.taggedUntil = 0
         entity.invincibleUntil = ev.invincibleUntil
         entity.speed = 0
         // Teleports must not be interpolated across the map. Dropping the buffer is the whole

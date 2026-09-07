@@ -1,0 +1,732 @@
+{
+  "schema": "character-studio.manifest.v1",
+  "pipelineVersion": "1.1.0",
+  "bakeId": "daf72652cdb07320dc667e79",
+  "characterId": "acgiuda9xefhepr",
+  "name": "Wawa",
+  "gender": "man",
+  "height": 1.35,
+  "stale": false,
+  "urls": {
+    "manifest": "https://characterstudio.wawasensei.dev/api/models/b/daf72652cdb07320dc667e79.json",
+    "model": "https://characterstudio.wawasensei.dev/api/models/b/daf72652cdb07320dc667e79.glb",
+    "modelMutable": "https://characterstudio.wawasensei.dev/api/models/c/acgiuda9xefhepr.glb",
+    "animations": "https://characterstudio.wawasensei.dev/api/models/animations/man.glb",
+    "docs": "https://characterstudio.wawasensei.dev/llms.txt",
+    "repo": "https://github.com/wass08/character-studio"
+  },
+  "model": {
+    "format": "glTF binary (.glb)",
+    "params": {
+      "quality": {
+        "values": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "default": "medium"
+      },
+      "morphs": {
+        "values": [
+          "none",
+          "visemes",
+          "arkit",
+          "full"
+        ],
+        "default": "visemes"
+      },
+      "compression": {
+        "values": [
+          "none",
+          "draco",
+          "meshopt"
+        ],
+        "default": "meshopt"
+      },
+      "pose": {
+        "values": [
+          "default",
+          "tpose"
+        ],
+        "default": "default"
+      }
+    },
+    "defaultVariant": "compression=meshopt&morphs=visemes&pose=default&quality=medium",
+    "readyVariants": [
+      {
+        "key": "compression=meshopt&morphs=none&pose=default&quality=medium",
+        "params": {
+          "compression": "meshopt",
+          "morphs": "none",
+          "pose": "default",
+          "quality": "medium"
+        },
+        "url": "https://characterstudio.wawasensei.dev/api/models/b/daf72652cdb07320dc667e79.glb?compression=meshopt&morphs=none&pose=default&quality=medium",
+        "cdnUrl": "https://cdn.character-studio.wawasensei.dev/bakes/daf72652cdb07320dc667e79/compression=meshopt&morphs=none&pose=default&quality=medium.glb",
+        "bytes": 1209388
+      },
+      {
+        "key": "compression=meshopt&morphs=visemes&pose=default&quality=medium",
+        "params": {
+          "compression": "meshopt",
+          "morphs": "visemes",
+          "pose": "default",
+          "quality": "medium"
+        },
+        "url": "https://characterstudio.wawasensei.dev/api/models/b/daf72652cdb07320dc667e79.glb?compression=meshopt&morphs=visemes&pose=default&quality=medium",
+        "cdnUrl": "https://cdn.character-studio.wawasensei.dev/bakes/daf72652cdb07320dc667e79/compression=meshopt&morphs=visemes&pose=default&quality=medium.glb",
+        "bytes": 1757256
+      }
+    ],
+    "request": "Append any subset of the params as a query string to urls.model (or urls.modelMutable). Unknown params or values return 400. A variant that does not exist yet is generated while the request is held open (about 10 s); retry on 503.",
+    "caching": "urls.model is immutable for this bakeId (cache forever). urls.modelMutable follows the character's latest bake and must not be cached."
+  },
+  "rig": {
+    "up": "+Y",
+    "forward": "-Z",
+    "units": "meters",
+    "rootNode": "Rig",
+    "skeleton": "Rigify DEF-* deform bones (Blender), 253 joints, one shared skin",
+    "heightScaleBakedIntoRig": true,
+    "notes": [
+      "The \"Rig\" node carries the character height scale and a 180° turn about Y. Move or rotate the character through a parent group, never by editing the Rig node: the animation library animates Rig.position/Rig.quaternion to the same values on every frame.",
+      "The character looks down -Z. A camera placed at negative Z looking back at the origin sees the face.",
+      "Bone local +Y runs along the bone towards its tip (Blender convention). For a hand socket, +Y points towards the fingertips.",
+      "Every skinned mesh shares one skeleton. Clone with three's SkeletonUtils.clone() to spawn several instances of the same GLB."
+    ],
+    "sockets": {
+      "handRight": {
+        "gltf": "DEF-hand.R",
+        "three": "DEF-handR",
+        "purpose": "weapons, tools, held props (primary hand)"
+      },
+      "handLeft": {
+        "gltf": "DEF-hand.L",
+        "three": "DEF-handL",
+        "purpose": "shields, off-hand props"
+      },
+      "head": {
+        "gltf": "DEF-head",
+        "three": "DEF-head",
+        "purpose": "hats, helmets, name tags, cameras"
+      },
+      "chest": {
+        "gltf": "DEF-spine.003",
+        "three": "DEF-spine003",
+        "purpose": "backpacks, capes, chest emblems"
+      },
+      "hips": {
+        "gltf": "DEF-hips",
+        "three": "DEF-hips",
+        "purpose": "belts, holsters; also the root-motion pelvis bone"
+      },
+      "footLeft": {
+        "gltf": "DEF-foot.L",
+        "three": "DEF-footL",
+        "purpose": "foot effects, footstep events"
+      },
+      "footRight": {
+        "gltf": "DEF-foot.R",
+        "three": "DEF-footR",
+        "purpose": "foot effects, footstep events"
+      }
+    },
+    "nodeNaming": "three.js strips \".\" from node names: DEF-hand.R becomes DEF-handR. Use the `three` names with getObjectByName()."
+  },
+  "animations": {
+    "url": "https://characterstudio.wawasensei.dev/api/models/animations/man.glb",
+    "shared": true,
+    "clipNamePrefix": "Rig|",
+    "stripTracks": [
+      ".scale"
+    ],
+    "categories": [
+      "locomotion",
+      "jump",
+      "combat",
+      "reaction",
+      "social"
+    ],
+    "clipCount": 45,
+    "clips": [
+      {
+        "name": "Rig|Crouch_Fwd_Loop",
+        "label": "Crouch_Fwd_Loop",
+        "category": "locomotion",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 2.033,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Crouch_Idle_Loop",
+        "label": "Crouch_Idle_Loop",
+        "category": "locomotion",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 2.967,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Dance_Loop",
+        "label": "Dance_Loop",
+        "category": "social",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 1.033,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Death01",
+        "label": "Death01",
+        "category": "reaction",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 2.433,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Driving_Loop",
+        "label": "Driving_Loop",
+        "category": "locomotion",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 1.7,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Fixing_Kneeling",
+        "label": "Fixing_Kneeling",
+        "category": "social",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 5.233,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Hit_Chest",
+        "label": "Hit_Chest",
+        "category": "reaction",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 0.367,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Hit_Head",
+        "label": "Hit_Head",
+        "category": "reaction",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 0.467,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Idle_Loop",
+        "label": "Idle_Loop",
+        "category": "locomotion",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 2.533,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Idle_Talking_Loop",
+        "label": "Idle_Talking_Loop",
+        "category": "social",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 2.967,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Idle_Torch_Loop",
+        "label": "Idle_Torch_Loop",
+        "category": "social",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 1.3,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Interact",
+        "label": "Interact",
+        "category": "social",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 2.033,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Jog_Fwd_Loop",
+        "label": "Jog_Fwd_Loop",
+        "category": "locomotion",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 0.967,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Jump_Land",
+        "label": "Jump_Land",
+        "category": "jump",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 1.3,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Jump_Loop",
+        "label": "Jump_Loop",
+        "category": "jump",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 2.533,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Jump_Start",
+        "label": "Jump_Start",
+        "category": "jump",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 1.367,
+        "hidden": false
+      },
+      {
+        "name": "Rig|PickUp_Table",
+        "label": "PickUp_Table",
+        "category": "social",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 0.867,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Pistol_Aim_Down",
+        "label": "Pistol_Aim_Down",
+        "category": "combat",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 0.2,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Pistol_Aim_Neutral",
+        "label": "Pistol_Aim_Neutral",
+        "category": "combat",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 0.2,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Pistol_Aim_Up",
+        "label": "Pistol_Aim_Up",
+        "category": "combat",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 0.2,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Pistol_Idle_Loop",
+        "label": "Pistol_Idle_Loop",
+        "category": "combat",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 1.7,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Pistol_Reload",
+        "label": "Pistol_Reload",
+        "category": "combat",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 1.7,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Pistol_Shoot",
+        "label": "Pistol_Shoot",
+        "category": "combat",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 0.667,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Punch_Cross",
+        "label": "Punch_Cross",
+        "category": "combat",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 1.033,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Punch_Enter",
+        "label": "Punch_Enter",
+        "category": "combat",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 0.9,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Punch_Jab",
+        "label": "Punch_Jab",
+        "category": "combat",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 0.9,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Push_Loop",
+        "label": "Push_Loop",
+        "category": "locomotion",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 2.7,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Roll",
+        "label": "Roll",
+        "category": "combat",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 1.5,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Roll_RM",
+        "label": "Roll_RM",
+        "category": "combat",
+        "loop": false,
+        "rootMotion": true,
+        "duration": 1.5,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Sitting_Enter",
+        "label": "Sitting_Enter",
+        "category": "social",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 1.333,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Sitting_Exit",
+        "label": "Sitting_Exit",
+        "category": "social",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 1.067,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Sitting_Idle_Loop",
+        "label": "Sitting_Idle_Loop",
+        "category": "social",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 1.7,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Sitting_Talking_Loop",
+        "label": "Sitting_Talking_Loop",
+        "category": "social",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 2.967,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Spell_Simple_Enter",
+        "label": "Spell_Simple_Enter",
+        "category": "combat",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 0.567,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Spell_Simple_Exit",
+        "label": "Spell_Simple_Exit",
+        "category": "combat",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 0.467,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Spell_Simple_Idle_Loop",
+        "label": "Spell_Simple_Idle_Loop",
+        "category": "combat",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 2.133,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Spell_Simple_Shoot",
+        "label": "Spell_Simple_Shoot",
+        "category": "combat",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 0.533,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Sprint_Loop",
+        "label": "Sprint_Loop",
+        "category": "locomotion",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 0.7,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Swim_Fwd_Loop",
+        "label": "Swim_Fwd_Loop",
+        "category": "locomotion",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 1.367,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Swim_Idle_Loop",
+        "label": "Swim_Idle_Loop",
+        "category": "locomotion",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 3.367,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Sword_Attack",
+        "label": "Sword_Attack",
+        "category": "combat",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 1.567,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Sword_Attack_RM",
+        "label": "Sword_Attack_RM",
+        "category": "combat",
+        "loop": false,
+        "rootMotion": true,
+        "duration": 1.567,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Sword_Idle",
+        "label": "Sword_Idle",
+        "category": "combat",
+        "loop": false,
+        "rootMotion": false,
+        "duration": 1.7,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Walk_Formal_Loop",
+        "label": "Walk_Formal_Loop",
+        "category": "locomotion",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 1.367,
+        "hidden": false
+      },
+      {
+        "name": "Rig|Walk_Loop",
+        "label": "Walk_Loop",
+        "category": "locomotion",
+        "loop": true,
+        "rootMotion": false,
+        "duration": 1.367,
+        "hidden": false
+      }
+    ],
+    "hiddenClips": [
+      "Rig|A_TPose",
+      "Rig|A_TPose.001"
+    ],
+    "notes": [
+      "One library per gender, shared by every character of that gender. Load it once and bind it to each character instance with its own AnimationMixer.",
+      "Clip names carry the \"Rig|\" prefix, e.g. \"Rig|Idle_Loop\".",
+      "Drop every track whose name ends in .scale before playing (see stripTracks).",
+      "*_RM clips carry root motion on the Rig node; the non-RM twin plays in place."
+    ]
+  },
+  "morphs": {
+    "sets": {
+      "none": "no morph targets (smallest file)",
+      "visemes": "15 Oculus visemes for lip sync (default)",
+      "arkit": "Apple's 52 ARKit face blendshapes",
+      "full": "visemes + ARKit"
+    },
+    "inDefaultVariant": "visemes",
+    "visemes": [
+      "viseme_sil",
+      "viseme_PP",
+      "viseme_FF",
+      "viseme_TH",
+      "viseme_DD",
+      "viseme_kk",
+      "viseme_CH",
+      "viseme_SS",
+      "viseme_nn",
+      "viseme_RR",
+      "viseme_aa",
+      "viseme_E",
+      "viseme_I",
+      "viseme_O",
+      "viseme_U"
+    ],
+    "arkit": {
+      "count": 52,
+      "request": "morphs=arkit or morphs=full",
+      "reference": "https://arkit-face-blendshapes.com/"
+    },
+    "note": "Morph targets live on the face meshes (head, eyes, brows, lashes, mouth). Drive them through mesh.morphTargetDictionary / morphTargetInfluences."
+  },
+  "materials": {
+    "skin": "Material named \"Skin\": composited skin texture (1024 px, 512 px at quality=low) or a flat colour.",
+    "colored": "Materials named \"Color_*\" carry the recipe colours in baseColorFactor. Re-tint at runtime by editing material.color.",
+    "note": "Materials are plain PBR (metallic-roughness). Physical extensions are stripped."
+  },
+  "recipe": {
+    "customization": {
+      "Accessories": {
+        "assetId": null,
+        "color": null,
+        "colors": {}
+      },
+      "Bottom": {
+        "assetId": "tgbq0gl721satzs",
+        "color": null,
+        "colors": {
+          "Color_Bermuda": "#4e301b",
+          "Color_ChinoPants": "#54452c"
+        }
+      },
+      "Eyebrows": {
+        "assetId": "av623stnt80ylkr",
+        "color": null,
+        "colors": {}
+      },
+      "Eyelashes": {
+        "assetId": null,
+        "color": null,
+        "colors": {}
+      },
+      "Eyes": {
+        "assetId": "d1rr23r5va3waei",
+        "color": null,
+        "colors": {
+          "Color_Eye": "#5584e2",
+          "Color_Pupil": "#101010",
+          "Color_Sclera": "#e7e7e7"
+        }
+      },
+      "Face": {
+        "assetId": "ipdl0ixcs2s349h",
+        "color": null,
+        "colors": {}
+      },
+      "Facial Hair": {
+        "assetId": "i86vwivmhd2hxf9",
+        "color": null,
+        "colors": {
+          "Color_Beard": "#4e2d1b"
+        }
+      },
+      "Footwear": {
+        "assetId": "ejgw1y9h0l3bef6",
+        "color": null,
+        "colors": {
+          "Color_Office_Shoe": "#7eae86",
+          "Color_Office_Shoe_2": "#6ac38a",
+          "Color_Office_Shoe_3": "#272d27",
+          "Color_Shoelace": "#e7e7e7",
+          "Color_sandals": "#75764a",
+          "Color_sandals_2": "#393a24"
+        }
+      },
+      "Glasses": {
+        "assetId": "2bx8yealasw3dn1",
+        "color": null,
+        "colors": {
+          "Color_Aviator": "#f9bfd6",
+          "Color_Aviator_2": "#309128",
+          "Color_Aviator_3": "#000000"
+        }
+      },
+      "Hair": {
+        "assetId": "qs0y07kpgim7z7o",
+        "color": null,
+        "colors": {
+          "Color_Hair": "#6e5548"
+        }
+      },
+      "Hat": {
+        "assetId": null,
+        "color": null,
+        "colors": {}
+      },
+      "Head": {
+        "assetId": "nvmq0oy779i1ds9",
+        "color": null,
+        "colors": {}
+      },
+      "Mouth": {
+        "assetId": "fcayz196vaj3j5b",
+        "color": null,
+        "colors": {}
+      },
+      "Skin": {
+        "assetId": null,
+        "color": "#E7AF91",
+        "colors": {}
+      },
+      "Top": {
+        "assetId": "x16jsaia00fsuf8",
+        "color": null,
+        "colors": {
+          "Color_Collar": "#e7e7e7",
+          "Color_Fingernail": "#e8b6a2",
+          "Color_Fingernail.001": "#e8b6a2",
+          "Color_Tank": "#e7e7e7",
+          "Color_Tshirt": "#ffffff",
+          "Color_Turtleneck": "#d0a06f"
+        }
+      },
+      "Uniform": {
+        "assetId": null,
+        "color": null,
+        "colors": {}
+      }
+    },
+    "gender": "man",
+    "height": 1.35,
+    "morphValues": {
+      "Body Size": 0,
+      "Eye Size": 0.26,
+      "Eye Spacing": 0.07,
+      "Face Density": 0,
+      "Lip Size": 0.25,
+      "Muscularity": 1,
+      "Nasal Bridge Size": 0.46,
+      "Nose Length": 0.3,
+      "Nose Width": 0.44
+    }
+  }
+}

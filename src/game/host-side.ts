@@ -201,7 +201,10 @@ export function createHostSide(opts: HostSideOptions): HostSide {
       },
       onSnapshot: (bot, snapshot) => {
         // The runner reuses one snapshot object per bot, so copy before handing it to Playroom.
-        room.players().find((p) => p.id === bot.id)?.setState(PS.snap, { ...snapshot }, false)
+        const player = room.players().find((p) => p.id === bot.id)
+        player?.setState(PS.snap, { ...snapshot }, false)
+        if (player?.getState(PS.grounded) !== bot.grounded) player?.setState(PS.grounded, bot.grounded, true)
+        if (player?.getState(PS.reloading) !== bot.reloading) player?.setState(PS.reloading, bot.reloading, true)
       },
       now: () => clock.now(),
       seed: hashString(session.selection.id || session.selection.url),

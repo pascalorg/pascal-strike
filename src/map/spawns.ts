@@ -66,12 +66,16 @@ function spawnsFromZones(map: MapData, world: WorldQuery, center: Vector3): Spaw
   const a: SpawnPoint[] = []
   const b: SpawnPoint[] = []
 
-  for (let i = 0; i < zones.length; i++) {
-    const bucket = teamed[i] === 'a' ? a : b
-    if (bucket.length >= MAX_POINTS_PER_TEAM) continue
-    for (const p of samplePolygon(zones[i], world, SPAWN.pointsPerZone)) {
-      bucket.push({ position: p, yaw: yawToward(p, center) })
-      if (bucket.length >= MAX_POINTS_PER_TEAM) break
+  const samples = zones.map((zone) => samplePolygon(zone, world, SPAWN.pointsPerZone))
+  // Interleave areas: a team may have several Spawn A/B zones (e.g. both lanes in iceworld).
+  // Filling one zone first would exhaust the team limit and silently ignore the others.
+  for (let point = 0; point < SPAWN.pointsPerZone; point++) {
+    for (let i = 0; i < zones.length; i++) {
+      const bucket = teamed[i] === 'a' ? a : b
+      const p = samples[i][point]
+      if (p && bucket.length < MAX_POINTS_PER_TEAM) {
+        bucket.push({ position: p, yaw: yawToward(p, center) })
+      }
     }
   }
 

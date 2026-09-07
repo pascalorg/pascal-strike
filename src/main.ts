@@ -8,6 +8,9 @@
  * Default: platform check → lobby → room → game.
  */
 import './ui/styles.css'
+import { DEFAULT_CHARACTERS } from './characters/catalog'
+import { loadCharacterAsset } from './characters/assets'
+import { preloadWeaponAssets } from './weapons/weapon-assets'
 import { appRoot, el } from './ui/dom'
 import { showLobby } from './ui/lobby'
 import { isTouchOnly, showUnsupported } from './ui/unsupported'
@@ -19,6 +22,8 @@ import { isTouchOnly, showUnsupported } from './ui/unsupported'
 const params = new URLSearchParams(location.search)
 
 async function boot(): Promise<void> {
+  if (params.get('dev') === 'weapons') return (await import('./dev/weapons')).start()
+  if (params.get('dev') === 'characters') return (await import('./dev/characters')).start()
   if (params.get('dev') === 'map') return (await import('./dev/map-viewer')).start()
   if (params.get('sandbox') === '1') return (await import('./dev/sandbox')).start()
   if (params.get('dev') === 'ui') return (await import('./dev/ui-showcase')).start()
@@ -54,11 +59,14 @@ async function play(): Promise<void> {
     })
     banner.clear()
     try {
+      lobby.setStatus('Preparing characters and weapons…')
+      await Promise.all([preloadWeaponAssets(), ...[...DEFAULT_CHARACTERS, lobby.character].map(loadCharacterAsset)])
       // Creating a room (no code): our lobby answers decide the map and the bot fill. Joining
       // one: both come from the room state the host published.
       const creating = !lobby.roomCode
       const room = await joinRoom({
         name: lobby.name,
+        character: lobby.character,
         roomCode: lobby.roomCode,
         map: lobby.map,
         botsFill: creating ? lobby.botsFill : undefined,

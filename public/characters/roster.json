@@ -1,0 +1,38 @@
+[
+  {
+    "id": "wawa",
+    "name": "Wawa",
+    "gender": "man",
+    "manifestUrl": "/characters/wawa.manifest.json",
+    "modelUrl": "/characters/wawa.glb",
+    "animationsUrl": "/characters/man-animations.glb",
+    "source": "https://characterstudio.wawasensei.dev/api/models/b/daf72652cdb07320dc667e79.json"
+  },
+  {
+    "id": "brian",
+    "name": "Brian",
+    "gender": "man",
+    "manifestUrl": "/characters/brian.manifest.json",
+    "modelUrl": "/characters/brian.glb",
+    "animationsUrl": "/characters/man-animations.glb",
+    "source": "https://characterstudio.wawasensei.dev/api/models/b/17a1e7847a81495e6b14e4fa.json"
+  },
+  {
+    "id": "janette",
+    "name": "Janette",
+    "gender": "woman",
+    "manifestUrl": "/characters/janette.manifest.json",
+    "modelUrl": "/characters/janette.glb",
+    "animationsUrl": "/characters/woman-animations.glb",
+    "source": "https://characterstudio.wawasensei.dev/api/models/b/c559157259c1e51ab55bd3a6.json"
+  },
+  {
+    "id": "nova",
+    "name": "Nova",
+    "gender": "woman",
+    "manifestUrl": "/characters/nova.manifest.json",
+    "modelUrl": "/characters/nova.glb",
+    "animationsUrl": "/characters/woman-animations.glb",
+    "source": "https://characterstudio.wawasensei.dev/api/models/b/35760c22fbf635024cb2691d.json"
+  }
+]

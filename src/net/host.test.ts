@@ -1,7 +1,7 @@
 // @ts-ignore Bun provides this runtime module; the project intentionally has no @types/bun dependency.
 import { expect, test } from 'bun:test'
 import { Vector3 } from 'three'
-import { MATCH, PLAYER } from '../config'
+import { ARMOR, MATCH, PLAYER } from '../config'
 import { createEventBus } from '../engine/events'
 import { createEntityRegistry } from '../game/entities'
 import type { HitEvent, SpawnPoint } from '../types'
@@ -100,6 +100,7 @@ test('a bot the fill just added is put on a spawn point, not left lying at the o
   // The record the rules read, mirrored into the registry every tick.
   expect(bot.alive).toBe(true)
   expect(bot.hp).toBe(PLAYER.maxHp)
+  expect(bot.armor).toBe(ARMOR.max)
   // And it was actually placed, rather than merely flagged alive where it stood.
   const respawns = calls.filter((c) => c.name === RPCS.respawn && c.payload.player === 'bot')
   expect(respawns).toHaveLength(1)
@@ -128,9 +129,12 @@ test('a dead bot stands up again once respawnDelayMs has passed, and not before'
     part: 'head',
     weapon: 'rifle',
   }
-  // Two head shots is a kill (50 each, 100 hp); the ids must differ or the second is a replay.
+  // Helmet + kevlar take the first 50 damage: three headshots, each with a distinct id.
   expect(authority.submitHit({ ...hit, shotId: 'k:0' })).toBe(true)
   expect(authority.submitHit({ ...hit, shotId: 'k:1' })).toBe(true)
+  tick()
+  expect(bot.alive).toBe(true)
+  expect(authority.submitHit({ ...hit, shotId: 'k:2' })).toBe(true)
   // The registry only learns about it on the next tick — that mirror is what the avatars read.
   tick()
   expect(bot.alive).toBe(false)
@@ -140,6 +144,7 @@ test('a dead bot stands up again once respawnDelayMs has passed, and not before'
   tick(400)
   expect(bot.alive).toBe(true)
   expect(bot.hp).toBe(PLAYER.maxHp)
+  expect(bot.armor).toBe(ARMOR.max)
   expect(calls.filter((c) => c.name === RPCS.respawn).length).toBe(before + 1)
   authority.stop()
 })

@@ -56,6 +56,7 @@ export interface RemotePlayers {
 
 interface Slot {
   avatar: Avatar
+  characterUrl?: string
   entity: PlayerEntity
   team: string
   name: string
@@ -87,12 +88,13 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
   let membershipDirty = true
 
   const add = (entity: PlayerEntity): Slot => {
-    const avatar = createAvatar(entity.team, entity.name, entity.id)
+    const avatar = createAvatar(entity.team, entity.name, entity.id, entity.character)
     if (entity.weapon) avatar.setWeapon(entity.weapon)
     avatar.object.position.copy(entity.position)
     scene.add(avatar.object)
     const slot: Slot = {
       avatar,
+      characterUrl: entity.character?.manifestUrl,
       entity,
       team: entity.team,
       name: entity.name,
@@ -167,7 +169,11 @@ export function createRemotePlayers(scene: Scene, registry: EntityRegistry): Rem
           slot.invincible = invincible
           slot.avatar.setInvincible(invincible)
         }
-        slot.avatar.set(entity.position, entity.yaw, entity.pitch, entity.crouching, entity.speed)
+        if (entity.character && entity.character.manifestUrl !== slot.characterUrl) {
+          slot.characterUrl = entity.character.manifestUrl
+          slot.avatar.setCharacter(entity.character)
+        }
+        slot.avatar.set(entity.position, entity.yaw, entity.pitch, entity.crouching, entity.speed, entity.grounded, entity.reloading)
 
         const footstepDt = slot.lastUpdateAt > 0 ? Math.max(0, (now - slot.lastUpdateAt) / 1000) : 0
         slot.lastUpdateAt = now

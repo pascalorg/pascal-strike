@@ -5,7 +5,8 @@
  * whoever inherits the room after a migration, adopting whatever state the previous host
  * published (teams, scores, match phase) instead of resetting the match.
  */
-import { DAMAGE, WEAPONS, MATCH, PLAYER } from '../config'
+import { ARMOR, DAMAGE, WEAPONS, MATCH, PLAYER } from '../config'
+import { armoredDamage } from '../game/combat'
 import type { EntityRegistry } from '../game/entities'
 import { createMatch, isLive, type Match } from '../game/match'
 import { botName, otherTeam, pickTeam, teamName } from '../game/teams'
@@ -83,6 +84,7 @@ export interface HostAuthority {
 }
 
 interface HostPlayer {
+  armor: number
   id: string
   /** Null = a human who has not picked yet (the team screen is up on their client). */
   team: TeamId | null
@@ -149,6 +151,7 @@ export function startHostAuthority(
         id,
         team,
         hp: num(p?.getState(PS.hp), PLAYER.maxHp),
+        armor: num(p?.getState(PS.armor), ARMOR.max),
         alive,
         kills: num(p?.getState(PS.kills), 0),
         deaths: num(p?.getState(PS.deaths), 0),
@@ -182,6 +185,8 @@ export function startHostAuthority(
       : [0, 0, 0]
     const yaw = point?.yaw ?? 0
     hp.alive = true
+    hp.armor = ARMOR.max
+    write(hp.id, PS.armor, hp.armor)
     hp.hp = PLAYER.maxHp
     hp.respawnAt = 0
     hp.spawned = true
@@ -228,6 +233,8 @@ export function startHostAuthority(
    */
   const spectate = (hp: HostPlayer) => {
     hp.alive = false
+    hp.armor = ARMOR.max
+    write(hp.id, PS.armor, hp.armor)
     hp.hp = PLAYER.maxHp
     hp.respawnAt = 0
     hp.spawned = false
@@ -359,7 +366,7 @@ export function startHostAuthority(
     const stats: BotStats = {}
     for (const hp of players.values()) {
       if (!hp.isBot || !hp.team) continue
-      stats[hp.id] = { team: hp.team, kills: hp.kills, deaths: hp.deaths, alive: hp.alive, hp: hp.hp }
+      stats[hp.id] = { team: hp.team, kills: hp.kills, deaths: hp.deaths, alive: hp.alive, hp: hp.hp, armor: hp.armor }
     }
     // Cheap deep compare: the object is six ids at most, and this runs 20 times a second.
     const encoded = JSON.stringify(stats)
@@ -450,6 +457,8 @@ export function startHostAuthority(
     // them, and the respawn below is their first appearance in the house.
     if (joining) {
       hp.alive = true
+      hp.armor = ARMOR.max
+      write(hp.id, PS.armor, hp.armor)
       hp.hp = PLAYER.maxHp
       hp.spawned = false
     }
@@ -594,14 +603,17 @@ export function startHostAuthority(
     // The shooter names the body part; the host still owns the number that goes with it.
     const part = bodyPart(hit.part)
     const weapon = hit.weapon && hit.weapon in WEAPONS ? hit.weapon : 'rifle'
-    const amount = weapon === 'knife'
+    const raw = weapon === 'knife'
       ? Math.round(WEAPONS.knife.damage * (isBackstab(target, hit.point) ? WEAPONS.knife.backstabScale : 1))
       : Math.round(DAMAGE[part] * WEAPONS[weapon].damageScale)
+    const { amount, armor, absorbed } = armoredDamage(raw, target.armor, part, weapon)
+    target.armor = armor
+    write(target.id, PS.armor, armor)
     target.hp = Math.max(0, target.hp - amount)
     write(target.id, PS.hp, target.hp)
     void room.rpc.call(
       RPCS.damage,
-      { target: target.id, by: shooter.id, hp: target.hp, point: hit.point, part, amount },
+      { target: target.id, by: shooter.id, hp: target.hp, point: hit.point, part, amount, armor, absorbed },
       'all',
     )
 
@@ -701,6 +713,7 @@ export function startHostAuthority(
       if (!entity) continue
       entity.alive = hp.alive
       entity.hp = hp.hp
+      entity.armor = hp.armor
     }
 
     publishBotStats(now)

@@ -82,6 +82,11 @@ export function createEntityRegistry(): EntityRegistry {
         map.set(init.id, entity)
         cache = null
       }
+      if (init.armor !== undefined) entity.armor = init.armor
+      if (init.taggedUntil !== undefined) entity.taggedUntil = init.taggedUntil
+      if (init.character !== undefined) entity.character = init.character
+      if (init.grounded !== undefined) entity.grounded = init.grounded
+      if (init.reloading !== undefined) entity.reloading = init.reloading
       if (init.name !== undefined) entity.name = init.name
       if (init.team !== undefined) entity.team = init.team
       if (init.isBot !== undefined) entity.isBot = init.isBot

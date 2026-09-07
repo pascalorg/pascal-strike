@@ -1,3 +1,4 @@
+import { taggingScale } from '../game/combat'
 import { Vector3, type Box3, type Mesh } from 'three'
 import { NET } from '../config'
 import { createCharacterController } from '../player/controller'
@@ -86,7 +87,7 @@ export function createBotRunner(opts: BotRunnerOptions): BotRunner {
         }
 
         const decision = bot.brain.update(dt, now, bot.enemies, bot.allies, spawns)
-        bot.controller.update(dt, decision.move, decision.yaw)
+        bot.controller.update(dt, decision.move, decision.yaw, taggingScale(entity.taggedUntil, performance.now()))
         entity.position.copy(bot.controller.state.position)
         entity.yaw = decision.yaw
         entity.pitch = decision.pitch
@@ -127,6 +128,8 @@ export function createBotRunner(opts: BotRunnerOptions): BotRunner {
           snapshot.yaw = entity.yaw
           snapshot.pitch = entity.pitch
           snapshot.c = entity.crouching ? 1 : 0
+          entity.grounded = bot.controller.state.grounded
+          entity.reloading = bot.marker.reloading
           snapshot.t = now
           opts.onSnapshot(entity, snapshot)
         }

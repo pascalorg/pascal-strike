@@ -6,6 +6,7 @@ export type SoundName =
   | 'splat'
   | 'hit'
   | 'hitConfirm'
+  | 'killConfirm'
   | 'reload'
   | 'reloadStart'
   | 'reloadEnd'
@@ -303,6 +304,10 @@ export function createAudio(): Audio {
           break
         case 'hitConfirm':
           oscillator(output, time, 0.045, 980, 720, 0.13, 'sine')
+          break
+        case 'killConfirm':
+          oscillator(output, time, .1, 660, 880, .18, 'sine')
+          oscillator(output, time + .08, .16, 1100, 1320, .15, 'sine')
           break
         case 'reload':
           oscillator(output, time, 0.045, 680, 390, 0.12, 'square')
