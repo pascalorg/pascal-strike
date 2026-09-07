@@ -280,7 +280,19 @@ export interface PlayerSnapshot {
   t: number
 }
 
+export interface CharacterSelection {
+  id: string
+  name: string
+  gender: 'man' | 'woman'
+  manifestUrl: string
+}
+
 export interface PlayerEntity {
+  armor?: number
+  taggedUntil?: number
+  character?: CharacterSelection
+  grounded?: boolean
+  reloading?: boolean
   id: string
   name: string
   team: TeamId
@@ -357,6 +369,8 @@ export interface RespawnEvent {
 }
 
 export interface DamageEvent {
+  armor?: number
+  absorbed?: number
   target: string
   by: string
   hp: number

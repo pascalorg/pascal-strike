@@ -1,0 +1,32 @@
+{
+  "wawa.glb": {
+    "url": "https://cdn.character-studio.wawasensei.dev/bakes/daf72652cdb07320dc667e79/compression=meshopt&morphs=none&pose=default&quality=medium.glb",
+    "bytes": 1209388,
+    "sha256": "af70fdbbcfa2031e3ee20f04584d065f400969176e7d2046afed963174491cb9"
+  },
+  "brian.glb": {
+    "url": "https://cdn.character-studio.wawasensei.dev/bakes/17a1e7847a81495e6b14e4fa/compression=meshopt&morphs=none&pose=default&quality=medium.glb",
+    "bytes": 1206624,
+    "sha256": "b5e5ceebd7645624146fba9e4c74ca163fc574ef5f3a35df67baae0568c6ba47"
+  },
+  "janette.glb": {
+    "url": "https://cdn.character-studio.wawasensei.dev/bakes/c559157259c1e51ab55bd3a6/compression=meshopt&morphs=none&pose=default&quality=medium.glb",
+    "bytes": 1424040,
+    "sha256": "8947dd5f83849e23cac29cbed0c1640f819a33c6f093d070fd345ceaf3ff8a6c"
+  },
+  "nova.glb": {
+    "url": "https://cdn.character-studio.wawasensei.dev/bakes/35760c22fbf635024cb2691d/compression=meshopt&morphs=none&pose=default&quality=medium.glb",
+    "bytes": 1591764,
+    "sha256": "251f5d4234817053f89aad6a4ffc2a3cda22feeb41216fc5b5b003c19b8ba42c"
+  },
+  "man-animations.glb": {
+    "url": "https://cdn.character-studio.wawasensei.dev/animations/man/796b3bf177b222679680d3ae7db34e4e22b32bd9d7e25e811112d04ba611155a.glb",
+    "bytes": 7018152,
+    "sha256": "796b3bf177b222679680d3ae7db34e4e22b32bd9d7e25e811112d04ba611155a"
+  },
+  "woman-animations.glb": {
+    "url": "https://cdn.character-studio.wawasensei.dev/animations/woman/f3cd6af7298253a80afe7a8e7cf99d2cb67ecba4c4a104985ba541e976b776f7.glb",
+    "bytes": 1820400,
+    "sha256": "f3cd6af7298253a80afe7a8e7cf99d2cb67ecba4c4a104985ba541e976b776f7"
+  }
+}

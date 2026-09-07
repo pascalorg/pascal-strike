@@ -17,6 +17,7 @@ import {
   Vector3,
 } from 'three'
 import { loadGltf, type Loaders } from '../engine/loaders'
+import { BUILTIN_MAPS } from '../config'
 import { batchOpenableLeaves, batchStaticMeshes, isTransparentMaterial } from './batch'
 import { buildOpenDoorObstacles } from './doors'
 
@@ -39,7 +40,8 @@ export interface LoadMapOptions {
    */
   batchStatic?: boolean
   /**
-   * Give the terrain a grass-like albedo (default true). Pascal exports the lot as a 30 m
+   * Give the terrain a grass-like albedo (default true, unless disabled for a built-in map).
+   * Pascal exports the lot as a 30 m
    * near-white plane, which under the sky environment reads as a snowfield; any very large, flat
    * mesh (see `isTerrain`) gets its colour multiplied toward `GRASS_TINT`, maps left alone.
    */
@@ -79,7 +81,10 @@ export async function loadMap(
   const bounds = new Box3()
   if (collider.geometry.boundingBox) bounds.copy(collider.geometry.boundingBox)
 
-  const matte = prepareMaterials(root, opts?.tintTerrain !== false, glassMeshes)
+  const tintTerrain = opts?.tintTerrain
+    ?? BUILTIN_MAPS.find((map) => map.url === source)?.tintTerrain
+    ?? true
+  const matte = prepareMaterials(root, tintTerrain, glassMeshes)
 
   // Batch after the materials are final (the batches reuse the very same instances) and after
   // the colliders are baked (they read the original meshes' world matrices).

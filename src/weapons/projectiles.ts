@@ -297,7 +297,6 @@ export function createProjectiles(
               weapon: ball.shot.weapon,
             }
             for (const callback of callbacks) callback(event)
-            audio.play('hitConfirm')
             deactivate(ball)
             break
           }

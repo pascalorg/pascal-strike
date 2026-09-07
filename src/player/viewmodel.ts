@@ -1,3 +1,5 @@
+import { createFirstPersonArms } from '../characters/first-person'
+import { readCharacter } from '../characters/catalog'
 /**
  * First-person view model: the weapon in hand (weapon-model.ts) plus the gloved hands,
  * parented to the camera.
@@ -17,8 +19,7 @@
  * Switching lowers what is in hand, swaps, and raises the next one; the timings match the
  * marker's `SWITCH_SECONDS` lockout, so the trigger comes back exactly when the gun is up.
  */
-import { BoxGeometry, Camera, Group, Mesh, MeshStandardMaterial, PointLight, Vector3 } from 'three'
-import { TEAMS } from '../config'
+import { Camera, Group, PointLight, Vector3 } from 'three'
 import type { TeamId, WeaponKind } from '../types'
 import { createWeaponModel, type WeaponModel } from '../weapons/weapon-model'
 
@@ -99,7 +100,7 @@ const POSES: Record<WeaponKind, Pose> = {
     rotation: [0.24, 0.60, 0.12],
     kickBack: 0,
     kickPitch: 0,
-    hand: [0, 0.062, -0.020],
+    hand: [0, 0.035, -0.025],
     supportHand: false,
   },
 }
@@ -134,30 +135,14 @@ export function createViewModel(camera: Camera): ViewModel {
   fill.position.set(-0.02, -0.06, -0.03)
   camera.add(fill)
 
-  // Hands: a fist, a thumb wrap and a forearm each, one shade lighter than the marker's
-  // charcoal so they separate from the grip instead of merging into one dark blob.
-  const glove = new MeshStandardMaterial({ color: 0x3d3f47, roughness: 0.94, metalness: 0.02 })
-  const cuff = new MeshStandardMaterial({ color: 0x24252b, roughness: 0.86, metalness: 0.05 })
-  const hands = new Group()
-  root.add(hands)
-  const triggerHand = new Group()
-  const supportHand = new Group()
-  hands.add(triggerHand, supportHand)
-  const geometries = [
-    // Trigger hand.
-    part(triggerHand, new BoxGeometry(0.060, 0.082, 0.062), glove, [0.004, -0.080, 0.030], [-0.26, 0, 0]),
-    part(triggerHand, new BoxGeometry(0.052, 0.026, 0.040), glove, [0.002, -0.036, 0.006], [-0.10, 0, 0]),
-    part(triggerHand, new BoxGeometry(0.056, 0.030, 0.030), cuff, [0.004, -0.122, 0.056], [-0.26, 0, 0]),
-    part(triggerHand, new BoxGeometry(0.052, 0.150, 0.052), cuff, [0.010, -0.190, 0.128], [-0.62, 0, 0]),
-    // Support hand on the angled foregrip.
-    part(supportHand, new BoxGeometry(0.058, 0.076, 0.058), glove, [0.002, -0.066, -0.252], [0.40, 0, 0]),
-    part(supportHand, new BoxGeometry(0.050, 0.026, 0.042), glove, [0.000, -0.024, -0.228], [0.16, 0, 0]),
-    part(supportHand, new BoxGeometry(0.054, 0.030, 0.030), cuff, [0.004, -0.106, -0.288], [0.40, 0, 0]),
-    part(supportHand, new BoxGeometry(0.050, 0.140, 0.050), cuff, [0.012, -0.150, -0.330], [0.72, 0, 0]),
-  ]
-  hands.traverse((object) => {
-    if (object instanceof Mesh) object.renderOrder = 99
-  })
+  let disposed = false
+  let arms: Awaited<ReturnType<typeof createFirstPersonArms>> | undefined
+  void createFirstPersonArms(readCharacter()).then(value => {
+    if (disposed) { value.dispose(); return }
+    arms = value
+    root.add(arms.object)
+    applyPose(current)
+  }).catch(error => console.error('[character hands]', error))
 
   let time = 0
   let sway = 0
@@ -179,8 +164,11 @@ export function createViewModel(camera: Camera): ViewModel {
 
   const applyPose = (kind: WeaponKind) => {
     pose = POSES[kind]
-    triggerHand.position.set(pose.hand[0], pose.hand[1], pose.hand[2])
-    supportHand.visible = pose.supportHand
+    if (arms) {
+      arms.object.position.set(pose.hand[0], pose.hand[1], pose.hand[2])
+      arms.setSupportHand(pose.supportHand)
+      arms.setWeapon(kind)
+    }
   }
   applyPose('rifle')
 
@@ -188,6 +176,7 @@ export function createViewModel(camera: Camera): ViewModel {
     object: root,
     get weapon() { return current },
     update(dt, speed, grounded) {
+      arms?.update(dt)
       time += dt * (5 + speed)
       sway += dt
       const steps = Math.max(1, Math.ceil(dt / KICK_MAX_STEP))
@@ -287,7 +276,6 @@ export function createViewModel(camera: Camera): ViewModel {
     setTeam(value) {
       team = value
       for (const model of Object.values(models)) model?.setTeam(value)
-      cuff.color.setHex(TEAMS[value].colorHex).multiplyScalar(0.22)
     },
     setHopper(count, max) {
       // The knife has no reservoir: `max` is Infinity, and a full "hopper" reads as a clean blade.
@@ -298,31 +286,14 @@ export function createViewModel(camera: Camera): ViewModel {
       return model ? model.muzzle.getWorldPosition(out) : out.setFromMatrixPosition(root.matrixWorld)
     },
     dispose() {
+      disposed = true
+      arms?.dispose()
       root.removeFromParent()
       key.removeFromParent()
       fill.removeFromParent()
       key.dispose()
       fill.dispose()
       for (const model of Object.values(models)) model?.dispose()
-      for (const geometry of geometries) geometry.dispose()
-      glove.dispose()
-      cuff.dispose()
     },
   }
-}
-
-function part(
-  parent: Group,
-  geometry: BoxGeometry,
-  material: MeshStandardMaterial,
-  position: readonly [number, number, number],
-  rotation: readonly [number, number, number],
-): BoxGeometry {
-  const mesh = new Mesh(geometry, material)
-  mesh.position.set(position[0], position[1], position[2])
-  mesh.rotation.set(rotation[0], rotation[1], rotation[2])
-  mesh.castShadow = false
-  mesh.frustumCulled = false
-  parent.add(mesh)
-  return geometry
 }

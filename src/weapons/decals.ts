@@ -1,4 +1,7 @@
 import {
+  Box3,
+  BufferGeometry,
+  Float32BufferAttribute,
   CanvasTexture,
   Euler,
   LinearFilter,
@@ -38,6 +41,10 @@ const size = new Vector3()
 const orientation = new Euler()
 const rotation = new Quaternion()
 const inverse = new Matrix4()
+const localBounds = new Box3()
+const localPoint = new Vector3()
+const worldScale = new Vector3()
+const patchMesh = new Mesh()
 
 export function createDecals(scene: Scene): Decals {
   const alphaMaps = SPLAT_VARIANTS.map((_, index) => getSplatTexture(index))
@@ -89,7 +96,7 @@ export function createDecals(scene: Scene): Decals {
       orientation.z += random() * Math.PI * 2
       size.set(diameter, diameter * (0.8 + random() * 0.35), diameter * 0.35)
       target.updateWorldMatrix(true, false)
-      const geometry = new DecalGeometry(target as Mesh, projectorPoint, orientation, size)
+      const geometry = createSurfaceDecal(target as Mesh, projectorPoint, orientation, size)
 
       const followsTarget = target.parent !== null && target.parent !== scene
       if (followsTarget) {
@@ -184,4 +191,38 @@ function makeSplatTexture(variant: number): CanvasTexture {
   texture.minFilter = LinearFilter
   texture.magFilter = LinearFilter
   return texture
+}
+
+/** Limit projection to nearby BVH triangles; a wall hit must not scan the entire merged house. */
+export function createSurfaceDecal(target: Mesh, point: Vector3, orientation: Euler, size: Vector3): BufferGeometry {
+  const source = target.geometry
+  const tree = source.boundsTree
+  if (!tree) return new DecalGeometry(target, point, orientation, size)
+  target.updateWorldMatrix(true, false)
+  inverse.copy(target.matrixWorld).invert()
+  localPoint.copy(point).applyMatrix4(inverse)
+  target.getWorldScale(worldScale)
+  const radius = size.length() * .5 / Math.max(.0001, Math.min(Math.abs(worldScale.x), Math.abs(worldScale.y), Math.abs(worldScale.z)))
+  localBounds.setFromCenterAndSize(localPoint, worldScale.setScalar(radius * 2))
+  const positions: number[] = [], normals: number[] = []
+  const position = source.getAttribute('position'), normal = source.getAttribute('normal'), index = source.index
+  tree.shapecast({
+    intersectsBounds: bounds => bounds.intersectsBox(localBounds),
+    intersectsTriangle: (triangle, triangleIndex) => {
+      triangle.getNormal(worldScale)
+      for (let corner = 0; corner < 3; corner++) {
+        const vertex = index ? index.getX(triangleIndex * 3 + corner) : triangleIndex * 3 + corner
+        positions.push(position.getX(vertex), position.getY(vertex), position.getZ(vertex))
+        normals.push(normal ? normal.getX(vertex) : worldScale.x, normal ? normal.getY(vertex) : worldScale.y, normal ? normal.getZ(vertex) : worldScale.z)
+      }
+      return false
+    },
+  })
+  const patch = new BufferGeometry()
+  patch.setAttribute('position', new Float32BufferAttribute(positions, 3))
+  patch.setAttribute('normal', new Float32BufferAttribute(normals, 3))
+  patchMesh.geometry = patch; patchMesh.matrixWorld.copy(target.matrixWorld)
+  const decal = new DecalGeometry(patchMesh, point, orientation, size)
+  patch.dispose()
+  return decal
 }

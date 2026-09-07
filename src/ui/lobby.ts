@@ -3,8 +3,9 @@
  * so it gets the Pascal card treatment rather than a form.
  */
 import { BUILTIN_MAPS } from '../config'
-import type { MapSelection } from '../types'
+import type { CharacterSelection, MapSelection } from '../types'
 import { appRoot, el } from './dom'
+import { createCharacterPicker } from './character-picker'
 
 const NAME_KEY = 'ps.name'
 /** "Fill empty slots with bots", remembered next to the name. Absent = on. */
@@ -23,6 +24,7 @@ export interface LobbyOptions {
 }
 
 export interface LobbyResult {
+  character: CharacterSelection
   name: string
   map: MapSelection | null
   roomCode?: string
@@ -45,6 +47,7 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
   const maps: MapSelection[] = opts.maps ?? BUILTIN_MAPS.map((m) => ({ ...m }))
   let selected: MapSelection | null = maps[0] ?? null
 
+  const characters = createCharacterPicker()
   const note = el('div', { class: 'ps-note' })
   const mapsGrid = el('div', { class: 'ps-maps' })
   const progress = el('i')
@@ -269,7 +272,7 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
       el('img', { src: '/brand/pascal-logo-full.svg', alt: 'Pascal' }),
       el('span', { text: 'Strike' }),
     ]),
-    card,
+    el('div', { class: 'ps-lobby-layout' }, [characters.node, card]),
   ])
 
   mount.appendChild(screen)
@@ -278,6 +281,7 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
   return new Promise<LobbyResult>((resolve) => {
     const result: LobbyResult = {
       name: '',
+      character: characters.selection,
       map: null,
       botsFill: botsInput.checked,
       setStatus: setNote,
@@ -292,6 +296,7 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
       dispose() {
         document.removeEventListener('dragover', swallowDrag)
         document.removeEventListener('drop', swallowDrag)
+        characters.dispose()
         screen.remove()
       },
     }
@@ -300,6 +305,7 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
       const name = (nameInput.value || '').trim().slice(0, 16) || 'Player'
       localStorage.setItem(NAME_KEY, name)
       localStorage.setItem(BOTS_KEY, botsInput.checked ? '1' : '0')
+      result.character = characters.selection
       result.name = name
       result.map = joining || roomCode ? null : selected
       result.botsFill = botsInput.checked

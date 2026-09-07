@@ -288,7 +288,7 @@ test('standing is blocked by the 1.3 m slab and crouching passes underneath', ()
   expect(standing.state.position.z).toBeGreaterThan(1.37)
 
   const crouching = spawnAt(-0.5, 2.2)
-  run(crouching, 1.4, { ...idle, forward: 1, crouch: true })
+  run(crouching, 3.4 / PLAYER.crouchSpeed, { ...idle, forward: 1, crouch: true })
   expect(crouching.state.crouching).toBe(true)
   expect(crouching.state.position.z).toBeLessThan(-0.9)
 })

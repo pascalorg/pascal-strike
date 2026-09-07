@@ -1324,11 +1324,11 @@ canvas {
 .ps-shield.is-on {
   display: flex;
 }
-/* Clears the health pill (63 px tall) rather than the old bare number. */
+/* Clears both the health and armor pills. */
 .ps-fps {
   position: absolute;
   left: var(--hud-pad);
-  bottom: calc(var(--hud-pad) + 73px);
+  bottom: calc(var(--hud-pad) + 124px);
   padding: 3px 9px;
   border-radius: 999px;
   font-family: var(--font-mono);
@@ -1627,3 +1627,38 @@ canvas {
 .ps-dev a {
   color: var(--team-b);
 }
+
+/* Character Studio loadout */
+.ps-lobby-layout { display: grid; grid-template-columns: 360px minmax(400px, 540px); gap: 24px; align-items: stretch; margin: auto; width: min(960px, calc(100vw - 48px)); }
+.ps-lobby-layout > .ps-card { width: 100%; max-width: none; margin: 0; box-sizing: border-box; }
+.ps-character-picker { border: 1px solid #ffffff14; border-radius: 20px; background: radial-gradient(ellipse at 50% 35%, #23413d55, transparent 62%), linear-gradient(160deg, #22242b, #111215); padding: 24px; display: flex; flex-direction: column; min-height: 600px; box-shadow: 0 24px 80px #0005; overflow: hidden; }
+.ps-character-eyebrow { font: 600 11px Inter,sans-serif; letter-spacing: .18em; color: #a1a1aa; }
+.ps-character-stage { min-height: 270px; flex: 1; position: relative; cursor: grab; }
+.ps-character-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.ps-character-caption { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 10px 0 18px; }
+.ps-character-name { font: 700 32px Barlow,sans-serif; margin: 0; color: #fafafa; }
+.ps-character-options { display: flex; gap: 8px; margin-bottom: 16px; }
+.ps-character-option { flex: 1; min-width: 0; padding: 0 0 7px; overflow: hidden; border: 1px solid #ffffff16; border-radius: 10px; background: #ffffff05; color: #a1a1aa; cursor: pointer; font: 500 11px Inter,sans-serif; transition: border-color .15s, background .15s; }
+.ps-character-option img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; margin-bottom: 5px; }
+.ps-character-option:hover { background: #ffffff0f; border-color: #ffffff55; }
+.ps-character-option[aria-pressed="true"] { border-color: #14b8a6; background: #14b8a615; color: #f4f4f5; box-shadow: 0 0 0 1px #14b8a6; }
+.ps-character-option:focus-visible, .ps-create-character:focus-visible { outline: 2px solid #fafafa; outline-offset: 3px; }
+.ps-character-custom-icon { display: grid; place-items: center; aspect-ratio: 1; color: #14b8a6; font-size: 28px; }
+.ps-create-character { background: #ffffff08; border: 1px solid #ffffff25; }
+.ps-character-status { min-height: 18px; font: 400 11px Inter,sans-serif; text-align: center; color: #a1a1aa; margin-top: 12px; }
+.ps-studio-credit { text-align: center; color: #71717a; font: 400 10px Inter,sans-serif; margin-top: 10px; text-decoration: none; }
+.ps-studio-credit:hover { color: #d4d4d8; }
+.ps-studio-dialog { width: min(1200px, calc(100vw - 40px)); height: min(850px, calc(100dvh - 40px)); max-width: none; max-height: none; padding: 0; border: 1px solid #ffffff30; border-radius: 16px; background: #101114; color: #fafafa; box-shadow: 0 40px 120px #000a; }
+.ps-studio-dialog[open] { display: flex; flex-direction: column; }
+.ps-studio-dialog::backdrop { background: #000b; backdrop-filter: blur(8px); }
+.ps-studio-header { padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #ffffff15; }
+.ps-studio-header h2 { font: 600 20px Barlow,sans-serif; margin: 0; }
+.ps-studio-note { padding: 8px 20px; font: 12px Inter,sans-serif; color: #a1a1aa; }
+.ps-studio-dialog iframe { flex: 1; width: 100%; min-height: 0; border: 0; background: #fff; }
+@media (max-width: 850px) { .ps-lobby-layout { grid-template-columns: 1fr; max-width: 540px; } .ps-character-picker { min-height: 500px; } .ps-character-stage { min-height: 260px; } }
+
+.ps-armor { position: absolute; left: 25px; bottom: 104px; color: #c4e9fa; background: #101820cf; border: 1px solid #a9dcff40; border-radius: 8px; padding: 8px 12px; font: 11px var(--font-mono); letter-spacing: .08em; }
+.ps-armor b { font-size: 17px; margin-right: 5px; }
+.ps-armor.is-empty { color: #8b8b96; border-color: #ffffff15; }
+.ps-kill-confirm { position: absolute; top: calc(50% + 72px); left: 50%; transform: translateX(-50%); opacity: 0; border: 1px solid #ffcf7070; border-radius: 6px; padding: 9px 16px; background: #17140de8; color: #ffdf9a; font: 600 13px var(--font-ui); letter-spacing: .08em; white-space: nowrap; }
+.ps-pointer-hint { position: absolute; top: 90px; left: 50%; transform: translateX(-50%); border: 1px solid #ffffff25; border-radius: 8px; background: #15171ee6; padding: 10px 18px; font-size: 12px; color: #e4e4e7; }

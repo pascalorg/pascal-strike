@@ -18,7 +18,7 @@ import {
   type PlayerState,
 } from 'playroomkit'
 import { ENV, MATCH } from '../config'
-import type { MapSelection } from '../types'
+import type { CharacterSelection, MapSelection } from '../types'
 import {
   botsFillValue,
   DEFAULT_PLAYER_STATES,
@@ -84,6 +84,7 @@ export interface Room {
 }
 
 export interface JoinOptions {
+  character?: CharacterSelection
   name: string
   /** Explicit code for "join with code"; otherwise the `#r=` hash decides, else a new room. */
   roomCode?: string
@@ -168,6 +169,7 @@ async function connect(opts: JoinOptions): Promise<Room> {
 
   const me = myPlayer()
   me.setState(PS.name, opts.name, true)
+  if (opts.character) me.setState(PS.character, opts.character, true)
 
   const code = getRoomCode() ?? ''
   const leaveListeners = new Set<(id: string) => void>()

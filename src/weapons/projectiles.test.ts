@@ -19,7 +19,8 @@ if (typeof document === 'undefined') {
     },
   } as unknown as Document
 }
-const { createAvatar } = await import('../player/avatar')
+const { createAvatar: createRenderedAvatar } = await import('../player/avatar')
+const createAvatar = (team: 'a' | 'b', name: string, id?: string) => createRenderedAvatar(team, name, id, null)
 
 const noDecals = { add() {} }
 const noEffects = { splat() {} }

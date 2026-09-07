@@ -36,6 +36,7 @@ export interface Effects {
   remoteMuzzle(position: Vector3, direction: Vector3, team: TeamId): void
   /** Thin additive streak from `origin` along `direction`; alive for ~2 frames. */
   tracer(origin: Vector3, direction: Vector3, team: TeamId): void
+  impact(position: Vector3, normal: Vector3, team: TeamId): void
   splat(position: Vector3, normal: Vector3, team: TeamId): void
   update(dt: number): void
   dispose(): void
@@ -209,6 +210,13 @@ export function createEffects(scene: Scene, _callbacks: EffectsCallbacks = {}): 
       entry.material.opacity = 0.85
       entry.life = TRACER_LIFE
     },
+    impact(position, normal, team) {
+      // A readable central splash plus droplets. Uses the existing particle pool.
+      const core = nextParticle()
+      scratchDirection.set(0, .2, 0)
+      launch(core, position, scratchDirection, team, .24, .28, 0, false)
+      effects.splat(position, normal, team)
+    },
     splat(position, normal, team) {
       tangent.set(0, 1, 0).cross(normal)
       if (tangent.lengthSq() < 1e-5) tangent.set(1, 0, 0)
@@ -220,7 +228,7 @@ export function createEffects(scene: Scene, _callbacks: EffectsCallbacks = {}): 
         particle.velocity.copy(normal).multiplyScalar(0.5 + random() * 1.7)
           .addScaledVector(tangent, (random() - 0.5) * 2)
           .addScaledVector(bitangent, (random() - 0.5) * 2)
-        launch(particle, position, particle.velocity, team, 0.4, 0.025 + random() * 0.035, 5.5)
+        launch(particle, position, particle.velocity, team, 0.45, 0.04 + random() * 0.04, 5.5)
       }
     },
     update(dt) {

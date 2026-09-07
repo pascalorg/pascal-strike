@@ -1,7 +1,7 @@
 /**
- * The three weapons as pieces of industrial design, built entirely from primitives.
+ * Blender-authored GLBs, with the original primitive models as loading fallbacks.
  *
- * Reference silhouette (rifle): a compact futuristic SMG blaster — matte white polymer body
+ * Fallback silhouette (rifle): a compact futuristic SMG blaster — matte white polymer body
  * with chamfered panels and shallow panel lines, charcoal receiver / grip / folding stock, a
  * full-length top rail with front and rear sights, an angled foregrip, a squared muzzle
  * shroud, and the team colour carried by a thin accent strip, the translucent paint hopper
@@ -37,6 +37,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { TEAMS } from '../config'
 import type { TeamId, WeaponKind } from '../types'
 import { buildKnife, buildPistol } from './weapon-model-sidearms'
+import { createAssetWeapon } from './weapon-assets'
 
 export type WeaponQuality = 'first' | 'third'
 
@@ -50,6 +51,7 @@ export interface WeaponModelOptions {
 
 export interface WeaponModel {
   readonly kind: WeaponKind
+  readonly ready?: Promise<void>
   readonly object: Group
   /** Empty node at the bore exit (the blade tip for the knife); effects read its world position. */
   readonly muzzle: Object3D
@@ -105,6 +107,12 @@ const MODEL_LENGTH = 0.63
 const BORE_Y = 0.026
 
 export function createWeaponModel(options: WeaponModelOptions): WeaponModel {
+  if (typeof window !== 'undefined') return createAssetWeapon(options, () => createPrimitiveWeaponModel(options))
+  return createPrimitiveWeaponModel(options)
+}
+
+/** Immediate loading/offline fallback; the Blender GLBs replace it once ready. */
+function createPrimitiveWeaponModel(options: WeaponModelOptions): WeaponModel {
   const kind: WeaponKind = options.kind ?? 'rifle'
   const detail = options.quality === 'first'
   const teamHex = TEAMS[options.team].colorHex

@@ -16,7 +16,8 @@ export const TEAMS: Record<TeamId, TeamInfo> = {
 }
 
 export const BUILTIN_MAPS = [
-  { id: 'pascal-house', name: 'Pascal House', url: '/maps/pascal-house.glb' },
+  { id: 'pascal-house', name: 'Pascal House', url: '/maps/pascal-house.glb', tintTerrain: true },
+  { id: 'fy-iceworld', name: 'fy_iceworld', url: '/maps/fy-iceworld.glb', tintTerrain: false },
 ] as const
 
 export const MATCH = {
@@ -42,7 +43,7 @@ export const PLAYER = {
   // Movement (m/s, m/s^2). Default movement is running; Shift walks (slow, precise).
   runSpeed: 5.5,
   walkSpeed: 2.8,
-  crouchSpeed: 2.6,
+  crouchSpeed: 1.8,
   airControl: 0.35,
   accel: 45,
   decel: 55,
@@ -95,7 +96,7 @@ export const WEAPONS = {
     slot: 1,
     label: 'Marker',
     auto: true,
-    fireRate: 12,
+    fireRate: 10,
     ammo: 30,
     reloadMs: 1_400,
     projectileSpeed: 95,
@@ -144,6 +145,17 @@ export const DAMAGE: Record<'head' | 'torso' | 'arm' | 'leg', number> = {
   leg: 20,
 }
 
+export const ARMOR = {
+  max: 50,
+  absorption: 0.35,
+}
+
+export const TAGGING = {
+  speedScale: 0.55,
+  holdMs: 120,
+  recoveryMs: 380,
+}
+
 export const DECALS = {
   maxCount: 400,
   minSize: 0.16,
@@ -171,6 +183,8 @@ export const NET = {
 }
 
 export const BOTS = {
+  aimSettleMs: 120,
+  fireSpeedThreshold: 0.7,
   decisionHz: 8,
   viewDistance: 28,
   fovDeg: 130,

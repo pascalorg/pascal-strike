@@ -9,7 +9,7 @@
  *   frame      : look/camera/marker → net interpolation → avatars → projectiles → doors → HUD
  */
 import { Vector3 } from 'three'
-import { BUILTIN_MAPS, DOORS, PLAYER, TEAMS } from '../config'
+import { ARMOR, BUILTIN_MAPS, DOORS, PLAYER, TEAMS } from '../config'
 import { createAudio, type Audio, type AudioListenerPose, type SoundName } from '../engine/audio'
 import { createEventBus } from '../engine/events'
 import type { OptionalSoundName } from '../engine/sfx-manifest'
@@ -134,14 +134,14 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   const loaders = createLoaders(engine.renderer)
   // The sample loader already supports these manifest cues; they have no synth fallback.
   type GameAudio = Omit<Audio, 'play'> & {
-    play(name: SoundName | OptionalSoundName, at?: Vector3, listener?: AudioListenerPose): void
+    play(name: SoundName | OptionalSoundName, at?: Vector3, listener?: AudioListenerPose, gain?: number): void
   }
   const rawAudio = createAudio() as GameAudio
   let muted = false
   const audio: GameAudio = {
     resume: () => rawAudio.resume(),
-    play: (name, at, listener) => {
-      if (!muted) rawAudio.play(name, at, listener)
+    play: (name, at, listener, gain) => {
+      if (!muted) rawAudio.play(name, at, listener, gain)
     },
     dispose: () => rawAudio.dispose(),
   }
@@ -480,12 +480,19 @@ export async function startGame(opts: GameOptions): Promise<Game> {
     const byTeam = registry.get(dmg.by)?.team ?? 'b'
     if (dmg.by === room.me.id && dmg.target !== room.me.id) {
       hud.hitMarker(dmg.part, registry.local?.team)
+      audio.play('hitConfirm', undefined, undefined, dmg.part === 'head' ? 1.4 : 1)
     }
     if (dmg.target === room.me.id) {
       hud.setHp(dmg.hp)
+      hud.setArmor(dmg.armor ?? registry.local?.armor ?? ARMOR.max)
       hud.paintHit(viewSpaceDirection(dmg.point), byTeam, dmg.part)
       audio.play('hit')
     } else {
+      if (session && dmg.point) {
+        _shotOrigin.fromArray(dmg.point)
+        _shotDir.copy(localPlayer.listener.position).sub(_shotOrigin).normalize()
+        session.effects.impact(_shotOrigin, _shotDir, byTeam)
+      }
       remotePlayers.flashHit(dmg.target)
       remotePlayers.splat(dmg.target, dmg.point, TEAMS[byTeam].colorHex)
     }
@@ -494,6 +501,10 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   events.on('kill', (kill) => {
     const killer = registry.get(kill.killer)
     const victim = registry.get(kill.victim)
+    if (kill.killer === room.me.id && kill.victim !== room.me.id) {
+      hud.confirmKill(victim?.name ?? 'Player')
+      audio.play('killConfirm')
+    }
     hud.killFeed({
       killer: kill.killer,
       victim: kill.victim,
@@ -522,6 +533,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       revivedAt = clock.now()
       hud.setRespawn(0)
       hud.setHp(PLAYER.maxHp)
+      hud.setArmor(ARMOR.max)
       audio.play('respawn')
       return
     }
@@ -583,9 +595,12 @@ export async function startGame(opts: GameOptions): Promise<Game> {
 
   let lastMapPoll = 0
   let lastHudPoll = 0
+  let lastArmor = -1
   let lastHp = -1
   let lastHopper = -1
   let lastReloading = false
+  let sentGrounded: boolean | undefined
+  let sentReloading: boolean | undefined
   let lastPhase: string | null = null
   let endedRound = -1
   let boardOpen = false
@@ -662,6 +677,10 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   function updateHud(now: number): void {
     match = room.getGlobal<MatchState>(GS.match) ?? hostSide.authority?.match.state ?? match
     const me = registry.local
+    if (me && !localPlayer.spectating) {
+      if (sentGrounded !== me.grounded) { sentGrounded = me.grounded; room.me.setState(PS.grounded, sentGrounded, true) }
+      if (sentReloading !== me.reloading) { sentReloading = me.reloading; room.me.setState(PS.reloading, sentReloading, true) }
+    }
 
     // The host has put us on a side (our own pick, or a migration adopting one): the screen's
     // job is done and the respawn RPC is already on its way with a position.
@@ -673,6 +692,10 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       if (me.hp !== lastHp) {
         lastHp = me.hp
         hud.setHp(me.hp)
+      }
+      if ((me.armor ?? ARMOR.max) !== lastArmor) {
+        lastArmor = me.armor ?? ARMOR.max
+        hud.setArmor(lastArmor)
       }
       if (me.team !== lastTeam) {
         lastTeam = me.team
@@ -915,16 +938,22 @@ export async function startGame(opts: GameOptions): Promise<Game> {
   if (myTeam()) menu.open()
   else openTeamScreen('join')
 
+  let lastUnlockAt = -Infinity
   const offLock = input.onLockChange((locked) => {
+    if (!locked) lastUnlockAt = performance.now()
+    hud.setPointerReleased(!locked && input.pointerReleased)
     if (locked) menu.close()
     // Losing the lock while the team screen is up is what the team screen is for.
-    else if (!teamScreen.isOpen) menu.open()
+    else if (!teamScreen.isOpen && !input.pointerReleased) menu.open()
   })
   const onKeyDown = (e: KeyboardEvent) => {
     // The team screen handles its own keys (capture phase) and swallows the ones it uses.
     if (teamScreen.isOpen) return
     if (e.code === 'Escape' && !document.pointerLockElement) {
       e.preventDefault()
+      // Native Esc can release the lock before delivering keydown. Do not close the menu
+      // that pointerlockchange just opened for this same key press.
+      if (performance.now() - lastUnlockAt < 150) return
       if (menu.isOpen) menu.close()
       else menu.open()
     }
