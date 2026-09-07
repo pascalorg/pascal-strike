@@ -4,7 +4,7 @@ The lobby offers Wawa, Brian, Janette, and Nova, with an animated preview and a 
 
 ## Assets
 
-`public/characters/` contains four immutable Studio bakes, portraits, and the shared man/woman animation libraries. Default characters work without a running Studio server. The manifest and source URLs are recorded in `roster.json`; `sources.json` records the downloaded CDN URLs, byte sizes, and SHA-256 hashes. Nova is the game display name for the Studio character originally called “John copy”. Models use medium quality with no face morph targets. Textures and geometry are shared across instances; skeletons, mixers, and mutable materials are independent.
+`public/characters/` contains four immutable Studio bakes, portraits, and the shared man/woman animation libraries. Default characters work without a running Studio server. The manifest and source URLs are recorded in `roster.json`; `sources.json` records the downloaded CDN URLs, byte sizes, and SHA-256 hashes. Brian Tuxedo and Nova were refreshed from their published Studio characters on September 7, 2026, including their lobby portraits. Models use medium quality with no face morph targets. Textures and geometry are shared across instances; skeletons, mixers, and mutable materials are independent.
 
 `node scripts/sync-characters.mjs` refreshes models from the pinned bake IDs and downloads the current shared animation libraries. Review changed hashes and run the browser checks after refreshing. Portraits are copied from the original Studio character thumbnails.
 

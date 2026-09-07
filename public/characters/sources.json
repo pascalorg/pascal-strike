@@ -5,9 +5,9 @@
     "sha256": "af70fdbbcfa2031e3ee20f04584d065f400969176e7d2046afed963174491cb9"
   },
   "brian.glb": {
-    "url": "https://cdn.character-studio.wawasensei.dev/bakes/17a1e7847a81495e6b14e4fa/compression=meshopt&morphs=none&pose=default&quality=medium.glb",
-    "bytes": 1206624,
-    "sha256": "b5e5ceebd7645624146fba9e4c74ca163fc574ef5f3a35df67baae0568c6ba47"
+    "url": "https://cdn.character-studio.wawasensei.dev/bakes/f7f8ab9d455f0c9f030d9703/compression=meshopt&morphs=none&pose=default&quality=medium.glb",
+    "bytes": 1229472,
+    "sha256": "ee070bf214ecc000136583b57576dd4e3fca8349dea9d797365944a2f4d96d3b"
   },
   "janette.glb": {
     "url": "https://cdn.character-studio.wawasensei.dev/bakes/c559157259c1e51ab55bd3a6/compression=meshopt&morphs=none&pose=default&quality=medium.glb",
@@ -15,9 +15,9 @@
     "sha256": "8947dd5f83849e23cac29cbed0c1640f819a33c6f093d070fd345ceaf3ff8a6c"
   },
   "nova.glb": {
-    "url": "https://cdn.character-studio.wawasensei.dev/bakes/35760c22fbf635024cb2691d/compression=meshopt&morphs=none&pose=default&quality=medium.glb",
-    "bytes": 1591764,
-    "sha256": "251f5d4234817053f89aad6a4ffc2a3cda22feeb41216fc5b5b003c19b8ba42c"
+    "url": "https://cdn.character-studio.wawasensei.dev/bakes/9aa55203aac01160da3ab545/compression=meshopt&morphs=none&pose=default&quality=medium.glb",
+    "bytes": 1154064,
+    "sha256": "b31b34b01bfeabcde2ffd157093c966b050ce991936950207f4809cb84a3be22"
   },
   "man-animations.glb": {
     "url": "https://cdn.character-studio.wawasensei.dev/animations/man/796b3bf177b222679680d3ae7db34e4e22b32bd9d7e25e811112d04ba611155a.glb",
@@ -28,5 +28,15 @@
     "url": "https://cdn.character-studio.wawasensei.dev/animations/woman/f3cd6af7298253a80afe7a8e7cf99d2cb67ecba4c4a104985ba541e976b776f7.glb",
     "bytes": 1820400,
     "sha256": "f3cd6af7298253a80afe7a8e7cf99d2cb67ecba4c4a104985ba541e976b776f7"
+  },
+  "brian.png": {
+    "url": "https://pocketbase-u4.vm.elestio.app/api/files/pbc_3974215006/03a9o3fdi8kzxzc/thumb_1788794623639_pku82wfa45.png",
+    "bytes": 106870,
+    "sha256": "48c47a73f6db9d01437907a43fccfcd50858312498b06c0cfd3ff00d9c464204"
+  },
+  "nova.png": {
+    "url": "https://pocketbase-u4.vm.elestio.app/api/files/pbc_3974215006/bpxqp7ozxz68n79/thumb_1788794469619_8refr8adwa.png",
+    "bytes": 128042,
+    "sha256": "c93837915d441b7bd2f62b75aef6b4cdef2cb7e5a8cdfabd9a81c2a0b0dd2a54"
   }
 }
