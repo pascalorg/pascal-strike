@@ -15,7 +15,7 @@
     "manifestUrl": "/characters/brian.manifest.json",
     "modelUrl": "/characters/brian.glb",
     "animationsUrl": "/characters/man-animations.glb",
-    "source": "https://characterstudio.wawasensei.dev/api/models/b/17a1e7847a81495e6b14e4fa.json"
+    "source": "https://characterstudio.wawasensei.dev/api/models/b/f7f8ab9d455f0c9f030d9703.json"
   },
   {
     "id": "janette",
@@ -33,6 +33,6 @@
     "manifestUrl": "/characters/nova.manifest.json",
     "modelUrl": "/characters/nova.glb",
     "animationsUrl": "/characters/woman-animations.glb",
-    "source": "https://characterstudio.wawasensei.dev/api/models/b/35760c22fbf635024cb2691d.json"
+    "source": "https://characterstudio.wawasensei.dev/api/models/b/9aa55203aac01160da3ab545.json"
   }
 ]

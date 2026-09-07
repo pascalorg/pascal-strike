@@ -1,15 +1,15 @@
 {
   "schema": "character-studio.manifest.v1",
-  "pipelineVersion": "1.1.0",
-  "bakeId": "17a1e7847a81495e6b14e4fa",
+  "pipelineVersion": "1.2.0",
+  "bakeId": "f7f8ab9d455f0c9f030d9703",
   "characterId": "03a9o3fdi8kzxzc",
   "name": "Brian Tuxedo",
   "gender": "man",
-  "height": 1,
+  "height": 0.69,
   "stale": false,
   "urls": {
-    "manifest": "https://characterstudio.wawasensei.dev/api/models/b/17a1e7847a81495e6b14e4fa.json",
-    "model": "https://characterstudio.wawasensei.dev/api/models/b/17a1e7847a81495e6b14e4fa.glb",
+    "manifest": "https://characterstudio.wawasensei.dev/api/models/b/f7f8ab9d455f0c9f030d9703.json",
+    "model": "https://characterstudio.wawasensei.dev/api/models/b/f7f8ab9d455f0c9f030d9703.glb",
     "modelMutable": "https://characterstudio.wawasensei.dev/api/models/c/03a9o3fdi8kzxzc.glb",
     "animations": "https://characterstudio.wawasensei.dev/api/models/animations/man.glb",
     "docs": "https://characterstudio.wawasensei.dev/llms.txt",
@@ -61,9 +61,9 @@
           "pose": "default",
           "quality": "medium"
         },
-        "url": "https://characterstudio.wawasensei.dev/api/models/b/17a1e7847a81495e6b14e4fa.glb?compression=meshopt&morphs=none&pose=default&quality=medium",
-        "cdnUrl": "https://cdn.character-studio.wawasensei.dev/bakes/17a1e7847a81495e6b14e4fa/compression=meshopt&morphs=none&pose=default&quality=medium.glb",
-        "bytes": 1206624
+        "url": "https://characterstudio.wawasensei.dev/api/models/b/f7f8ab9d455f0c9f030d9703.glb?compression=meshopt&morphs=none&pose=default&quality=medium",
+        "cdnUrl": "https://cdn.character-studio.wawasensei.dev/bakes/f7f8ab9d455f0c9f030d9703/compression=meshopt&morphs=none&pose=default&quality=medium.glb",
+        "bytes": 1229472
       },
       {
         "key": "compression=meshopt&morphs=visemes&pose=default&quality=medium",
@@ -73,9 +73,9 @@
           "pose": "default",
           "quality": "medium"
         },
-        "url": "https://characterstudio.wawasensei.dev/api/models/b/17a1e7847a81495e6b14e4fa.glb?compression=meshopt&morphs=visemes&pose=default&quality=medium",
-        "cdnUrl": "https://cdn.character-studio.wawasensei.dev/bakes/17a1e7847a81495e6b14e4fa/compression=meshopt&morphs=visemes&pose=default&quality=medium.glb",
-        "bytes": 1376560
+        "url": "https://characterstudio.wawasensei.dev/api/models/b/f7f8ab9d455f0c9f030d9703.glb?compression=meshopt&morphs=visemes&pose=default&quality=medium",
+        "cdnUrl": "https://cdn.character-studio.wawasensei.dev/bakes/f7f8ab9d455f0c9f030d9703/compression=meshopt&morphs=visemes&pose=default&quality=medium.glb",
+        "bytes": 1399432
       }
     ],
     "request": "Append any subset of the params as a query string to urls.model (or urls.modelMutable). Unknown params or values return 400. A variant that does not exist yet is generated while the request is held open (about 10 s); retry on 503.",
@@ -614,7 +614,7 @@
         "assetId": "s6yshx5wx07529h",
         "color": null,
         "colors": {
-          "Color_Business_Pants": "#442c21"
+          "Color_Business_Pants": "#0f172a"
         }
       },
       "Eyebrows": {
@@ -652,7 +652,7 @@
         "assetId": "h1tafi3o1jznyq2",
         "color": null,
         "colors": {
-          "Color_Crocs": "#cc5b7c"
+          "Color_Crocs": "#15803d"
         }
       },
       "Glasses": {
@@ -661,10 +661,10 @@
         "colors": {}
       },
       "Hair": {
-        "assetId": "0pcm4smvfanb9un",
+        "assetId": "eyl6ehm6eb2pb3j",
         "color": null,
         "colors": {
-          "Color_Hair": "#442c21"
+          "Color_Hair": "#432816"
         }
       },
       "Hat": {
@@ -681,16 +681,16 @@
       },
       "Skin": {
         "assetId": null,
-        "color": "#E7AF91",
+        "color": "#c68663",
         "colors": {}
       },
       "Top": {
         "assetId": "uuyr8y1yxh3qmtb",
         "color": null,
         "colors": {
-          "Color_Blazer": "#442c21",
-          "Color_Bow": "#000000",
-          "Color_Inner_Shirt": "#e7e7e7"
+          "Color_Blazer": "#0f172a",
+          "Color_Bow": "#c31518",
+          "Color_Inner_Shirt": "#f9fafb"
         }
       },
       "Uniform": {
@@ -700,7 +700,15 @@
       }
     },
     "gender": "man",
-    "height": 1,
-    "morphValues": {}
+    "height": 0.69,
+    "morphValues": {
+      "Body Size": 0.87,
+      "Eye Spacing": 1,
+      "Lip Size": 0.83,
+      "Muscularity": 1,
+      "Nasal Bridge Size": 0,
+      "Nose Length": 0.85,
+      "Nose Width": 1
+    }
   }
 }

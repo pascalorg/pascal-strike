@@ -1,15 +1,15 @@
 {
   "schema": "character-studio.manifest.v1",
-  "pipelineVersion": "1.1.0",
-  "bakeId": "35760c22fbf635024cb2691d",
+  "pipelineVersion": "1.2.0",
+  "bakeId": "9aa55203aac01160da3ab545",
   "characterId": "bpxqp7ozxz68n79",
-  "name": "John copy",
+  "name": "Nova",
   "gender": "woman",
-  "height": 1.2,
+  "height": 0.73,
   "stale": false,
   "urls": {
-    "manifest": "https://characterstudio.wawasensei.dev/api/models/b/35760c22fbf635024cb2691d.json",
-    "model": "https://characterstudio.wawasensei.dev/api/models/b/35760c22fbf635024cb2691d.glb",
+    "manifest": "https://characterstudio.wawasensei.dev/api/models/b/9aa55203aac01160da3ab545.json",
+    "model": "https://characterstudio.wawasensei.dev/api/models/b/9aa55203aac01160da3ab545.glb",
     "modelMutable": "https://characterstudio.wawasensei.dev/api/models/c/bpxqp7ozxz68n79.glb",
     "animations": "https://characterstudio.wawasensei.dev/api/models/animations/woman.glb",
     "docs": "https://characterstudio.wawasensei.dev/llms.txt",
@@ -61,9 +61,9 @@
           "pose": "default",
           "quality": "medium"
         },
-        "url": "https://characterstudio.wawasensei.dev/api/models/b/35760c22fbf635024cb2691d.glb?compression=meshopt&morphs=none&pose=default&quality=medium",
-        "cdnUrl": "https://cdn.character-studio.wawasensei.dev/bakes/35760c22fbf635024cb2691d/compression=meshopt&morphs=none&pose=default&quality=medium.glb",
-        "bytes": 1591764
+        "url": "https://characterstudio.wawasensei.dev/api/models/b/9aa55203aac01160da3ab545.glb?compression=meshopt&morphs=none&pose=default&quality=medium",
+        "cdnUrl": "https://cdn.character-studio.wawasensei.dev/bakes/9aa55203aac01160da3ab545/compression=meshopt&morphs=none&pose=default&quality=medium.glb",
+        "bytes": 1154064
       },
       {
         "key": "compression=meshopt&morphs=visemes&pose=default&quality=medium",
@@ -73,9 +73,9 @@
           "pose": "default",
           "quality": "medium"
         },
-        "url": "https://characterstudio.wawasensei.dev/api/models/b/35760c22fbf635024cb2691d.glb?compression=meshopt&morphs=visemes&pose=default&quality=medium",
-        "cdnUrl": "https://cdn.character-studio.wawasensei.dev/bakes/35760c22fbf635024cb2691d/compression=meshopt&morphs=visemes&pose=default&quality=medium.glb",
-        "bytes": 2195132
+        "url": "https://characterstudio.wawasensei.dev/api/models/b/9aa55203aac01160da3ab545.glb?compression=meshopt&morphs=visemes&pose=default&quality=medium",
+        "cdnUrl": "https://cdn.character-studio.wawasensei.dev/bakes/9aa55203aac01160da3ab545/compression=meshopt&morphs=visemes&pose=default&quality=medium.glb",
+        "bytes": 1493488
       }
     ],
     "request": "Append any subset of the params as a query string to urls.model (or urls.modelMutable). Unknown params or values return 400. A variant that does not exist yet is generated while the request is held open (about 10 s); retry on 503.",
@@ -619,6 +619,7 @@
         "assetId": "wknb0f32669py00",
         "color": null,
         "colors": {
+          "Color_Leggings": "#1b1918",
           "Color_Suit": "#1b1918"
         }
       },
@@ -626,6 +627,7 @@
         "assetId": "c43gshguwl7utzw",
         "color": null,
         "colors": {
+          "Color_Eyebrow": "#c49a6c",
           "Color_Hair": "#191109"
         }
       },
@@ -640,13 +642,13 @@
         "assetId": "1fbieme2i26hztx",
         "color": null,
         "colors": {
-          "Color_Eye": "#1d4ed8",
-          "Color_Pupil": "#101010",
+          "Color_Eye": "#be185d",
+          "Color_Pupil": "#191919",
           "Color_Sclera": "#e7e7e7"
         }
       },
       "Face": {
-        "assetId": "28i8317gtsdvpca",
+        "assetId": "f34jui1mjif1dum",
         "color": null,
         "colors": {}
       },
@@ -656,21 +658,27 @@
         "colors": {}
       },
       "Footwear": {
-        "assetId": "ry0del4njab0yv2",
+        "assetId": "4ac68sn1c10ocwu",
         "color": null,
         "colors": {
-          "Color_Shoes": "#070707"
+          "Color_Flat_Body": "#fbfff0",
+          "Color_Flat_Sole": "#9b7650",
+          "Color_Sandals_Sole": "#6d5842",
+          "Color_Sandals_Straps": "#a14d2e",
+          "Color_Shoes": "#070707",
+          "Color_Suit_Shoes": "#070707"
         }
       },
       "Glasses": {
-        "assetId": "ao02h9ken2xrx9b",
+        "assetId": "2pid6ui82bg40ot",
         "color": null,
         "colors": {
-          "Color_Glasses": "#be185d"
+          "Color_Band": "#4b5563",
+          "Color_Glasses": "#4b5563"
         }
       },
       "Hair": {
-        "assetId": "mhn4lfc84o2ipug",
+        "assetId": "o31841ivdbydibi",
         "color": null,
         "colors": {
           "Color_Hair": "#c49a6c"
@@ -688,11 +696,6 @@
           "Color_Hair": "#422c17"
         }
       },
-      "Mouth": {
-        "assetId": "gagr3tqqehcfaay",
-        "color": null,
-        "colors": {}
-      },
       "Skin": {
         "assetId": null,
         "color": "#E7AF91",
@@ -709,24 +712,27 @@
         }
       },
       "Uniform": {
-        "assetId": "vaupf7ogfiq5xpc",
+        "assetId": "eytiw80avuvkafp",
         "color": null,
         "colors": {
-          "Color_Long_Dress": "#be185d"
+          "Color_Dress": "#607659",
+          "Color_Long_Dress": "#be185d",
+          "Color_Mini_Dress": "#2613e7",
+          "Color_Mini_Skirt_Dress": "#f0ddea"
         }
       }
     },
     "gender": "woman",
-    "height": 1.2,
+    "height": 0.73,
     "morphValues": {
-      "Body Size": 0,
+      "Body Size": 0.68,
       "Eye Spacing": 0,
       "Eye Width": 0,
       "Lip Thickness": 0.62,
       "Muscularity": 0,
       "Nasal Bridge Size": 0.8,
       "Nose Length": 0.34,
-      "Nose Width": 0
+      "Nose Width": 1
     }
   }
 }
