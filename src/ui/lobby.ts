@@ -6,6 +6,8 @@ import { BUILTIN_MAPS } from '../config'
 import type { CharacterSelection, MapSelection } from '../types'
 import { appRoot, el } from './dom'
 import { createCharacterPicker } from './character-picker'
+import { createGraphicsSettings } from './graphics-settings'
+import { createMapGuide } from './map-guide'
 
 const NAME_KEY = 'ps.name'
 /** "Fill empty slots with bots", remembered next to the name. Absent = on. */
@@ -28,9 +30,10 @@ export interface LobbyResult {
   name: string
   map: MapSelection | null
   roomCode?: string
+  matchmaking: boolean
   /**
    * "Fill empty slots with bots". Only the room creator's answer counts — a joiner adopts the
-   * room's setting — but the value is always filled in (from localStorage, default on).
+   * room's setting. Public creation defaults on; private creation remembers localStorage.
    */
   botsFill: boolean
   /** Feedback while the caller connects ("Creating room…", or an error). */
@@ -48,6 +51,8 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
   let selected: MapSelection | null = maps[0] ?? null
 
   const characters = createCharacterPicker()
+  const graphics = createGraphicsSettings()
+  const mapGuide = createMapGuide()
   const note = el('div', { class: 'ps-note' })
   const mapsGrid = el('div', { class: 'ps-maps' })
   const progress = el('i')
@@ -81,15 +86,20 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
   const renderBots = () => {
     botsHint.textContent = botsInput.checked
       ? 'Both teams stay 3v3 — a bot leaves whenever a human joins.'
-      : 'Humans only: nobody joins your room unless you invite them.'
+      : 'Humans only — invite friends using the room link or code.'
     modeNote.textContent = botsInput.checked ? '3v3 · bots fill empty slots' : '3v3 · humans only'
   }
   renderBots()
   botsInput.addEventListener('change', renderBots)
 
   const playBtn = el('button', { class: 'ps-btn ps-btn--primary ps-btn--block' }, [
-    joining ? 'Join match' : 'Play',
+    joining ? 'Join match' : 'Play online',
   ])
+  const mode = el('select', { class: 'ps-input', 'aria-label': 'Match type' }, [
+    el('option', { value: 'online', text: 'Online · find other players' }),
+    el('option', { value: 'private', text: 'Private · invite friends' }),
+  ])
+  const onlineHint = el('div', { class: 'ps-map-meta', text: 'Join an open match, or start a public one. Bots fill empty slots; the host chooses the map.' })
   const codeInput = el('input', {
     class: 'ps-input',
     placeholder: 'ABC123',
@@ -226,6 +236,20 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
 
   renderMaps()
 
+  const mapField = el('div', { class: 'ps-field' }, [
+    el('label', { class: 'ps-label', text: 'Map' }), mapsGrid,
+  ])
+  const renderMode = () => {
+    const online = mode.value === 'online'
+    mapField.hidden = online
+    botsField.hidden = online
+    onlineHint.hidden = !online
+    modeNote.hidden = online
+    playBtn.textContent = joining ? 'Join match' : online ? 'Play online' : 'Create private room'
+  }
+  mode.addEventListener('change', renderMode)
+  renderMode()
+
   const card = el('div', { class: 'ps-card' }, [
     joining
       ? el('div', { class: 'ps-join-chip' }, [
@@ -234,10 +258,10 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
         ])
       : null,
     el('h1', { class: 'ps-title', html: 'Pascal <em>Strike</em>' }),
-    el('p', {
-      class: 'ps-tagline',
-      html: 'Build it in Pascal. <b>Paint it here.</b><br>3v3 paintball deathmatch in your own houses.',
-    }),
+    el('p', { class: 'ps-tagline' }, [
+      mapGuide.trigger, '. ', el('b', { text: 'Paint it here.' }), el('br'),
+      '3v3 paintball deathmatch in your own houses.',
+    ]),
     el('div', { class: 'ps-field' }, [
       el('label', { class: 'ps-label', text: 'Call sign' }),
       nameInput,
@@ -248,11 +272,11 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
           el('div', { class: 'ps-map-meta', text: 'The host picks the map for this room.' }),
         ])
       : el('div', { class: 'ps-field' }, [
-          el('label', { class: 'ps-label', text: 'Map' }),
-          mapsGrid,
+          el('label', { class: 'ps-label' }, ['Match type', mode]), onlineHint, mapField,
         ]),
     // Only the creator's answer reaches the room, so a joiner is not asked.
     joining ? null : botsField,
+    graphics.node,
     el('div', { class: 'ps-actions' }, [
       playBtn,
       note,
@@ -283,6 +307,7 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
       name: '',
       character: characters.selection,
       map: null,
+      matchmaking: false,
       botsFill: botsInput.checked,
       setStatus: setNote,
       setBusy(busy) {
@@ -290,28 +315,35 @@ export function showLobby(opts: LobbyOptions = {}): Promise<LobbyResult> {
         playBtn.replaceChildren()
         if (busy) playBtn.appendChild(el('span', { class: 'ps-spinner' }))
         playBtn.appendChild(
-          document.createTextNode(busy ? 'Connecting…' : joining ? 'Join match' : 'Play'),
+          document.createTextNode(busy ? 'Connecting…' : joining ? 'Join match' : mode.value === 'online' ? 'Play online' : 'Create private room'),
         )
+        for (const control of [mode, codeJoin, codeInput, nameInput]) control.disabled = busy
       },
       dispose() {
         document.removeEventListener('dragover', swallowDrag)
         document.removeEventListener('drop', swallowDrag)
         characters.dispose()
+        graphics.dispose()
+        mapGuide.dispose()
         screen.remove()
       },
     }
 
+    let finished = false
     const finish = (roomCode?: string) => {
+      if (finished) return
+      finished = true
       const name = (nameInput.value || '').trim().slice(0, 16) || 'Player'
       localStorage.setItem(NAME_KEY, name)
       localStorage.setItem(BOTS_KEY, botsInput.checked ? '1' : '0')
       result.character = characters.selection
       result.name = name
-      result.map = joining || roomCode ? null : selected
-      result.botsFill = botsInput.checked
+      result.matchmaking = !joining && !roomCode && mode.value === 'online'
+      result.map = joining || roomCode || result.matchmaking ? null : selected
+      result.botsFill = result.matchmaking ? true : botsInput.checked
       result.roomCode = roomCode ?? joinCode ?? undefined
       result.setBusy(true)
-      setNote(roomCode || joining ? 'Joining room…' : 'Creating room…')
+      setNote(roomCode || joining ? 'Joining room…' : result.matchmaking ? 'Finding an open match…' : 'Creating private room…')
       resolve(result)
     }
 

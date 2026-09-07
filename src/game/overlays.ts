@@ -14,6 +14,8 @@ import type { TeamChoice, TeamResult } from '../net/protocol'
 import { isConfigured, uploadMap } from '../storage/maps-upload'
 import type { MapData, MapSelection, MatchState, TeamId } from '../types'
 import { el } from '../ui/dom'
+import { createGraphicsSettings } from '../ui/graphics-settings'
+import type { Graphics } from '../engine/graphics'
 import type { EntityRegistry } from './entities'
 import type { LocalPlayer } from './local-player'
 import type { MapSession } from './map-session'
@@ -561,6 +563,7 @@ export function createOverviewCamera(camera: PerspectiveCamera, map: MapData): O
 
 export interface PauseMenuOptions {
   mount: HTMLElement
+  graphics: Graphics
   room: Room
   isHost(): boolean
   onResume(): void
@@ -595,6 +598,7 @@ export interface PauseMenu {
 const TOAST_MS = 3_400
 
 export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
+  const graphics = createGraphicsSettings(opts.graphics)
   const note = el('div', { class: 'ps-note' })
   const mapsRow = el('div', { class: 'ps-maps', style: 'margin-top:10px' })
   const mapsField = el('div', { class: 'ps-field', style: 'display:none' }, [
@@ -635,6 +639,7 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
       el('div', { class: 'ps-actions' }, [resume, invite]),
       teamField,
       mapsField,
+      graphics.node,
       el('div', { class: 'ps-actions' }, [bots, sound, leave, note]),
     ]),
     toastNode,
@@ -749,6 +754,7 @@ export function createPauseMenu(opts: PauseMenuOptions): PauseMenu {
     },
     dispose() {
       window.clearInterval(botsTimer)
+      graphics.dispose()
       window.clearTimeout(toastTimer)
       screen.remove()
     },

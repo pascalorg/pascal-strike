@@ -9,6 +9,7 @@ import { PCFSoftShadowMap, PerspectiveCamera, Scene, SRGBColorSpace, Timer } fro
 import { WebGPURenderer } from 'three/webgpu'
 import { PLAYER } from '../config'
 import { createPostFx, type PostFx } from './post'
+import { createGraphics, GRAPHICS_PROFILES, graphicsPixelRatio, initialAutoQuality, readGraphicsPreference, type Graphics } from './graphics'
 
 /** Fixed physics step. */
 export const FIXED_STEP = 1 / 120
@@ -51,6 +52,7 @@ export interface Engine {
   backend: RenderBackend
   /** Tone mapping, AO, bloom, AA. See `post.ts`; `?nopost=1` starts with it switched off. */
   post: PostFx
+  graphics: Graphics
   /** Fixed 1/120 s steps, at most 5 per frame. Returns an unsubscribe function. */
   onUpdate(fn: (dt: number, now: number) => void): () => void
   /** Once per frame, just before the draw call. `alpha` is the fixed-step remainder in 0..1. */
@@ -81,7 +83,10 @@ export async function createRenderer(container: HTMLElement): Promise<Engine> {
   const isWebGPU = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend === true
   const backend: RenderBackend = isWebGPU ? 'webgpu' : 'webgl2'
 
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+  const graphics = createGraphics(readGraphicsPreference(), initialAutoQuality({
+    backend, cores: navigator.hardwareConcurrency,
+    memory: (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
+  }))
   // Tone mapping and exposure belong to the post chain (post.ts sets them from QUALITY).
   renderer.outputColorSpace = SRGBColorSpace
   renderer.shadowMap.enabled = true
@@ -106,6 +111,7 @@ export async function createRenderer(container: HTMLElement): Promise<Engine> {
   }
 
   const initialSize = measure(container)
+  renderer.setPixelRatio(graphicsPixelRatio(graphics.quality, window.devicePixelRatio, initialSize.w, initialSize.h))
   let camera = new PerspectiveCamera(PLAYER.fov, initialSize.w / initialSize.h, 0.05, 200)
   camera.position.set(0, 1.7, 6)
   renderer.setSize(initialSize.w, initialSize.h, false)
@@ -150,17 +156,25 @@ export async function createRenderer(container: HTMLElement): Promise<Engine> {
     // The post chain owns the draw when it is on; `render()` says so, and answers false the
     // moment it is disabled or has thrown, so a broken effect can never black the game out.
     if (!post.render()) renderer.render(scene, camera)
+    graphics.sample(timer.getDelta(), !document.hidden)
   }
 
   function resize() {
     const { w, h } = measure(container)
+    renderer.setPixelRatio(graphicsPixelRatio(graphics.quality, window.devicePixelRatio, w, h))
     renderer.setSize(w, h, false)
     camera.aspect = w / h
     camera.updateProjectionMatrix()
   }
 
   const post = createPostFx({ renderer, scene, camera, backend })
-  if (new URLSearchParams(location.search).get('nopost') === '1') post.settings.enabled = false
+  const noPost = new URLSearchParams(location.search).get('nopost') === '1'
+  const applyGraphics = () => {
+    post.set({ ...GRAPHICS_PROFILES[graphics.quality].post, ...(noPost ? { enabled: false } : {}) })
+    resize()
+  }
+  applyGraphics()
+  const offGraphics = graphics.onChange(applyGraphics)
 
   const observer = new ResizeObserver(resize)
   observer.observe(container)
@@ -175,6 +189,7 @@ export async function createRenderer(container: HTMLElement): Promise<Engine> {
     clock,
     backend,
     post,
+    graphics,
     container,
     onUpdate(fn) {
       updateHandlers.add(fn)
@@ -195,6 +210,7 @@ export async function createRenderer(container: HTMLElement): Promise<Engine> {
     start() {
       if (running || disposed) return
       running = true
+      graphics.reset()
       timer.update() // baseline now, so the first frame does not inherit the load time
       renderer.setAnimationLoop(frame)
     },
@@ -212,6 +228,7 @@ export async function createRenderer(container: HTMLElement): Promise<Engine> {
       updateHandlers.clear()
       renderHandlers.clear()
       timer.dispose()
+      offGraphics()
       post.dispose()
       renderer.dispose()
       canvas.remove()

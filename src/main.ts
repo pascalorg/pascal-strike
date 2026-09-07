@@ -61,13 +61,14 @@ async function play(): Promise<void> {
     try {
       lobby.setStatus('Preparing characters and weapons…')
       await Promise.all([preloadWeaponAssets(), ...[...DEFAULT_CHARACTERS, lobby.character].map(loadCharacterAsset)])
-      // Creating a room (no code): our lobby answers decide the map and the bot fill. Joining
-      // one: both come from the room state the host published.
+      // Defaults seed a new room only. Online joiners adopt the existing host's map/bots.
       const creating = !lobby.roomCode
+      lobby.setStatus(lobby.matchmaking ? 'Finding an open match…' : creating ? 'Creating private room…' : 'Joining room…')
       const room = await joinRoom({
         name: lobby.name,
         character: lobby.character,
         roomCode: lobby.roomCode,
+        matchmaking: lobby.matchmaking,
         map: lobby.map,
         botsFill: creating ? lobby.botsFill : undefined,
       })

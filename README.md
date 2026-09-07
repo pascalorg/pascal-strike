@@ -1,7 +1,8 @@
 # Pascal Strike
 
 3v3 paintball deathmatch in houses you build with **Pascal**. Export your project as a GLB,
-drop it in the lobby, invite two friends, and paint the walls. Empty slots are filled with bots
+drop it in a private lobby, invite friends, and paint the walls — or choose **Play online** to
+find other players without an invite. Empty slots are filled with bots
 from the first second.
 
 three.js 0.185 (WebGPU, WebGL2 fallback) · Playroom Kit multiplayer · recast navmesh bots ·
@@ -30,13 +31,20 @@ See [the integration guide](docs/CHARACTERS.md) for configuration and verificati
 
 ## Play
 
+**Play online** uses [Playroom matchmaking](https://docs.joinplayroom.com/features/games/matchmaking)
+to find an open public room, creating one if none is available. The room's host owns its map
+and bot setting; a new public room starts with Pascal House and bots. Bots yield their seats
+as humans join. Choose **Private · invite friends** to select/upload a map and set bots before
+creating a private room. Invite links and **Join with code** go directly to that room.
+Playroom matches production players at the same URL; local development is isolated by public IP.
+
 | | |
 |---|---|
 | Move | WASD, Space jump, Ctrl/C crouch, **Shift walk** (slow and precise) |
 | Weapons | **1** marker (30 rounds, auto) · **2** pistol (12, semi-auto, precise) · **3** knife (2 hits, 1 from behind) · wheel cycles · R reload |
 | Doors / windows | **E** while looking at one within 2.5 m; open windows are a way out, glass breaks |
 | Teams | pick Orange / Teal / Auto when you join; Esc → Change team |
-| Scoreboard | Tab · Menu: Esc (invite link, bots on/off and map as host, sound, leave) |
+| Scoreboard | Tab · Menu: Esc (graphics, invite link, bots on/off and map as host, sound, leave) |
 | Two-tab testing | **P** frees only the pointer; click the game or press P again to resume |
 
 Team deathmatch: first to 30 kills or 5 minutes. Spawn with **100 HP + 50 armor/helmet**.
@@ -47,11 +55,31 @@ Hits briefly slow movement, then smoothly recover; bots stop for bursts and repo
 is tight when standing or walking and opens up when running or airborne.
 See [gameplay tuning and verification](docs/GAMEPLAY.md) for the current balance and performance checks.
 
+## Graphics
+
+Choose **Auto**, **Low**, **Medium**, or **High** in the lobby or Esc menu. The preference is
+saved on this browser and applies immediately. Auto starts at Medium, or Low for WebGL2 and
+devices reporting at most four CPU cores or 4 GB RAM. After a 10-second warmup it steps down
+if most of a six-second window runs below 48 FPS. It ignores background tabs and long stalls,
+and stays at the reduced quality for the session to avoid switching back and forth.
+
+| Profile | Render pixel budget | Sun shadows | Effects |
+|---|---|---|---|
+| Low | 1280 × 720 | 1024² | Direct render, flat sky, environment lighting retained |
+| Medium | 1920 × 1080 | 2048² | FXAA, color grading, vignette, sky |
+| High | 2560 × 1440 | 4096² | SMAA, bloom, AO and grain (AO/grain require WebGPU) |
+
+These budgets preserve the viewport's aspect ratio and cap device pixel ratio; they never
+force a smaller display to use the full budget. See [performance verification](docs/PERFORMANCE.md).
+
 ## Building a map in Pascal
 
-The lobby and host's in-game map picker include **Pascal House** and **fy_iceworld**.
+The lobby and host's in-game map picker include **Pascal House**, **fy_iceworld**, and **Corridors**.
 fy_iceworld uses the v3 baked export with its four authored spawn areas (two per team),
 original scale and ice materials. Its terrain does not receive the house's grass tint.
+Corridors also retains its authored materials and four spawn zones (two per team).
+Click **Build it in Pascal** in the lobby for spawn-zone instructions and a link to
+[the Pascal editor](https://editor.pascal.app).
 
 Export a baked GLB from Pascal (any LOD). The game reads Pascal's node metadata:
 
@@ -65,7 +93,7 @@ Export a baked GLB from Pascal (any LOD). The game reads Pascal's node metadata:
 - Keep the play area compact (a 12 × 8 m house is a good size for 3v3) and give both teams
   cover near their spawn.
 
-Drop the GLB on the lobby's map card. It is uploaded to a public Supabase Storage bucket
+Choose **Private · invite friends** and drop the GLB on the lobby's map card. It is uploaded to a public Supabase Storage bucket
 (content-addressed, immutable) and shared with everyone in the room. Any plain GLB works too;
 it just has no doors or spawn zones.
 

@@ -122,6 +122,7 @@ canvas {
 }
 
 .ps-input {
+  box-sizing: border-box;
   appearance: none;
   width: 100%;
   height: 44px;
@@ -151,6 +152,15 @@ canvas {
   text-transform: uppercase;
   color: var(--muted-2);
   margin: 0 0 8px;
+}
+
+.ps-label > .ps-input {
+  margin-top: 8px;
+  letter-spacing: normal;
+}
+
+[hidden] {
+  display: none !important;
 }
 .ps-mono {
   font-family: var(--font-mono);
@@ -566,6 +576,48 @@ canvas {
   color: var(--accent);
   font-weight: 550;
 }
+
+.ps-build-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: #71717a;
+  text-underline-offset: 3px;
+}
+.ps-build-link:hover { color: var(--fg); }
+.ps-build-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 2px; }
+.ps-map-guide {
+  box-sizing: border-box;
+  width: min(580px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+  padding: 28px;
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 20px;
+  background: var(--card);
+  color: var(--fg);
+  box-shadow: 0 32px 100px #0009;
+}
+.ps-map-guide::backdrop { background: #09090bc9; backdrop-filter: blur(6px); }
+.ps-map-guide > a.ps-btn { display: flex; align-items: center; justify-content: center; box-sizing: border-box; text-decoration: none; }
+.ps-map-guide-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.ps-map-guide-header h2 { margin: 0; font: 600 28px var(--font-display); }
+.ps-map-guide-steps { margin: 0 0 24px; padding-left: 24px; }
+.ps-map-guide-steps > li { padding-left: 6px; margin: 0 0 22px; }
+.ps-map-guide-steps > li::marker { color: var(--muted-2); font: 600 14px var(--font-mono); }
+.ps-map-guide-steps h3 { margin: 0 0 8px; font-size: 15px; }
+.ps-map-guide-steps p { margin: 8px 0; font-size: 13px; line-height: 1.6; color: var(--muted); }
+.ps-map-guide-spawns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
+.ps-map-guide-spawn { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid currentColor; border-radius: 10px; }
+.ps-map-guide-spawn--a { color: var(--team-a); background: #f973160a; }
+.ps-map-guide-spawn--b { color: var(--team-b); background: #14b8a60a; }
+.ps-map-guide-spawn code { font: 600 15px var(--font-mono); }
+.ps-map-guide-spawn span { font-size: 12px; }
+.ps-map-guide-steps .ps-map-guide-note { font-size: 12px; color: var(--muted-2); }
 
 .ps-field + .ps-field {
   margin-top: 16px;

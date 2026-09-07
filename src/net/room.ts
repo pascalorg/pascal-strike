@@ -18,6 +18,7 @@ import {
   type PlayerState,
 } from 'playroomkit'
 import { ENV, MATCH } from '../config'
+import { roomJoinOptions } from './join-options'
 import type { CharacterSelection, MapSelection } from '../types'
 import {
   botsFillValue,
@@ -86,8 +87,10 @@ export interface Room {
 export interface JoinOptions {
   character?: CharacterSelection
   name: string
-  /** Explicit code for "join with code"; otherwise the `#r=` hash decides, else a new room. */
+  /** Explicit code for "join with code"; otherwise `#r=`, then matchmaking or private creation. */
   roomCode?: string
+  /** Public quick play. Explicit codes and invite hashes always bypass matchmaking. */
+  matchmaking?: boolean
   /** Host-only: the map everyone will load. */
   map?: MapSelection | null
   /**
@@ -152,6 +155,12 @@ async function connect(opts: JoinOptions): Promise<Room> {
   if (opts.map) defaultStates[GS.map] = opts.map
   if (typeof opts.botsFill === 'boolean') defaultStates[GS.botsFill] = botsFillValue(opts.botsFill)
 
+  const joining = roomJoinOptions(opts, roomCodeFromHash())
+  // SDK 0.0.97 reads the hash before roomCode. Keep an explicit typed code authoritative.
+  if (opts.roomCode && opts.roomCode !== roomCodeFromHash()) {
+    history.replaceState(null, '', inviteUrlFor(opts.roomCode))
+  }
+
   try {
     await insertCoin({
       gameId: ENV.playroomGameId,
@@ -159,7 +168,7 @@ async function connect(opts: JoinOptions): Promise<Room> {
       maxPlayersPerRoom: MATCH.maxPlayers,
       enableBots: true,
       botOptions: { botClass: PascalBot },
-      roomCode: opts.roomCode,
+      ...joining,
       defaultPlayerStates,
       defaultStates,
     })

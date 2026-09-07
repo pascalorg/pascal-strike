@@ -20,7 +20,7 @@
  * MRT + AO path is not worth the risk on a machine that already lost WebGPU, so AO is dropped
  * and the rest of the chain stays (see `applyBackendLimits`).
  */
-import type { Camera, Scene } from 'three'
+import type { Camera, Material, Scene, Texture } from 'three'
 import { ACESFilmicToneMapping, AgXToneMapping, NeutralToneMapping } from 'three'
 import { RenderPipeline, type Node, type Renderer } from 'three/webgpu'
 import {
@@ -35,6 +35,7 @@ import {
   output,
   pass,
   renderOutput,
+  rtt,
   saturation,
   screenCoordinate,
   screenUV,
@@ -176,6 +177,8 @@ export function createPostFx(opts: PostFxOptions): PostFx {
   let pipeline: RenderPipeline | null = null
   let failed = false
   let dirty = true
+  const resources: { dispose(): void }[] = []
+  const own = <T extends { dispose(): void }>(resource: T): T => { resources.push(resource); return resource }
 
   function applyToneMapping(): void {
     renderer.toneMapping = TONE_MAPPING[settings.toneMapping]
@@ -189,7 +192,7 @@ export function createPostFx(opts: PostFxOptions): PostFx {
     // `samples` must be spelled out: PassNode inherits `renderer.samples` when the option is
     // undefined, and the renderer asks for 4x MSAA — which silently breaks the AO, because WGSL
     // cannot read a multisampled depth texture.
-    const scenePass = pass(scene, camera, { samples: settings.samples })
+    const scenePass = own(pass(scene, camera, { samples: settings.samples }))
     const needsNormalMRT = settings.ao.enabled && settings.ao.normals === 'mrt'
     if (needsNormalMRT) scenePass.setMRT(mrt({ output, normal: normalView }))
 
@@ -201,7 +204,9 @@ export function createPostFx(opts: PostFxOptions): PostFx {
       // `ao()` accepts a null normal node (it then reconstructs from depth); the typings do not
       // say so, hence the cast.
       const normal = (needsNormalMRT ? scenePass.getTextureNode('normal') : null) as Node
-      const aoPass = ao(depth, normal, camera)
+      const aoPass = own(ao(depth, normal, camera))
+      // r185 GTAONode.dispose() omits the per-instance noise texture.
+      own((aoPass as unknown as { _noiseNode: { value: Texture } })._noiseNode.value)
       aoPass.radius.value = settings.ao.radius
       aoPass.scale.value = settings.ao.scale
       aoPass.thickness.value = settings.ao.thickness
@@ -244,12 +249,12 @@ export function createPostFx(opts: PostFxOptions): PostFx {
       // that are actually hot: the sky right around the sun, a muzzle flash, a specular glint.
       const lum = luminance(rgb)
       const excess = lum.sub(settings.bloom.threshold).max(0).div(lum.max(0.0001))
-      const bloomPass = bloom(
+      const bloomPass = own(bloom(
         vec4(rgb.mul(excess), 1),
         settings.bloom.strength,
         settings.bloom.radius,
         0,
-      )
+      ))
       rgb = rgb.add(bloomPass.rgb)
     }
 
@@ -285,14 +290,25 @@ export function createPostFx(opts: PostFxOptions): PostFx {
 
     const pipe = new RenderPipeline(renderer)
     pipe.outputColorTransform = false
-    pipe.outputNode =
-      settings.aa === 'fxaa' ? fxaa(display) : settings.aa === 'smaa' ? smaa(display) : display
+    if (settings.aa === 'none') pipe.outputNode = display
+    else {
+      // AA normally creates this RTT implicitly. Own it so repeated profile changes release
+      // its full-screen texture and material too (r185 RTTNode has no disposal override).
+      const input = rtt(display)
+      own({ dispose() {
+        input.renderTarget?.dispose()
+        ;(input as unknown as { _quadMesh: { material: Material } })._quadMesh.material.dispose()
+        input.dispose()
+      } })
+      pipe.outputNode = own(settings.aa === 'fxaa' ? fxaa(input) : smaa(input))
+    }
     pipeline = pipe
     dirty = false
   }
 
   function render(): boolean {
-    if (!settings.enabled || failed) return false
+    if (!settings.enabled) { dispose(); return false }
+    if (failed) return false
     try {
       if (dirty || !pipeline) build()
       pipeline!.render()
@@ -310,6 +326,8 @@ export function createPostFx(opts: PostFxOptions): PostFx {
   function dispose(): void {
     pipeline?.dispose()
     pipeline = null
+    for (const resource of resources) resource.dispose()
+    resources.length = 0
   }
 
   return {

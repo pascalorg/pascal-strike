@@ -18,6 +18,7 @@ export const TEAMS: Record<TeamId, TeamInfo> = {
 export const BUILTIN_MAPS = [
   { id: 'pascal-house', name: 'Pascal House', url: '/maps/pascal-house.glb', tintTerrain: true },
   { id: 'fy-iceworld', name: 'fy_iceworld', url: '/maps/fy-iceworld.glb', tintTerrain: false },
+  { id: 'corridors', name: 'Corridors', url: '/maps/corridors.glb', tintTerrain: false },
 ] as const
 
 export const MATCH = {
