@@ -281,6 +281,7 @@ export async function startGame(opts: GameOptions): Promise<Game> {
       audio,
       session: current,
       entity: me,
+      players: () => registry.list(),
       now: () => clock.now(),
       onShot: (shot) => {
         // A knife swing travels this path for its animation and sound alone: melee.ts has

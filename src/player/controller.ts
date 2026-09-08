@@ -15,11 +15,12 @@ import type {
   StaticCollider,
 } from '../types'
 import './bvh-setup'
-import { CapsuleBody, SKIN } from './capsule-body'
+import { CapsuleBody, SKIN, type CapsuleBodyOptions } from './capsule-body'
 import { registeredDynamicColliders } from './dynamic-colliders'
 
 export type CharacterControllerOptions = Partial<typeof PLAYER> & {
   onFellOut?: () => void
+  playerCollisions?: CapsuleBodyOptions['playerCollisions']
 }
 
 const EPSILON = 1e-5
@@ -100,6 +101,7 @@ class CapsuleController implements CharacterController {
       radius: this.radius,
       slopeY: this.slopeY,
       stepHeight: this.stepHeight,
+      playerCollisions: options.playerCollisions,
     })
     // Whoever built this collider may have registered the map's moving leaves against it.
     const registered = registeredDynamicColliders(collider.geometry)
@@ -202,8 +204,22 @@ class CapsuleController implements CharacterController {
 
     const actualX = this.state.position.x - this.beforeMove.x
     const actualZ = this.state.position.z - this.beforeMove.z
-    if (Math.abs(actualX - this.desiredHorizontal.x) > 1e-3) this.state.velocity.x = actualX / dt
-    if (Math.abs(actualZ - this.desiredHorizontal.z) > 1e-3) this.state.velocity.z = actualZ / dt
+    if (Math.abs(actualX - this.desiredHorizontal.x) > 1e-3) {
+      this.state.velocity.x = actualX / dt
+    }
+    if (Math.abs(actualZ - this.desiredHorizontal.z) > 1e-3) {
+      this.state.velocity.z = actualZ / dt
+    }
+    // Separating overlapping players must not add speed. Preserve the direction of a
+    // glancing slide, but prevent remote movement or coincident spawns launching us away.
+    if (this.body.contactPlayer) {
+      const speedBefore = this.desiredHorizontal.length() / dt
+      const speedAfter = Math.hypot(this.state.velocity.x, this.state.velocity.z)
+      if (speedAfter > speedBefore) {
+        this.state.velocity.x *= speedBefore / speedAfter
+        this.state.velocity.z *= speedBefore / speedAfter
+      }
+    }
 
     if (this.state.position.y < this.bounds.min.y - 10) {
       if (!this.fellOutReported) this.onFellOut?.()
