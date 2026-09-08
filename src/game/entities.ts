@@ -93,6 +93,7 @@ export function createEntityRegistry(): EntityRegistry {
       if (init.isLocal !== undefined) entity.isLocal = init.isLocal
       if (init.hp !== undefined) entity.hp = init.hp
       if (init.alive !== undefined) entity.alive = init.alive
+      if (init.spectating !== undefined) entity.spectating = init.spectating
       if (init.invincibleUntil !== undefined) entity.invincibleUntil = init.invincibleUntil
       if (init.kills !== undefined) entity.kills = init.kills
       if (init.deaths !== undefined) entity.deaths = init.deaths

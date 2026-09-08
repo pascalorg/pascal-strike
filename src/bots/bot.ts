@@ -140,7 +140,9 @@ export function createBotRunner(opts: BotRunnerOptions): BotRunner {
       if (!entity.isBot) throw new Error(`Cannot simulate non-bot entity ${entity.id}`)
       if (findBot(entity.id)) return
 
-      const controller = createCharacterController(opts.map.collider)
+      const controller = createCharacterController(opts.map.collider, {
+        playerCollisions: { id: entity.id, players: opts.entities },
+      })
       controller.setDynamicColliders?.(dynamicColliders)
       controller.setPosition(entity.position)
       const rng = mulberry32(mixSeed(opts.seed ?? 0, hashString(entity.id)))

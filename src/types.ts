@@ -288,6 +288,8 @@ export interface CharacterSelection {
 }
 
 export interface PlayerEntity {
+  /** Local team-screen gate; remote spectators are absent from the entity registry. */
+  spectating?: boolean
   armor?: number
   taggedUntil?: number
   character?: CharacterSelection

@@ -46,6 +46,7 @@ export interface LocalPlayerOptions {
   audio: Audio
   session: MapSession
   entity: PlayerEntity
+  players?: () => readonly PlayerEntity[]
   now: () => number
   /** Spawn the projectile locally and tell everyone else about the shot. */
   onShot: (shot: ShotEvent) => void
@@ -198,7 +199,10 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
   }
 
   function makeController(next: MapSession): CharacterController {
-    return createCharacterController(next.map.collider, { onFellOut: () => opts.onFell() })
+    return createCharacterController(next.map.collider, {
+      onFellOut: () => opts.onFell(),
+      playerCollisions: opts.players ? { id: entity.id, players: opts.players } : undefined,
+    })
   }
 
   const player: LocalPlayer = {
@@ -246,6 +250,7 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
     setSpectating(on) {
       if (spectating === on) return
       spectating = on
+      entity.spectating = on
       hittable.alive = !on && !dead
       viewModel.object.visible = !on
       if (on) {
@@ -274,6 +279,9 @@ export function createLocalPlayer(opts: LocalPlayerOptions): LocalPlayer {
       const groundedBeforeUpdate = controller.state.grounded
       const fallSpeed = controller.state.velocity.y
       controller.update(dt, move, yaw, marker.moveSpeedScale * taggingScale(entity.taggedUntil, performance.now()))
+      // Host bots run next in this fixed step and must collide with our current pose.
+      entity.position.copy(controller.state.position)
+      entity.crouching = controller.state.crouching
       if (didStartJump(groundedBeforeUpdate, controller.state.grounded, move.jump, controller.state.velocity.y)) {
         audio.play('jump')
       }

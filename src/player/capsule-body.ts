@@ -9,11 +9,14 @@
  * Two worlds are tested at once: the map's baked static BVH, in world space, and the openables'
  * moving leaves, each in its own local space (see `dynamic-colliders.ts`) — the capsule is
  * pushed into the leaf's space, the shapecast runs there, and the push-out comes back out.
+ * Living players are tested as upright capsules in world space after the map and doors.
  */
 import { Box3, DoubleSide, Line3, Ray, Vector3, type Mesh } from 'three'
 import type { ExtendedTriangle, MeshBVH } from 'three-mesh-bvh'
 import './bvh-setup'
 import { buildDynamicColliders, type DynamicCollider } from './dynamic-colliders'
+import { PLAYER } from '../config'
+import type { PlayerEntity } from '../types'
 
 const EPSILON = 1e-5
 export const SKIN = 1e-4
@@ -30,6 +33,7 @@ export interface CapsuleBodyOptions {
   slopeY: number
   /** Only used to classify a wall contact as "a step could clear this". */
   stepHeight: number
+  playerCollisions?: { id: string; players(): readonly PlayerEntity[] }
 }
 
 export class CapsuleBody {
@@ -39,6 +43,8 @@ export class CapsuleBody {
   contactGround = false
   contactCeiling = false
   contactWall = false
+  /** Any player push-out this fixed step, including step/ground-snap attempts. */
+  contactPlayer = false
   /** A wall contact low enough that a step-up could get over it. */
   stepBlocked = false
 
@@ -49,6 +55,8 @@ export class CapsuleBody {
   private readonly bvh: MeshBVH
   private readonly slopeY: number
   private readonly stepHeight: number
+  private readonly playerCollisions?: CapsuleBodyOptions['playerCollisions']
+  private players: readonly PlayerEntity[] = []
 
   private castMode: 'resolve' | 'test' | 'lift' = 'resolve'
   private castTolerance = SKIN
@@ -89,6 +97,7 @@ export class CapsuleBody {
     this.castRadius = options.radius
     this.slopeY = options.slopeY
     this.stepHeight = options.stepHeight
+    this.playerCollisions = options.playerCollisions
   }
 
   setDynamicColliders(meshes: readonly Mesh[]): void {
@@ -96,8 +105,10 @@ export class CapsuleBody {
     this.dynamics = buildDynamicColliders(meshes)
   }
 
-  /** Once per fixed step: a leaf that swung since the last one is a different obstacle. */
+  /** Once per fixed step: refresh moving obstacles and the current match roster. */
   refresh(): void {
+    this.contactPlayer = false
+    this.players = this.playerCollisions?.players() ?? this.players
     const source = this.dynamicMeshes
     if (source && source.length !== this.dynamics.length) this.setDynamicColliders(source)
     for (let index = 0; index < this.dynamics.length; index++) this.dynamics[index]!.refresh()
@@ -173,6 +184,20 @@ export class CapsuleBody {
       this.probeNormal.copy(this.hitNormal)
       found = true
     }
+    // The top hemisphere can support a jumping player, just like other walkable surfaces.
+    for (let index = 0; index < this.players.length; index++) {
+      const player = this.players[index]
+      if (!this.blocks(player)) continue
+      const dx = ray.origin.x - player.position.x, dz = ray.origin.z - player.position.z
+      const radialSq = dx * dx + dz * dz
+      if (radialSq >= PLAYER.radius * PLAYER.radius) continue
+      const cap = Math.sqrt(PLAYER.radius * PLAYER.radius - radialSq)
+      const y = player.position.y + (player.crouching ? PLAYER.crouchHeight : PLAYER.height) - PLAYER.radius + cap
+      if (y > ray.origin.y || ray.origin.y - y > rayLength || (found && y <= this.probePoint.y)) continue
+      this.probePoint.set(ray.origin.x, y, ray.origin.z)
+      this.probeNormal.set(dx, cap, dz).multiplyScalar(1 / PLAYER.radius)
+      found = true
+    }
     return found
   }
 
@@ -231,6 +256,46 @@ export class CapsuleBody {
     }
     this.castEntry = null
     this.castRadius = this.radius
+    if (mode !== 'resolve' && this.castPenetrating) return
+    this.castPlayers(mode)
+  }
+
+  private blocks(player: PlayerEntity): boolean {
+    return player.id !== this.playerCollisions?.id && player.alive && !player.spectating
+  }
+
+  /** Upright capsule pairs need only the distance between their vertical axis segments. */
+  private castPlayers(mode: 'resolve' | 'test' | 'lift'): void {
+    const combinedRadius = this.radius + PLAYER.radius
+    for (let index = 0; index < this.players.length; index++) {
+      const player = this.players[index]
+      if (!this.blocks(player)) continue
+      const dx = this.castStart.x - player.position.x, dz = this.castStart.z - player.position.z
+      const low = player.position.y + PLAYER.radius
+      const high = player.position.y + (player.crouching ? PLAYER.crouchHeight : PLAYER.height) - PLAYER.radius
+      const dy = this.castStart.y > high ? this.castStart.y - high : this.castEnd.y < low ? this.castEnd.y - low : 0
+      const distanceSq = dx * dx + dy * dy + dz * dz
+      if (distanceSq >= (combinedRadius - this.castTolerance) ** 2) continue
+      if (mode === 'lift') {
+        const initialY = this.castStart.y - Math.max(low, Math.min(high, this.castStart.y))
+        if (dx * dx + initialY * initialY + dz * dz < (combinedRadius + LIFT_CONTACT_SLACK) ** 2) continue
+      }
+      if (mode !== 'resolve') { this.castPenetrating = true; return }
+      this.contactPlayer = true
+      const distance = Math.sqrt(distanceSq)
+      if (distance > EPSILON) this.worldCorrection.set(dx, dy, dz).multiplyScalar(1 / distance)
+      // Coincident spawns must separate consistently, with opposite directions for the pair.
+      else this.worldCorrection.set(this.playerCollisions!.id < player.id ? -1 : 1, 0, 0)
+      const normalY = this.worldCorrection.y
+      if (normalY > this.slopeY) this.contactGround = true
+      else if (normalY < -.5) this.contactCeiling = true
+      else this.contactWall = true
+      this.worldCorrection.multiplyScalar(combinedRadius - distance + SKIN)
+      this.castPosition.add(this.worldCorrection)
+      this.castStart.add(this.worldCorrection)
+      this.castEnd.add(this.worldCorrection)
+      this.castCorrected = true
+    }
   }
 
   private castTriangle(triangle: ExtendedTriangle): boolean {
